@@ -9,6 +9,7 @@ Responsibility:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import String
@@ -16,6 +17,9 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin, VersionMixin
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.routing_step_table import RoutingStepTable
 
 
 class MachineTable(Base, TimestampMixin, VersionMixin):

@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -27,6 +27,9 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
 
 
 class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -70,14 +73,14 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
-    # Link to the invoice – customer is accessible via invoice.customer
+    # Link to the invoice - customer is accessible via invoice.customer
     invoice: Mapped[ARInvoiceTable] = relationship(
         "ARInvoiceTable",
         back_populates="payments",
         foreign_keys=[invoice_id],
     )
 
-    # REMOVED: customer relationship – there is no foreign key to CustomerTable.
+    # REMOVED: customer relationship - there is no foreign key to CustomerTable.
     # Use payment.invoice.customer to get the customer.
 
     @property

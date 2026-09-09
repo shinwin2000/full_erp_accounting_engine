@@ -14,7 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, Index, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, LegalEntityMixin, TimestampMixin
@@ -33,13 +33,13 @@ class InventoryStockCardTable(Base, TimestampMixin, LegalEntityMixin):
         CheckConstraint("balance_quantity >= 0", name="ck_isc_balance_nonneg"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    movement_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
-    item_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    movement_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, unique=True)
+    item_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     item_code: Mapped[str] = mapped_column(String(50), nullable=False)
     item_name: Mapped[str] = mapped_column(String(200), nullable=False)
     uom: Mapped[str] = mapped_column(String(10), nullable=False, default="PCS")
-    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    warehouse_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     warehouse_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     movement_date: Mapped[date] = mapped_column(Date, nullable=False)
     movement_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -54,7 +54,7 @@ class InventoryStockCardTable(Base, TimestampMixin, LegalEntityMixin):
     balance_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     batch_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     @property
     def is_inbound(self) -> bool:

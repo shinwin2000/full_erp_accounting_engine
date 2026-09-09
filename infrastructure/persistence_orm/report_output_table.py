@@ -13,7 +13,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import DateTime, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base
@@ -27,14 +28,14 @@ class ReportOutputTable(Base):
         Index("idx_report_output_format", "output_format"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    definition_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    definition_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     output_format: Mapped[str] = mapped_column(String(20), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(nullable=True)
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    generated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

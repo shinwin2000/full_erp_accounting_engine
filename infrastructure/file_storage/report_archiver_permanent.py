@@ -292,7 +292,7 @@ class ReportArchiverPermanent:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         results = []
-        for archive_id, info in self._archive_index.items():
+        for info in self._archive_index.values():
             if report_type and info.get("report_type") != report_type:
                 continue
             if legal_entity_id and info.get("legal_entity_id") != str(legal_entity_id):
@@ -363,13 +363,12 @@ class ReportArchiverPermanent:
         self, start_date: datetime, end_date: datetime, legal_entity_id: UUID
     ) -> dict[str, Any]:
         archives = []
-        for archive_id, info in self._archive_index.items():
+        for info in self._archive_index.values():
             archived_at = info.get("archived_at")
             if archived_at:
                 archived_date = datetime.fromisoformat(archived_at)
-                if start_date <= archived_date <= end_date:
-                    if info.get("legal_entity_id") == str(legal_entity_id):
-                        archives.append(info)
+                if start_date <= archived_date <= end_date and info.get("legal_entity_id") == str(legal_entity_id):
+                    archives.append(info)
         return {
             "legal_entity_id": str(legal_entity_id),
             "start_date": start_date.isoformat(),

@@ -29,7 +29,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -73,7 +73,7 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_approval_rule_priority", "priority"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Identifikasi
     rule_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -94,13 +94,13 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Conditional: project (opsional)
-    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Approval matrix
     approval_level: Mapped[int] = mapped_column(nullable=False, default=1)  # 1=first level
     approver_role: Mapped[str] = mapped_column(String(100), nullable=False)
-    approver_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # specific user
-    backup_approver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approver_user_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)  # specific user
+    backup_approver_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Action
     action: Mapped[str] = mapped_column(String(20), nullable=False, default="approve")
@@ -116,15 +116,14 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES
     # ========================================================================
-    #@property
     def is_amount_in_range(self, amount: Decimal) -> bool:
         return self.min_amount <= amount <= self.max_amount
 
@@ -153,19 +152,21 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         self.is_active = False
         self.increment_version()
 
-    def matches(self, entity_type: str, amount: Decimal, department: str | None = None, cost_center: str | None = None) -> bool:
+    def matches(
+        self,
+        entity_type: str,
+        amount: Decimal,
+        department: str | None = None,
+        cost_center: str | None = None,
+    ) -> bool:
         """Check if this rule matches the given criteria."""
-        if not self.is_active:
-            return False
-        if self.entity_type != entity_type:
-            return False
-        if not self.is_amount_in_range(amount):
-            return False
-        if self.department and self.department != department:
-            return False
-        if self.cost_center and cost_center and self.cost_center != cost_center:
-            return False
-        return True
+        return (
+            self.is_active
+            and self.entity_type == entity_type
+            and self.is_amount_in_range(amount)
+            and (not self.department or self.department == department)
+            and (not self.cost_center or not cost_center or self.cost_center == cost_center)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {

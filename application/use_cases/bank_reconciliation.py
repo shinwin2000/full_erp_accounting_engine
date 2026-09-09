@@ -27,6 +27,7 @@ from application.service_layer.service_bank_cash import (
     BankAccountNotFoundError,
     BankCashService,
     BankCashServiceError,
+    BankReconciliationRequest,
 )
 from application.service_layer.service_journal import JournalService, JournalServiceError
 from kernel.sealed_gate import SealedGate
@@ -157,6 +158,45 @@ class BankReconciliationUseCase:
         }
         self._audit_trail.append(entry)
         logger.info(f"AUDIT: {action} - {details}")
+
+    async def reconcile(
+        self,
+        legal_entity_id: UUID,
+        bank_account_id: UUID,
+        statement_date: date,
+        statement_balance: Decimal,
+        statement_transactions: list[dict[str, Any]],
+        reconciled_by: UUID,
+        auto_match_threshold: Decimal | float | None = None,
+        notes: str | None = None,
+    ):
+        """FIX: fastapi_bank_cash_router.py (reconcile_bank) memanggil
+        `use_case.reconcile(...)`, padahal method ini sebelumnya TIDAK
+        PERNAH ada sama sekali di use case ini -> POST
+        /bank-cash/bank-cash/reconciliations selalu gagal 500
+        "'BankReconciliationUseCase' object has no attribute 'reconcile'".
+
+        `auto_match_threshold` diterima supaya signature cocok dengan
+        pemanggil, tapi mesin pencocokan (BankReconciliationEngine) yang
+        dipakai reconcile_bank_account() saat ini belum punya parameter
+        toleransi threshold yang bisa diatur - jadi untuk sekarang
+        parameter ini diterima tapi belum berpengaruh ke hasil pencocokan.
+        """
+        self._check_authority(reconciled_by, "bank_reconciliation_reconcile")
+        request = BankReconciliationRequest(
+            bank_account_id=bank_account_id,
+            statement_date=statement_date,
+            statement_ending_balance=statement_balance,
+            user_id=reconciled_by,
+            statement_transactions=statement_transactions,
+        )
+        result = await self._bank_service.reconcile_bank_account_detailed(request, notes=notes)
+        self._record_audit("reconcile", {
+            "reconciliation_id": str(result.id),
+            "bank_account_id": str(bank_account_id),
+            "statement_date": statement_date.isoformat(),
+        })
+        return result
 
     @audit
     async def execute(self, command: BankReconciliationCommand) -> CommandResult:

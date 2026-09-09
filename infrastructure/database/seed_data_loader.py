@@ -376,64 +376,63 @@ class SeedDataLoader:
                     logger.info(f"Would load {seed_file}: {len(data.get('data', []))} records")
             return self._stats
 
-        async with factory.get_session() as session:
-            async with session.begin():
-                try:
-                    # Load in order: legal entities -> accounts -> roles -> permissions -> users
-                    # Legal entities
-                    legal_file = self.seed_dir / "legal_entities.yaml"
-                    if legal_file.exists():
-                        data = self._load_file(legal_file)
-                        await self._load_legal_entities(session, data.get("data", []))
+        async with factory.get_session() as session, session.begin():
+            try:
+                # Load in order: legal entities -> accounts -> roles -> permissions -> users
+                # Legal entities
+                legal_file = self.seed_dir / "legal_entities.yaml"
+                if legal_file.exists():
+                    data = self._load_file(legal_file)
+                    await self._load_legal_entities(session, data.get("data", []))
 
-                    # Accounts for each legal entity
-                    accounts_file = self.seed_dir / "chart_of_accounts.yaml"
-                    if accounts_file.exists():
-                        data = self._load_file(accounts_file)
-                        # Get legal entity mapping
-                        legal_stmt = select(LegalEntityTable)
-                        legal_result = await session.execute(legal_stmt)
-                        legal_entities = legal_result.scalars().all()
-                        for legal in legal_entities:
-                            # Find accounts for this legal entity (by npwp or id)
-                            # For simplicity, assume accounts data contains legal_entity_code
-                            await self._load_accounts(session, data.get("data", []), legal.id)
+                # Accounts for each legal entity
+                accounts_file = self.seed_dir / "chart_of_accounts.yaml"
+                if accounts_file.exists():
+                    data = self._load_file(accounts_file)
+                    # Get legal entity mapping
+                    legal_stmt = select(LegalEntityTable)
+                    legal_result = await session.execute(legal_stmt)
+                    legal_entities = legal_result.scalars().all()
+                    for legal in legal_entities:
+                        # Find accounts for this legal entity (by npwp or id)
+                        # For simplicity, assume accounts data contains legal_entity_code
+                        await self._load_accounts(session, data.get("data", []), legal.id)
 
-                    # Roles
-                    roles_file = self.seed_dir / "roles.yaml"
-                    if roles_file.exists():
-                        data = self._load_file(roles_file)
-                        await self._load_roles(session, data.get("data", []))
+                # Roles
+                roles_file = self.seed_dir / "roles.yaml"
+                if roles_file.exists():
+                    data = self._load_file(roles_file)
+                    await self._load_roles(session, data.get("data", []))
 
-                    # Permissions
-                    perms_file = self.seed_dir / "permissions.yaml"
-                    if perms_file.exists():
-                        data = self._load_file(perms_file)
-                        await self._load_permissions(session, data.get("data", []))
+                # Permissions
+                perms_file = self.seed_dir / "permissions.yaml"
+                if perms_file.exists():
+                    data = self._load_file(perms_file)
+                    await self._load_permissions(session, data.get("data", []))
 
-                    # Users
-                    users_file = self.seed_dir / "users.yaml"
-                    if users_file.exists():
-                        data = self._load_file(users_file)
-                        await self._load_users(session, data.get("data", []))
+                # Users
+                users_file = self.seed_dir / "users.yaml"
+                if users_file.exists():
+                    data = self._load_file(users_file)
+                    await self._load_users(session, data.get("data", []))
 
-                    await session.commit()
-                    self._loaded = True
-                    logger.info(
-                        f"Seed data loaded successfully: inserted={self._stats['inserted']}, updated={self._stats['updated']}"
-                    )
+                await session.commit()
+                self._loaded = True
+                logger.info(
+                    f"Seed data loaded successfully: inserted={self._stats['inserted']}, updated={self._stats['updated']}"
+                )
 
-                except Exception as e:
-                    await session.rollback()
-                    self._stats["errors"] += 1
-                    logger.error(f"Seed data loading failed: {e}")
-                    await trigger_alert(
-                        title="Seed Data Loading Failed",
-                        message=f"Failed to load seed data: {e}",
-                        severity="error",
-                        source="SeedDataLoader",
-                    )
-                    raise SeedDataLoadError(f"Seed loading failed: {e}") from e
+            except Exception as e:
+                await session.rollback()
+                self._stats["errors"] += 1
+                logger.error(f"Seed data loading failed: {e}")
+                await trigger_alert(
+                    title="Seed Data Loading Failed",
+                    message=f"Failed to load seed data: {e}",
+                    severity="error",
+                    source="SeedDataLoader",
+                )
+                raise SeedDataLoadError(f"Seed loading failed: {e}") from e
 
         return self._stats
 

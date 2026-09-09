@@ -23,13 +23,14 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from infrastructure.persistence_orm.base_model import Base, TimestampMixin
+from infrastructure.persistence_orm.base_model import Base, TimestampMixin, VersionMixin
 
 
-class DeadLetterTable(Base, TimestampMixin):
+class DeadLetterTable(Base, TimestampMixin, VersionMixin):
     """
     Model untuk tabel dead_letter_events.
     Menyimpan event yang gagal diproses secara permanen.
@@ -53,7 +54,7 @@ class DeadLetterTable(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # Event identification
-    event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Payload and error
@@ -68,8 +69,8 @@ class DeadLetterTable(Base, TimestampMixin):
 
     # Additional context
     correlation_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Metadata (e.g., reprocessing attempts, custom tags)
     extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
@@ -103,7 +104,7 @@ class DeadLetterTable(Base, TimestampMixin):
         """Mark this dead letter event as resolved."""
         self.resolved_at = datetime.utcnow()
         self.resolved_by = resolved_by
-        self.increment_version()  # from VersionMixin? Actually this class doesn't have VersionMixin, but we add method
+        self.increment_version()
 
     def increment_retry(self) -> None:
         """Increment retry count."""

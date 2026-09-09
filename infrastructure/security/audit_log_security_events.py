@@ -208,7 +208,7 @@ class FileAuditStorage(BaseAuditStorage):
             f.write(json.dumps(event, default=str) + "\n")
 
     def query(self, filters: dict, limit: int) -> list[dict]:
-        events = []
+        events: list[dict] = []
         try:
             with open(self.file_path) as f:
                 for line in f:
@@ -227,10 +227,7 @@ class FileAuditStorage(BaseAuditStorage):
         return events
 
     def _matches(self, event: dict, filters: dict) -> bool:
-        for key, value in filters.items():
-            if key in event and event[key] != value:
-                return False
-        return True
+        return all(not (key in event and event[key] != value) for key, value in filters.items())
 
     # ==================== ENTITY DASAR METHODS ====================
     def to_dict(self) -> dict[str, Any]:
@@ -429,7 +426,7 @@ class SecurityAuditLogger:
             with self._lock:
                 event["hash"] = self._compute_hash(event, self._last_hash)
                 event["previous_hash"] = self._last_hash
-                self._last_hash = event["hash"]
+                self._last_hash = event["hash"]  # type: ignore[assignment]
 
         # Write to all storage backends
         for backend in self._storage_backends:
@@ -489,7 +486,6 @@ class SecurityAuditLogger:
         for backend in self._storage_backends:
             if isinstance(backend, FileAuditStorage):
                 logs = backend.query({}, 1000000)
-                prev_hash = None
                 for log in logs:
                     expected_hash = log.get("hash")
                     if not expected_hash:
@@ -497,7 +493,6 @@ class SecurityAuditLogger:
                     recomputed = self._compute_hash(log, log.get("previous_hash"))
                     if recomputed != expected_hash:
                         return False, f"Hash mismatch at event {log.get('event_id')}"
-                    prev_hash = expected_hash
                 return True, "Chain verified"
         return True, "No verifiable backend found"
 
@@ -515,7 +510,7 @@ class SecurityAuditLogger:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if self._enable_hash_chain and not self._last_hash:
             # Genesis hash is acceptable
             pass
@@ -585,11 +580,11 @@ class SecurityAuditLogger:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
-    logger = SecurityAuditLogger(enable_hash_chain=True)
+    audit_logger = SecurityAuditLogger(enable_hash_chain=True)
     file_backend = FileAuditStorage("/var/log/security_audit.log")
-    logger.add_storage_backend(file_backend)
+    audit_logger.add_storage_backend(file_backend)
 
-    event_id = logger.log(
+    event_id = audit_logger.log(
         event_type=SecurityEventType.LOGIN_SUCCESS,
         user_id=uuid4(),
         details={"ip": "192.168.1.1", "method": "password"},
@@ -598,8 +593,8 @@ if __name__ == "__main__":
     )
     print(f"Logged event: {event_id}")
 
-    valid, msg = logger.verify_hash_chain()
+    valid, msg = audit_logger.verify_hash_chain()
     print(f"Hash chain verification: {valid} - {msg}")
 
-    logs = logger.query_logs(limit=10)
+    logs = audit_logger.query_logs(limit=10)
     print(f"Retrieved {len(logs)} logs")

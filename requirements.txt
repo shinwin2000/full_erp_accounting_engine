@@ -1,9 +1,34 @@
---- requirements.txt (原始)
 # ============================================================
 # requirements.txt
 # ERP Accounting Engine — Production Dependencies
 # Sesuai struktur: DDD + CQRS + Event Sourcing + Hexagonal
 # Python >= 3.11
+#
+# CATATAN PERUBAHAN dari versi sebelumnya:
+# 1. File sebelumnya ternyata berisi teks diff (ada blok
+#    "--- (original)" / "+++ (modified)" tercampur dalam satu file),
+#    sehingga tidak bisa langsung dipakai `pip install -r`. Sudah
+#    dirapikan jadi satu daftar final saja.
+# 2. "pkcs11-helper" dan "cryptography-pkcs11" DIHAPUS — kedua nama
+#    ini TIDAK ADA di PyPI (pip install akan gagal total kalau
+#    baris ini masih ada). Kode di security_hardening/
+#    hsm_pkcs11_manager.py sendiri mengomentari bahwa package yang
+#    benar adalah "python-pkcs11" (import pkcs11) — sudah diganti.
+# 3. Ditambahkan package yang TERBUKTI dipakai (ada `import ...` di
+#    kode) tapi belum tercantum sama sekali sebelumnya:
+#    PyJWT, python-pkcs11, argon2-cffi, geoip2, icalendar,
+#    jsonschema, aioboto3, python-magic, pyotp, lxml, requests,
+#    urllib3, packaging, watchdog,
+#    opentelemetry-instrumentation-aiohttp-client,
+#    opentelemetry-exporter-zipkin.
+#    (Tanpa argon2-cffi/pyotp/PyJWT dst., modul terkait akan gagal
+#    import saat runtime meski tidak kelihatan saat baca sekilas.)
+# 4. opentelemetry-instrumentation-aiohttp-client sengaja ditambah
+#    karena infrastructure/telemetry/opentelemetry_setup.py meng-
+#    import-nya dalam SATU blok try/except bersama fastapi/redis/
+#    sqlalchemy instrumentation — kalau salah satu saja hilang,
+#    SELURUH tracing diam-diam nonaktif (OPENTELEMETRY_AVAILABLE
+#    jadi False), bukan cuma fitur yang pakai aiohttp yang mati.
 # ============================================================
 
 # ── Web Framework ────────────────────────────────────────────
@@ -16,11 +41,14 @@ python-multipart==0.0.12
 httpx==0.27.2
 aiohttp==3.11.10
 aiofiles==24.1.0
+requests==2.32.3
+urllib3==2.2.3
 
 # ── Validasi & Serialisasi ───────────────────────────────────
 pydantic[email]==2.10.2
 pydantic-settings==2.6.1
 orjson==3.10.12
+jsonschema==4.23.0
 
 # ── Database — SQLAlchemy + Alembic ─────────────────────────
 # infrastructure/database/ + infrastructure/persistence_orm/
@@ -45,15 +73,28 @@ kafka-python==2.0.2
 # infrastructure/security/
 # kernel/guards/async/fraud_pattern_detector.py
 python-jose[cryptography]==3.3.0
+PyJWT==2.10.1                     # <-- BARU: event_gateway/event_source_authenticator.py pakai `import jwt`
 passlib[bcrypt]==1.7.4
 cryptography==43.0.3
 PyNaCl==1.5.0
 bcrypt==4.2.1
+argon2-cffi==23.1.0                # <-- BARU: domain/iam/password_hashed_vo.py
+pyotp==2.9.0                       # <-- BARU: MFA/TOTP, adapters/secondary_impl/sqlalchemy_iam_user_repository_impl.py
+
+# ── HSM / PKCS#11 ────────────────────────────────────────────
+# security_hardening/hsm_pkcs11_manager.py
+# adapters/secondary_impl/hsm_pkcs11_signing_adapter.py
+python-pkcs11==0.7.0               # <-- DIPERBAIKI: ganti dari "pkcs11-helper"/"cryptography-pkcs11" (tidak ada di PyPI)
+
+# ── RFC 3161 Timestamping ────────────────────────────────────
+# adapters/secondary_impl/rfc3161_timestamp_adapter.py
+rfc3161ng==2.1.3
 
 # ── YAML & Konfigurasi ───────────────────────────────────────
 # config/loader_yaml.py + policy_engine/loader_yaml.py
 pyyaml==6.0.2
 python-dotenv==1.0.1
+packaging==24.2                    # <-- BARU: security_hardening/vulnerability_scanner_dependency.py
 
 # ── Logging Terstruktur ──────────────────────────────────────
 # infrastructure/telemetry/structured_json_logging.py
@@ -73,8 +114,16 @@ opentelemetry-instrumentation-fastapi==0.49b2
 opentelemetry-instrumentation-sqlalchemy==0.49b2
 opentelemetry-instrumentation-redis==0.49b2
 opentelemetry-instrumentation-httpx==0.49b2
+opentelemetry-instrumentation-aiohttp-client==0.49b2   # <-- BARU: lihat catatan di atas
 opentelemetry-exporter-otlp==1.28.2
 opentelemetry-exporter-jaeger==1.21.0
+# opentelemetry-exporter-zipkin DIHAPUS: package ini (semua versi, sampai
+# yang terbaru 1.44.0) permanen mewajibkan protobuf~=3.12, sedangkan
+# grpcio-tools/protobuf==5.29.1 di bawah (untuk gRPC service) wajib
+# protobuf 5.x -> dua-duanya TIDAK MUNGKIN dipenuhi bersamaan, versi
+# apapun. Exporter Zipkin ini opsional (dibungkus try/except di
+# infrastructure/telemetry/opentelemetry_setup.py), jadi cukup di-skip;
+# tracing tetap jalan lewat OTLP/Jaeger.
 
 # ── File Storage — MinIO / S3 / Glacier ─────────────────────
 # infrastructure/file_storage/
@@ -82,8 +131,22 @@ opentelemetry-exporter-jaeger==1.21.0
 # adapters/secondary_impl/minio_evidence_store.py
 # adapters/secondary_impl/glacier_cold_storage_adapter.py
 minio==7.2.11
-boto3==1.35.79
-botocore==1.35.79
+boto3==1.35.36                     # <-- DIPERBAIKI: 1.35.79 bentrok dengan aioboto3 (lihat catatan di bawah)
+botocore==1.35.36                  # <-- DIPERBAIKI: harus <1.35.37 supaya cocok dengan aiobotocore 2.15.2
+aioboto3==13.2.0                   # <-- BARU: glacier_cold_storage_adapter.py (versi async S3/Glacier)
+# CATATAN: aioboto3==13.2.0 mewajibkan aiobotocore[boto3]==2.15.2, dan
+# aiobotocore==2.15.2 mewajibkan botocore>=1.35.16,<1.35.37 (serta boto3
+# di rentang yang sama). Pin boto3/botocore==1.35.79 sebelumnya berada DI
+# LUAR rentang itu -> kontradiksi langsung yang membuat pip mencoba ratusan
+# kombinasi versi (gejala "resolution-too-deep"). 1.35.36 adalah satu-
+# satunya versi yang memenuhi constraint boto3 sendiri (>=1.35.36,<1.36.0)
+# sekaligus batas atas dari aiobotocore (<1.35.37).
+
+# ── Deteksi Tipe File & GeoIP ────────────────────────────────
+# infrastructure/file_storage/evidence_document_uploader.py
+# security_hardening/threat_detection_anomaly_login.py
+python-magic==0.4.27               # <-- BARU
+geoip2==4.8.1                      # <-- BARU
 
 # ── gRPC ─────────────────────────────────────────────────────
 # adapters/grpc_accounting_service.py
@@ -102,6 +165,7 @@ reportlab==4.2.5
 openpyxl==3.1.5
 jinja2==3.1.4
 weasyprint==63.1
+lxml==5.3.0                        # <-- BARU: compliance/ojk_lkpub_builder.py
 
 # ── Kompresi ─────────────────────────────────────────────────
 # infrastructure/caching/compression_lz4.py
@@ -120,8 +184,9 @@ blake3==1.0.1
 python-dateutil==2.9.0.post0
 arrow==1.3.0
 babel==2.16.0
-money==1.3.0          # <-- FIXED: was 1.3.1 (not available)
+money==1.3.0
 py-moneyed==3.0
+icalendar==6.1.0                   # <-- BARU: compliance/legal/legal_obligation_calendar.py
 
 # ── Retry & Resilience ───────────────────────────────────────
 # kernel/retry_policy.py
@@ -129,11 +194,13 @@ py-moneyed==3.0
 tenacity==9.0.0
 circuitbreaker==2.0.0
 
-# ── Task Scheduling ──────────────────────────────────────────
+# ── Task Scheduling & File Watching ──────────────────────────
 # reports/scheduler_cron.py
 # deployment/scripts/
+# config/hot_reload_watcher.py
 apscheduler==3.10.4
 celery[redis]==5.4.0
+watchdog==6.0.0                    # <-- BARU: config/hot_reload_watcher.py
 
 # ── XBRL & Regulasi ──────────────────────────────────────────
 # reports/xbrl_ifrs_exporter.py
@@ -146,197 +213,6 @@ cattrs==24.1.2
 click==8.1.8
 rich==13.9.4
 typer==0.13.1
-
-# ── RFC 3161 Timestamping ────────────────────────────────────
-# adapters/secondary_impl/rfc3161_timestamp_adapter.py
-rfc3161ng==2.1.3
-
-# ── HSM / PKCS#11 ────────────────────────────────────────────
-# security_hardening/hsm_pkcs11_manager.py
-# adapters/secondary_impl/hsm_pkcs11_signing_adapter.py
-
-
-# ── Notifikasi ───────────────────────────────────────────────
-# adapters/secondary_impl/email_smtp_notification.py
-# adapters/secondary_impl/whatsapp_business_notification.py
-# adapters/secondary_impl/slack_alert_adapter.py
-# adapters/secondary_impl/pagerduty_incident_adapter.py
-aiosmtplib==3.0.2
-slack-sdk==3.33.4
-
-# ── Parsing Bank Statement ───────────────────────────────────
-# adapters/secondary_impl/bank_mt940_parser_adapter.py
-mt-940==4.30.0
-
-# ── HashiCorp Vault ──────────────────────────────────────────
-# config/vault_integrator.py
-# adapters/secondary_impl/hashicorp_vault_adapter.py
-# infrastructure/security/vault_dynamic_secret_provider.py
-hvac==2.3.0
-
-# ── Middleware FastAPI Tambahan ──────────────────────────────
-# adapters/primary_api/common/
-slowapi==0.1.9
-starlette-context==0.3.6
-
-+++ requirements.txt (修改后)
-# ============================================================
-# requirements.txt
-# ERP Accounting Engine — Production Dependencies
-# Sesuai struktur: DDD + CQRS + Event Sourcing + Hexagonal
-# Python >= 3.11
-# ============================================================
-
-# ── Web Framework ────────────────────────────────────────────
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-gunicorn==23.0.0
-python-multipart==0.0.12
-
-# ── ASGI & HTTP ──────────────────────────────────────────────
-httpx==0.27.2
-aiohttp==3.11.10
-aiofiles==24.1.0
-
-# ── Validasi & Serialisasi ───────────────────────────────────
-pydantic[email]==2.10.2
-pydantic-settings==2.6.1
-orjson==3.10.12
-
-# ── Database — SQLAlchemy + Alembic ─────────────────────────
-# infrastructure/database/ + infrastructure/persistence_orm/
-sqlalchemy[asyncio]==2.0.36
-alembic==1.14.0
-asyncpg==0.30.0
-psycopg2-binary==2.9.10
-greenlet==3.1.1
-
-# ── Caching — Redis ──────────────────────────────────────────
-# infrastructure/caching/redis_manager.py
-# kernel/distributed_lock_redis.py
-redis[hiredis]==5.2.1
-
-# ── Message Broker — Kafka ───────────────────────────────────
-# infrastructure/message_broker/
-# adapters/secondary_impl/kafka_event_publisher_impl.py
-aiokafka==0.11.0
-kafka-python==2.0.2
-
-# ── Autentikasi & Security ───────────────────────────────────
-# infrastructure/security/
-# kernel/guards/async/fraud_pattern_detector.py
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-cryptography==43.0.3
-PyNaCl==1.5.0
-bcrypt==4.2.1
-
-# ── YAML & Konfigurasi ───────────────────────────────────────
-# config/loader_yaml.py + policy_engine/loader_yaml.py
-pyyaml==6.0.2
-python-dotenv==1.0.1
-
-# ── Logging Terstruktur ──────────────────────────────────────
-# infrastructure/telemetry/structured_json_logging.py
-structlog==24.4.0
-python-json-logger==2.0.7
-
-# ── Observability — Prometheus ───────────────────────────────
-# infrastructure/telemetry/prometheus_registry.py
-prometheus-client==0.21.1
-
-# ── Observability — OpenTelemetry ────────────────────────────
-# infrastructure/telemetry/opentelemetry_setup.py
-# infrastructure/telemetry/jaeger_exporter.py
-opentelemetry-api==1.28.2
-opentelemetry-sdk==1.28.2
-opentelemetry-instrumentation-fastapi==0.49b2
-opentelemetry-instrumentation-sqlalchemy==0.49b2
-opentelemetry-instrumentation-redis==0.49b2
-opentelemetry-instrumentation-httpx==0.49b2
-opentelemetry-exporter-otlp==1.28.2
-opentelemetry-exporter-jaeger==1.21.0
-
-# ── File Storage — MinIO / S3 / Glacier ─────────────────────
-# infrastructure/file_storage/
-# adapters/secondary_impl/s3_file_storage_adapter_impl.py
-# adapters/secondary_impl/minio_evidence_store.py
-# adapters/secondary_impl/glacier_cold_storage_adapter.py
-minio==7.2.11
-boto3==1.35.79
-botocore==1.35.79
-
-# ── gRPC ─────────────────────────────────────────────────────
-# adapters/grpc_accounting_service.py
-grpcio==1.68.1
-grpcio-tools==1.68.1
-protobuf==5.29.1
-
-# ── GraphQL ──────────────────────────────────────────────────
-# adapters/graphql_adapter_schema.py
-strawberry-graphql[fastapi]==0.246.1
-
-# ── Laporan & Dokumen ────────────────────────────────────────
-# reports/generator_pdf_excel_html.py
-# audit/forensic_report_generator_pdf.py
-reportlab==4.2.5
-openpyxl==3.1.5
-jinja2==3.1.4
-weasyprint==63.1
-
-# ── Kompresi ─────────────────────────────────────────────────
-# infrastructure/caching/compression_lz4.py
-lz4==4.3.3
-zstandard==0.23.0
-
-# ── Hashing & Kriptografi Tambahan ───────────────────────────
-# audit/hash_chain_builder.py
-# infrastructure/event_store/hash_chain_builder.py
-xxhash==3.5.0
-blake3==1.0.1
-
-# ── Tanggal, Mata Uang, Lokalisasi ───────────────────────────
-# domain/shared_value_objects/money_vo.py
-# domain/shared_value_objects/currency_vo.py
-python-dateutil==2.9.0.post0
-arrow==1.3.0
-babel==2.16.0
-money==1.3.0          # <-- FIXED: was 1.3.1 (not available)
-py-moneyed==3.0
-
-# ── Retry & Resilience ───────────────────────────────────────
-# kernel/retry_policy.py
-# kernel/circuit_breaker.py
-tenacity==9.0.0
-circuitbreaker==2.0.0
-
-# ── Task Scheduling ──────────────────────────────────────────
-# reports/scheduler_cron.py
-# deployment/scripts/
-apscheduler==3.10.4
-celery[redis]==5.4.0
-
-# ── XBRL & Regulasi ──────────────────────────────────────────
-# reports/xbrl_ifrs_exporter.py
-arelle-release==2.30.8
-
-# ── Utilitas Umum ────────────────────────────────────────────
-cachetools==5.5.0
-attrs==24.2.0
-cattrs==24.1.2
-click==8.1.8
-rich==13.9.4
-typer==0.13.1
-
-# ── RFC 3161 Timestamping ────────────────────────────────────
-# adapters/secondary_impl/rfc3161_timestamp_adapter.py
-rfc3161ng==2.1.3
-
-# ── HSM / PKCS#11 ────────────────────────────────────────────
-# security_hardening/hsm_pkcs11_manager.py
-# adapters/secondary_impl/hsm_pkcs11_signing_adapter.py
-pkcs11-helper==0.3.0
-cryptography-pkcs11==0.3.0
 
 # ── Notifikasi ───────────────────────────────────────────────
 # adapters/secondary_impl/email_smtp_notification.py

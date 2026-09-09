@@ -25,7 +25,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -59,8 +59,9 @@ class CostCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_cost_card_legal_entity", "legal_entity_id"),
     )
 
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cost_card_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -87,7 +88,7 @@ class CostCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # Detailed breakdown as JSON
     breakdown: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
 
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     @property
     def cost_per_unit(self) -> Decimal:

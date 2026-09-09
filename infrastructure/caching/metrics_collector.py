@@ -113,6 +113,10 @@ class CacheMetricsCollector:
         self._hits = 0
         self._misses = 0
         self._operation_stats: dict[str, list[float]] = {}
+        # Attributes for tracking cumulative stats
+        self._last_hits: int = 0
+        self._last_misses: int = 0
+        self._last_evictions: int = 0
 
     async def _get_redis(self) -> RedisManager:
         if self._redis_manager is None:
@@ -183,7 +187,7 @@ class CacheMetricsCollector:
             cache_uptime_seconds.set(metrics["uptime_seconds"])
 
             # Update counters for cumulative stats
-            cache_evictions_total.inc(metrics["evicted_keys"] - getattr(self, "_last_evictions", 0))
+            cache_evictions_total.inc(metrics["evicted_keys"] - self._last_evictions)
             self._last_evictions = metrics["evicted_keys"]
 
             # Log warning if hit rate is low

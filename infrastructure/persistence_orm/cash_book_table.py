@@ -24,7 +24,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Index, Numeric, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -47,16 +47,16 @@ class CashBookTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_cash_book_currency", "currency_code"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     current_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     opening_balance_date: Mapped[date] = mapped_column(Date, nullable=False)
-    gl_cash_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    gl_bank_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    gl_cash_account_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    gl_bank_account_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     last_updated: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     def update_balance(self, new_balance: Decimal) -> None:
         self.current_balance = new_balance

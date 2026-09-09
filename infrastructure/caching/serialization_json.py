@@ -208,6 +208,7 @@ class JSONSerializer:
 
         # Compress if needed
         if self._use_compression and len(json_bytes) > self._compress_threshold:
+            assert self._compressor is not None
             compressed = self._compressor.compress(json_bytes)
             return COMPRESSED_PREFIX + compressed
 
@@ -222,6 +223,7 @@ class JSONSerializer:
 
         # Check if data is compressed
         if data.startswith(COMPRESSED_PREFIX) and self._use_compression:
+            assert self._compressor is not None
             compressed_data = data[len(COMPRESSED_PREFIX) :]
             json_bytes = self._compressor.decompress(compressed_data)
         else:

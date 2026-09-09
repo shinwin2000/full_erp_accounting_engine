@@ -29,7 +29,6 @@ from domain.bank_cash.bank_aggregate_root import (
     BankTransactionStatus,
     BankTransactionType,
 )
-from domain.bank_cash.cash_aggregate_root import PettyCashFund
 
 # Value objects
 from domain.shared_value_objects.money_vo import Money
@@ -73,6 +72,50 @@ class CashBookRecord:
     is_closed: bool = False
     closed_at: datetime | None = None
     closed_by: UUID | None = None
+
+
+@dataclass
+class PettyCashFund:
+    """Model flat sederhana untuk satu dana petty cash - field-nya cocok
+    dengan kolom tabel `petty_cash_fund` SUNGGUHAN (lihat
+    infrastructure/persistence_orm/petty_cash_fund_table.py). Dipakai
+    (bukan `PettyCashFundEntity` di
+    domain/bank_cash/petty_cash_fund_entity.py) karena entity itu
+    bentuknya beda total (custodian diidentifikasi lewat nama bukan ID,
+    tidak ada field gl_account_id, dst) - memakainya menyebabkan
+    TypeError begitu ada data asli untuk dikonversi. service_bank_cash.py
+    meng-import class ini dari sini, mengikuti pola yang sama seperti
+    CashBookRecord di atas."""
+
+    id: UUID
+    legal_entity_id: UUID
+    fund_name: str
+    currency_code: str = "IDR"
+    initial_amount: Decimal = Decimal("0")
+    current_balance: Decimal = Decimal("0")
+    custodian_id: UUID | None = None
+    gl_account_id: UUID | None = None
+    reimbursement_threshold: Decimal = Decimal("1000000")
+    fund_location: str | None = None
+    notes: str | None = None
+    status: str = "active"
+    is_active: bool = True
+    is_closed: bool = False
+    created_by: UUID | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    updated_by: UUID | None = None
+    last_replenishment_date: date | None = None
+    activated_at: datetime | None = None
+    activated_by: UUID | None = None
+    closed_at: datetime | None = None
+    closed_by: UUID | None = None
+    suspended_at: datetime | None = None
+    suspended_by: UUID | None = None
+    suspend_reason: str | None = None
+    version: int = 1
+    custodian_name: str | None = None
+    created_by_name: str | None = None
 
 
 # ============================================================================
@@ -587,6 +630,50 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to list transactions: {e}") from e
 
+    async def list_unreconciled_transactions(
+        self, bank_account_id: UUID, as_of_date: date
+    ) -> list[BankTransaction]:
+        """FIX: dipakai oleh BankCashService.reconcile_bank_account() untuk
+        mengambil transaksi yang belum direkonsiliasi sampai tanggal
+        statement - method ini sebelumnya TIDAK ADA SAMA SEKALI, membuat
+        endpoint reconcile selalu gagal 500 AttributeError."""
+        try:
+            stmt = (
+                select(BankTransactionTable)
+                .where(
+                    BankTransactionTable.bank_account_id == bank_account_id,
+                    BankTransactionTable.is_reconciled.is_(False),
+                    BankTransactionTable.transaction_date <= as_of_date,
+                    BankTransactionTable.deleted_at.is_(None),
+                )
+                .order_by(BankTransactionTable.transaction_date.asc())
+            )
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_domain_transaction(table) for table in tables]
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to list unreconciled transactions: {e}") from e
+
+    async def save_transaction(self, transaction: BankTransaction) -> None:
+        """FIX: dipakai oleh BankCashService.reconcile_bank_account() untuk
+        menyimpan perubahan status is_reconciled/reconciled_at pada
+        transaksi yang match - method ini sebelumnya TIDAK ADA SAMA
+        SEKALI (mark_transaction_as_reconciled yang sudah ada butuh
+        reconciliation_id yang belum tentu sudah dibuat di titik ini)."""
+        try:
+            stmt = (
+                update(BankTransactionTable)
+                .where(BankTransactionTable.id == transaction.transaction_id)
+                .values(
+                    is_reconciled=transaction.is_reconciled,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to save transaction: {e}") from e
+
     async def get_balance_before_date(self, bank_account_id: UUID, as_of_date: date) -> Decimal:
         try:
             stmt = select(
@@ -684,50 +771,106 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
 
     # ========================================================================
     # BANK RECONCILIATION METHODS (Implementasi Internal)
+    #
+    # PENTING (fix menyeluruh): method-method di bawah ini SEBELUMNYA rusak
+    # total dan tidak pernah benar-benar berfungsi:
+    # - `add_reconciliation` (versi lama) membaca `reconciliation.book_balance`,
+    #   `.matched_count`, `.unmatched_book`, dll dari objek `BankReconciliation`
+    #   - padahal `BankReconciliation` cuma alias dari `ReconciliationResult`
+    #   (domain/bank_cash/bank_reconciliation_engine.py) yang field-nya sama
+    #   sekali berbeda (reconciliation_id, account_id, matched_items, dst),
+    #   jadi akan langsung gagal AttributeError kalau sempat dipanggil.
+    # - Lalu method itu MENULIS ke kolom `book_balance`, `matched_count`,
+    #   `unmatched_book`, `unmatched_statement`, `adjustment_journal_id` di
+    #   `BankReconciliationTable` - padahal kolom-kolom itu TIDAK ADA SAMA
+    #   SEKALI di tabel (cek infrastructure/persistence_orm/
+    #   bank_reconciliation_table.py: kolom asli yang ada adalah
+    #   statement_ending_balance, system_ending_balance, difference, status,
+    #   reconciled_by, reconciled_at, notes - beda total).
+    # - `get_reconciliation_history` (versi lama) punya masalah SAMA PERSIS,
+    #   membaca kolom yang tidak ada dari ORM row.
+    # - `service_bank_cash.py` (reconcile_bank_account) memanggil
+    #   `save_reconciliation(...)` yang bahkan TIDAK ADA SAMA SEKALI di
+    #   sini sebelumnya.
+    #
+    # Statistik detail (matched_count, unmatched system/statement) TIDAK
+    # punya kolom penyimpanan sendiri di tabel ini, jadi untuk sekarang
+    # dirangkum sebagai teks singkat di kolom `notes` yang memang tersedia,
+    # supaya informasi itu tidak hilang sama sekali walau tidak
+    # ter-strukturkan penuh.
     # ========================================================================
 
-    async def add_reconciliation(self, reconciliation: BankReconciliation) -> UUID:
+    async def save_reconciliation(
+        self,
+        id: UUID,
+        bank_account_id: UUID,
+        statement_date: date,
+        statement_balance: Decimal,
+        system_balance: Decimal,
+        difference: Decimal,
+        is_matched: bool,
+        matched_count: int,
+        reconciliation_date: datetime,
+        reconciled_by: UUID | None,
+        unmatched_system_count: int = 0,
+        unmatched_statement_count: int = 0,
+        notes: str | None = None,
+    ) -> UUID:
         try:
+            bank_account = await self.get_bank_account_by_id(bank_account_id)
+            legal_entity_id = bank_account.bank_account.legal_entity_id if bank_account else None
+
+            period_start = statement_date.replace(day=1)
+            summary = (
+                f"matched={matched_count}; "
+                f"unmatched_system={unmatched_system_count}; "
+                f"unmatched_statement={unmatched_statement_count}"
+            )
+            full_notes = f"{notes.strip()} | {summary}" if notes and notes.strip() else summary
+
             table = BankReconciliationTable(
-                id=reconciliation.id,
-                bank_account_id=reconciliation.bank_account_id,
-                statement_date=reconciliation.statement_date,
-                book_balance=reconciliation.book_balance.amount,
-                statement_balance=reconciliation.statement_balance.amount,
-                difference=reconciliation.difference.amount,
-                matched_count=reconciliation.matched_count,
-                unmatched_book=reconciliation.unmatched_book,
-                unmatched_statement=reconciliation.unmatched_statement,
-                adjustment_journal_id=reconciliation.adjustment_journal_id,
-                status=reconciliation.status,
-                created_by=reconciliation.created_by,
-                created_at=datetime.utcnow(),
+                id=id,
+                legal_entity_id=legal_entity_id,
+                bank_account_id=bank_account_id,
+                statement_date=statement_date,
+                period_start=period_start,
+                period_end=statement_date,
+                statement_ending_balance=statement_balance,
+                system_ending_balance=system_balance,
+                difference=difference,
+                status="reconciled" if is_matched else "pending",
+                reconciled_by=reconciled_by,
+                reconciled_at=reconciliation_date,
+                notes=full_notes,
+                created_by=reconciled_by,
             )
             self.session.add(table)
             await self.session.flush()
 
             stmt = (
                 update(BankAccountTable)
-                .where(BankAccountTable.id == reconciliation.bank_account_id)
+                .where(BankAccountTable.id == bank_account_id)
                 .values(
-                    last_reconciliation_date=reconciliation.statement_date,
-                    available_balance=reconciliation.statement_balance.amount,
+                    last_reconciliation_date=statement_date,
                     updated_at=datetime.utcnow(),
                 )
             )
             await self.session.execute(stmt)
             await self.session.flush()
 
-            logger.info("Bank reconciliation added for account %s", reconciliation.bank_account_id)
-            return reconciliation.id
+            logger.info("Bank reconciliation saved for account %s", bank_account_id)
+            return id
 
         except Exception as e:
-            await self.session.rollback()
-            raise BankCashRepositoryError(f"Failed to add reconciliation: {e}") from e
+            raise BankCashRepositoryError(f"Failed to save reconciliation: {e}") from e
 
     async def get_reconciliation_history(
         self, bank_account_id: UUID, limit: int = 12
-    ) -> list[BankReconciliation]:
+    ) -> list[dict]:
+        """Mengembalikan list of dict (bukan objek domain) - lebih sederhana
+        dan jujur soal data apa yang benar-benar tersimpan di tabel ini,
+        dibanding memaksakan ke dataclass domain yang field-nya tidak
+        cocok sama sekali (lihat catatan panjang di atas)."""
         try:
             stmt = (
                 select(BankReconciliationTable)
@@ -735,34 +878,26 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
                 .order_by(BankReconciliationTable.statement_date.desc())
                 .limit(limit)
             )
-
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
 
-            reconciliations = []
-            for table in tables:
-                reconciliations.append(
-                    BankReconciliation(
-                        id=table.id,
-                        bank_account_id=table.bank_account_id,
-                        statement_date=table.statement_date,
-                        book_balance=Money(amount=table.book_balance, currency=DEFAULT_CURRENCY),
-                        statement_balance=Money(
-                            amount=table.statement_balance, currency=DEFAULT_CURRENCY
-                        ),
-                        difference=Money(amount=table.difference, currency=DEFAULT_CURRENCY),
-                        matched_count=table.matched_count,
-                        unmatched_book=table.unmatched_book,
-                        unmatched_statement=table.unmatched_statement,
-                        adjustment_journal_id=table.adjustment_journal_id,
-                        status=table.status,
-                        created_by=table.created_by,
-                        created_at=table.created_at,
-                    )
-                )
-
-            return reconciliations
-
+            return [
+                {
+                    "id": t.id,
+                    "bank_account_id": t.bank_account_id,
+                    "statement_date": t.statement_date,
+                    "statement_balance": t.statement_ending_balance,
+                    "book_balance": t.system_ending_balance,
+                    "difference": t.difference,
+                    "status": t.status,
+                    "notes": t.notes,
+                    "reconciled_by": t.reconciled_by,
+                    "reconciled_at": t.reconciled_at,
+                    "created_by": t.created_by,
+                    "created_at": t.created_at,
+                }
+                for t in tables
+            ]
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to get history: {e}") from e
 
@@ -886,17 +1021,24 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # ========================================================================
 
     async def add_petty_cash_fund(self, fund: PettyCashFund) -> UUID:
+        # PENTING (fix): sebelumnya membaca fund.current_balance.amount,
+        # fund.initial_amount.amount, fund.reimbursement_threshold.amount
+        # - mengasumsikan field itu objek Money (punya .amount), padahal
+        # PettyCashFund (didefinisikan ulang di service_bank_cash.py)
+        # menyimpannya sebagai Decimal polos (karena service memakainya
+        # langsung dengan operator +=/-= yang butuh Decimal polos, bukan
+        # value object). Sekarang dibaca langsung tanpa .amount.
         try:
             table = PettyCashFundTable(
                 id=fund.id,
                 fund_name=fund.fund_name,
                 legal_entity_id=fund.legal_entity_id,
                 currency_code=fund.currency_code,
-                current_balance=fund.current_balance.amount,
-                initial_amount=fund.initial_amount.amount,
+                current_balance=fund.current_balance,
+                initial_amount=fund.initial_amount,
                 custodian_id=fund.custodian_id,
                 gl_account_id=fund.gl_account_id,
-                reimbursement_threshold=fund.reimbursement_threshold.amount,
+                reimbursement_threshold=fund.reimbursement_threshold,
                 fund_location=fund.fund_location,
                 status=fund.status,
                 created_at=datetime.utcnow(),
@@ -912,42 +1054,81 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
             await self.session.rollback()
             raise BankCashRepositoryError(f"Failed to add petty cash fund: {e}") from e
 
+    def _petty_cash_table_to_domain(self, table) -> PettyCashFund:
+        return PettyCashFund(
+            id=table.id,
+            fund_name=table.fund_name,
+            legal_entity_id=table.legal_entity_id,
+            currency_code=table.currency_code,
+            current_balance=table.current_balance,
+            initial_amount=table.initial_amount,
+            custodian_id=table.custodian_id,
+            gl_account_id=table.gl_account_id,
+            reimbursement_threshold=table.reimbursement_threshold,
+            fund_location=table.fund_location,
+            status=table.status,
+            is_active=(table.status == "active"),
+            is_closed=(table.status == "closed"),
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+            version=table.version,
+        )
+
+    async def get_petty_cash_fund_by_id(self, fund_id: UUID) -> PettyCashFund | None:
+        """FIX: method ini sebelumnya TIDAK ADA SAMA SEKALI, padahal
+        dipanggil oleh hampir semua operasi petty cash di service
+        (adjust/activate/close/suspend/disbursement/replenish) - semuanya
+        selalu gagal AttributeError sebelum sempat melakukan apapun."""
+        try:
+            stmt = select(PettyCashFundTable).where(
+                PettyCashFundTable.id == fund_id, PettyCashFundTable.deleted_at.is_(None)
+            )
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            return self._petty_cash_table_to_domain(table) if table else None
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to get petty cash fund: {e}") from e
+
+    async def save_petty_cash_fund(self, fund: PettyCashFund) -> None:
+        """FIX: dipanggil oleh SEMUA operasi tulis petty cash di service
+        (create/adjust/activate/close/suspend/disbursement/replenish),
+        padahal method ini sebelumnya TIDAK ADA SAMA SEKALI. Berperilaku
+        sebagai upsert: insert kalau ID belum ada, update kalau sudah."""
+        try:
+            stmt = select(PettyCashFundTable).where(PettyCashFundTable.id == fund.id)
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+
+            if table is None:
+                await self.add_petty_cash_fund(fund)
+                return
+
+            table.fund_name = fund.fund_name
+            table.currency_code = fund.currency_code
+            table.current_balance = fund.current_balance
+            table.initial_amount = fund.initial_amount
+            table.custodian_id = fund.custodian_id
+            table.gl_account_id = fund.gl_account_id
+            table.reimbursement_threshold = fund.reimbursement_threshold
+            table.fund_location = fund.fund_location
+            table.status = fund.status
+            table.updated_at = datetime.utcnow()
+            table.version = (table.version or 1) + 1
+            await self.session.flush()
+
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to save petty cash fund: {e}") from e
+
     async def get_petty_cash_funds(self, legal_entity_id: UUID) -> list[PettyCashFund]:
         try:
             stmt = select(PettyCashFundTable).where(
-                PettyCashFundTable.legal_entity_id == legal_entity_id
+                PettyCashFundTable.legal_entity_id == legal_entity_id,
+                PettyCashFundTable.deleted_at.is_(None),
             )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-
-            funds = []
-            for table in tables:
-                funds.append(
-                    PettyCashFund(
-                        id=table.id,
-                        fund_name=table.fund_name,
-                        legal_entity_id=table.legal_entity_id,
-                        currency_code=table.currency_code,
-                        current_balance=Money(
-                            amount=table.current_balance, currency=table.currency_code
-                        ),
-                        initial_amount=Money(
-                            amount=table.initial_amount, currency=table.currency_code
-                        ),
-                        custodian_id=table.custodian_id,
-                        gl_account_id=table.gl_account_id,
-                        reimbursement_threshold=Money(
-                            amount=table.reimbursement_threshold, currency=table.currency_code
-                        ),
-                        fund_location=table.fund_location,
-                        status=table.status,
-                        created_by=table.created_by,
-                        created_at=table.created_at,
-                        version=table.version,
-                    )
-                )
-
-            return funds
+            return [self._petty_cash_table_to_domain(table) for table in tables]
 
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to get petty cash funds: {e}") from e

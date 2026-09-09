@@ -385,7 +385,6 @@ class VaultDynamicSecretProvider:
                 now = datetime.now(UTC)
                 for lease_id, lease_info in list(self._leases.items()):
                     expires_at = lease_info["expires_at"]
-                    lease_duration = lease_info["lease_duration"]
 
                     # Renew if within buffer window
                     if (expires_at - now).total_seconds() <= LEASE_RENEWAL_BUFFER_SECONDS:

@@ -120,6 +120,10 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     payment_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._events: list[dict[str, Any]] = []
+
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
@@ -164,7 +168,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # =========================================================================
-    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) - ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # =========================================================================
     bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
@@ -176,7 +180,6 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # =========================================================================
     # EVENT STORING
     # =========================================================================
-    _events: list[dict[str, Any]] = []
 
     def _record_event(self, event_type: str, data: dict[str, Any]) -> None:
         event = {
@@ -210,6 +213,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             status=events[0]["data"]["status"],
             description=events[0]["data"]["description"],
         )
+        # Initialize events list (already empty from __init__)
         for ev in events[1:]:
             ev_type = ev["event_type"]
             data = ev["data"]

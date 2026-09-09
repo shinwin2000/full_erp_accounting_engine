@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Index, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
@@ -27,9 +27,9 @@ class ManufacturingCostCardTable(Base, TimestampMixin):
         CheckConstraint("total_cost >= 0", name="ck_mfg_cost_total_nonneg"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    cost_card_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cost_card_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     period: Mapped[str] = mapped_column(String(20), nullable=False)
     material_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), default=0)

@@ -102,7 +102,7 @@ class EvidenceDocumentUploader:
     def _validate_file_type(self, file_content: bytes, file_name: str) -> None:
         ext = os.path.splitext(file_name)[1].lower()
         allowed_exts = []
-        for mime, exts in ALLOWED_MIME_TYPES.items():
+        for _mime, exts in ALLOWED_MIME_TYPES.items():
             allowed_exts.extend(exts)
         if ext not in allowed_exts:
             raise InvalidFileTypeError(
@@ -220,15 +220,14 @@ class EvidenceDocumentUploader:
             if verify_hash:
                 metadata = await storage.get_metadata(evidence_uri)
                 stored_hash = metadata.get("metadata", {}).get("file_hash") or metadata.get("file_hash")
-                if stored_hash:
-                    if not self._hasher.verify_hash(content, stored_hash):
-                        await trigger_alert(
-                            title="Evidence Integrity Check Failed",
-                            message=f"Evidence {evidence_uri} hash mismatch. Possible corruption.",
-                            severity="critical",
-                            source="EvidenceDocumentUploader",
-                        )
-                        raise EvidenceUploadError("Evidence integrity check failed")
+                if stored_hash and not self._hasher.verify_hash(content, stored_hash):
+                    await trigger_alert(
+                        title="Evidence Integrity Check Failed",
+                        message=f"Evidence {evidence_uri} hash mismatch. Possible corruption.",
+                        severity="critical",
+                        source="EvidenceDocumentUploader",
+                    )
+                    raise EvidenceUploadError("Evidence integrity check failed")
             logger.info(f"Evidence downloaded: {evidence_uri} ({len(content)} bytes)")
             return content
         except FileNotFoundError:

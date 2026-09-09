@@ -14,8 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -26,7 +25,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -36,6 +35,10 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.bank_reconciliation_table import BankReconciliationTable
+    from infrastructure.persistence_orm.bank_transaction_table import BankTransactionTable
 
 
 class BankAccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -55,7 +58,7 @@ class BankAccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
         Index("idx_bank_account_gl_account", "gl_account_id"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     account_number: Mapped[str] = mapped_column(String(50), nullable=False)
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
     bank_code: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -69,9 +72,9 @@ class BankAccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     available_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     opening_balance_date: Mapped[date] = mapped_column(Date, nullable=False)
-    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     last_reconciliation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     transactions: Mapped[list[BankTransactionTable]] = relationship(
         "BankTransactionTable", back_populates="bank_account", cascade="all, delete-orphan"

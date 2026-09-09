@@ -28,11 +28,11 @@ class CreateItemRequestDTO:
     """Request DTO for creating a new inventory item."""
 
     legal_entity_id: UUID
-    sku: str
-    name: str
+    sku: str | None = None
+    name: str | None = None
     description: str | None = None
     item_type: str = "finished_good"
-    uom: str = "pcs"
+    uom: str | None = None
     category: str | None = None
     brand: str | None = None
     reorder_point: Decimal | None = None
@@ -43,8 +43,46 @@ class CreateItemRequestDTO:
     selling_price: Decimal = Decimal(0)
     warehouse_code: str | None = None
     is_active: bool = True
+    # -- Field tambahan supaya cocok dengan kontrak router (ItemCreateSchema) --
+    item_code: str | None = None
+    item_name: str | None = None
+    unit_of_measure: str | None = None
+    reorder_quantity: Decimal | None = None
+    valuation_method: str | None = None
+    warehouse_id: UUID | None = None
+    min_stock: Decimal | None = None
+    max_stock: Decimal | None = None
+    tax_rate_purchase: Decimal | None = None
+    tax_rate_sales: Decimal | None = None
+    weight_kg: Decimal | None = None
+    volume_m3: Decimal | None = None
+    is_lot_tracked: bool = False
+    is_serial_tracked: bool = False
+    is_expiry_tracked: bool = False
+    created_by: UUID | None = None
 
     def __post_init__(self) -> None:
+        # item_code/item_name (kontrak router baru) dan sku/name (kontrak lama)
+        # merujuk konsep yang sama - saling isi kalau salah satu kosong.
+        if not self.sku and self.item_code:
+            self.sku = self.item_code
+        if not self.item_code and self.sku:
+            self.item_code = self.sku
+        if not self.name and self.item_name:
+            self.name = self.item_name
+        if not self.item_name and self.name:
+            self.item_name = self.name
+        if not self.uom and self.unit_of_measure:
+            self.uom = self.unit_of_measure
+        if not self.unit_of_measure and self.uom:
+            self.unit_of_measure = self.uom
+        if self.uom is None:
+            self.uom = "pcs"
+        if self.minimum_stock is None and self.min_stock is not None:
+            self.minimum_stock = self.min_stock
+        if self.maximum_stock is None and self.max_stock is not None:
+            self.maximum_stock = self.max_stock
+
         if not self.sku or len(self.sku.strip()) < 3:
             raise ValueError("SKU must be at least 3 characters")
         if not self.name:
@@ -176,6 +214,15 @@ class StockMovementRequestDTO:
     movement_date: date | None = None
     warehouse_code: str | None = None
     notes: str | None = None
+    # -- Field tambahan supaya cocok dengan kontrak router inventory (movements API) --
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+    warehouse_id: UUID | None = None
+    to_warehouse_id: UUID | None = None
+    batch_number: str | None = None
+    serial_number: str | None = None
+    expiry_date: date | None = None
+    created_by: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -183,10 +230,15 @@ class StockMovementRequestDTO:
         valid_movement_types = [
             "IN",
             "OUT",
+            "ADJUSTMENT",
             "ADJUSTMENT_IN",
             "ADJUSTMENT_OUT",
             "TRANSFER_IN",
             "TRANSFER_OUT",
+            "RETURN_IN",
+            "RETURN_OUT",
+            "SCRAP",
+            "SAMPLE",
         ]
         if self.movement_type not in valid_movement_types:
             raise ValueError(f"Invalid movement_type: {self.movement_type}")
@@ -196,6 +248,14 @@ class StockMovementRequestDTO:
             from datetime import date
 
             object.__setattr__(self, "movement_date", date.today())
+        # reference_type/reference_document_type dan reference_id/reference_document_number
+        # adalah dua penamaan untuk konsep yang sama - saling isi kalau salah satu kosong.
+        if self.reference_type and not self.reference_document_type:
+            object.__setattr__(self, "reference_document_type", self.reference_type)
+        if not self.reference_type and self.reference_document_type:
+            object.__setattr__(self, "reference_type", self.reference_document_type)
+        if self.warehouse_id and not self.warehouse_code:
+            object.__setattr__(self, "warehouse_code", str(self.warehouse_id))
 
     def to_dict(self) -> dict[str, Any]:
         # movement_date is guaranteed non-None after __post_init__
@@ -211,6 +271,14 @@ class StockMovementRequestDTO:
             "movement_date": self.movement_date.isoformat(),
             "warehouse_code": self.warehouse_code,
             "notes": self.notes,
+            "reference_type": self.reference_type,
+            "reference_id": str(self.reference_id) if self.reference_id else None,
+            "warehouse_id": str(self.warehouse_id) if self.warehouse_id else None,
+            "to_warehouse_id": str(self.to_warehouse_id) if self.to_warehouse_id else None,
+            "batch_number": self.batch_number,
+            "serial_number": self.serial_number,
+            "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
+            "created_by": str(self.created_by) if self.created_by else None,
         }
 
 

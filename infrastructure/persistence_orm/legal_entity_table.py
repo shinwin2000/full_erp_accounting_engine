@@ -212,7 +212,8 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         self.is_locked = True
         self.locked_reason = reason
         self.locked_by = user_id
-        from datetime import UTC, datetime as _dt
+        from datetime import UTC
+        from datetime import datetime as _dt
         self.locked_at = _dt.now(UTC)
         self.increment_version()
 

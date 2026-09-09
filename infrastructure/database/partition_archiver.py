@@ -170,7 +170,7 @@ class PartitionArchiver:
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
             query = """
-            SELECT 
+            SELECT
                 inhrelid::regclass::text as partition_name,
                 pg_get_expr(c.relpartbound, inhrelid) as partition_range
             FROM pg_inherits
@@ -492,7 +492,7 @@ class PartitionArchiver:
 
     async def list_archives(self, table_name: str | None = None) -> list[dict]:
         archives = []
-        for key, metadata in self._archive_metadata.items():
+        for _key, metadata in self._archive_metadata.items():
             if table_name and metadata.get("table") != table_name:
                 continue
             archives.append(metadata)
@@ -582,3 +582,4 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
+

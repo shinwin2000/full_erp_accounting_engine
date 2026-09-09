@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
@@ -181,7 +181,6 @@ class MTLSClientCertificateRenewer:
             Signed certificate in PEM format
         """
         ca_type = self.config.get("ca_type", "internal")
-        ca_endpoint = self.config.get("ca_endpoint")
 
         if ca_type == "internal":
             return await self._sign_with_internal_ca(csr_pem)

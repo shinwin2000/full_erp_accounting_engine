@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import UUID as SQLUUID
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import UUID as SQLUUID
 
 from infrastructure.persistence_orm.base_model import Base
 

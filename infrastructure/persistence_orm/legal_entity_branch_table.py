@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 
 
 class LegalEntityBranchTable(Base):

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -35,6 +35,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.bill_of_materials_line_table import (
+        BillOfMaterialsLineTable,
+    )
 
 
 class BillOfMaterialsTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):

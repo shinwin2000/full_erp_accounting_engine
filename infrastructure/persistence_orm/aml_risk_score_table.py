@@ -29,7 +29,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -70,12 +71,12 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     )
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Reference to customer (or entity being scored)
     customer_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        PGUUID(as_uuid=True), nullable=False, index=True
     )
     customer_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default="individual"  # individual, company
@@ -103,7 +104,7 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # Override / manual adjustment
     manual_adjustment: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     adjustment_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    adjusted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    adjusted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     adjusted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Calculation timestamp
@@ -115,8 +116,8 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     )
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES

@@ -20,7 +20,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -45,7 +46,7 @@ class HashChainTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_hc_last_verified", "last_verified_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stream_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -53,11 +54,11 @@ class HashChainTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     genesis_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="valid")
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    verified_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     broken_at_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     repair_history: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    def mark_valid(self, verified_by: uuid.UUID | None = None) -> None:
+    def mark_valid(self, verified_by: UUID | None = None) -> None:
         self.status = "valid"
         self.last_verified_at = datetime.now(UTC)
         self.verified_by = verified_by

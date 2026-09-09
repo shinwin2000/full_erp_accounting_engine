@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Date, Index, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -38,8 +38,8 @@ class HedgeEffectivenessTestTable(Base, TimestampMixin, SoftDeleteMixin, Version
         Index("idx_hedge_test_result", "result"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hedge_instrument_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    hedge_instrument_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     test_date: Mapped[date] = mapped_column(Date, nullable=False)
     prospective_range_low: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     prospective_range_high: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
@@ -47,7 +47,7 @@ class HedgeEffectivenessTestTable(Base, TimestampMixin, SoftDeleteMixin, Version
     result: Mapped[str] = mapped_column(String(10), nullable=False)  # effective, ineffective
     ineffectiveness_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    performed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    performed_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     @property
     def is_effective(self) -> bool:

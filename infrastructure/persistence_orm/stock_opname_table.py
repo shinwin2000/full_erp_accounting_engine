@@ -78,7 +78,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     opname_date: Mapped[date] = mapped_column(Date, nullable=False)
     location_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
 
-    # Warehouse reference – now with proper foreign key to "public.warehouse.id"
+    # Warehouse reference - now with proper foreign key to "public.warehouse.id"
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("warehouse.id", ondelete="SET NULL"),
@@ -111,7 +111,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         lazy="selectin",
     )
 
-    # Warehouse (many-to-one) – added back_populates to match WarehouseTable.stock_opnames
+    # Warehouse (many-to-one) - added back_populates to match WarehouseTable.stock_opnames
     warehouse: Mapped[WarehouseTable | None] = relationship(
         "WarehouseTable",
         back_populates="stock_opnames",

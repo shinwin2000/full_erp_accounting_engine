@@ -242,7 +242,7 @@ class SLOMonitorPeriodClose:
 
         # Send alert if SLO violated
         if critical_violated:
-            asyncio.create_task(
+            alert_task = asyncio.create_task(
                 trigger_alert(
                     title="Period Close SLO Critical Violation",
                     message=f"Period close for FY{fiscal_year}P{period} completed {hours_after:.1f} hours after period end "
@@ -258,8 +258,10 @@ class SLOMonitorPeriodClose:
                     },
                 )
             )
+            # Ensure task is not garbage collected by storing it (even if not awaited)
+            _task = alert_task
         elif warning_violated:
-            asyncio.create_task(
+            alert_task = asyncio.create_task(
                 trigger_alert(
                     title="Period Close SLO Warning",
                     message=f"Period close for FY{fiscal_year}P{period} completed {hours_after:.1f} hours after period end "
@@ -274,6 +276,7 @@ class SLOMonitorPeriodClose:
                     },
                 )
             )
+            _task = alert_task
 
         logger.info(
             f"Period close completed for {key}: {duration_seconds:.2f}s, "
@@ -314,7 +317,7 @@ class SLOMonitorPeriodClose:
 
         period_close_total.labels(legal_entity_id=str(legal_entity_id), status="failed").inc()
 
-        asyncio.create_task(
+        alert_task = asyncio.create_task(
             trigger_alert(
                 title="Period Close Failed",
                 message=f"Period close for FY{fiscal_year}P{period} failed: {error}",
@@ -328,6 +331,8 @@ class SLOMonitorPeriodClose:
                 },
             )
         )
+        # Keep reference to avoid garbage collection
+        _task = alert_task
 
         logger.error(f"Period close failed for {key}: {error}")
 

@@ -189,7 +189,7 @@ class KafkaDeadLetterHandler:
                     max_records=self.config.get("max_messages_per_batch", 100),
                 )
 
-                for tp, msgs in messages.items():
+                for _tp, msgs in messages.items():
                     for msg in msgs:
                         await self._process_dlq_message(msg)
 
@@ -220,7 +220,6 @@ class KafkaDeadLetterHandler:
             original_topic = dlq_data.get("original_topic")
             original_key = dlq_data.get("original_key")
             original_value = dlq_data.get("original_value")
-            error = dlq_data.get("error")
             failed_at = dlq_data.get("failed_at")
 
             # Check if should retry
@@ -333,7 +332,7 @@ class KafkaDeadLetterHandler:
         purged = 0
         try:
             messages = await consumer.getmany(timeout_ms=1000, max_records=max_messages)
-            for tp, msgs in messages.items():
+            for _tp, msgs in messages.items():
                 purged += len(msgs)
             await consumer.commit()
             logger.info(f"Purged {purged} messages from DLQ")

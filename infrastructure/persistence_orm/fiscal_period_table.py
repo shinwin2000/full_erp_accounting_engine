@@ -198,9 +198,7 @@ def generate_fiscal_periods(
 
     periods = []
 
-    # Adjust start month
-    start_date = date(fiscal_year, fiscal_year_start_month, 1)
-
+    # Adjust start month - note: we use fiscal_year_start_month for iteration
     for month_offset in range(12):
         period_year = fiscal_year
         period_month = fiscal_year_start_month + month_offset

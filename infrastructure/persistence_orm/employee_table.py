@@ -367,13 +367,15 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         self.increment_version()
 
     def has_available_leave(self, leave_type: str, days: Decimal) -> bool:
-        if leave_type == "annual":
-            return self.annual_leave_balance >= days
-        elif leave_type == "sick":
-            return self.sick_leave_balance >= days
-        elif leave_type == "special":
-            return self.special_leave_balance >= days
-        return False
+        balance_map = {
+            "annual": self.annual_leave_balance,
+            "sick": self.sick_leave_balance,
+            "special": self.special_leave_balance,
+        }
+        balance = balance_map.get(leave_type)
+        if balance is None:
+            return False
+        return balance >= days
 
     def deduct_leave(self, leave_type: str, days: Decimal) -> None:
         if leave_type == "annual":

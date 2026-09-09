@@ -31,7 +31,6 @@ from infrastructure.persistence_orm.base_model import (
     Base,
     SoftDeleteMixin,
     TimestampMixin,
-    VersionMixin,
 )
 
 if TYPE_CHECKING:

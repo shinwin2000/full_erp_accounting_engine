@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -32,8 +32,8 @@ from infrastructure.persistence_orm.base_model import (
 class CompanyEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     __tablename__ = "company_entity"
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     legal_name: Mapped[str] = mapped_column(String(200), nullable=False)
     trade_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)

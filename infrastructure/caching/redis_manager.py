@@ -339,7 +339,7 @@ class RedisManager:
             logger.error(f"Redis SREM error for key {key}: {e}")
             raise RedisOperationError(f"SREM failed: {e}") from e
 
-    async def smembers(self, key: str) -> set:
+    async def smembers(self, key: str) -> set[Any]:
         client = await self.get_client()
         try:
             return await client.smembers(key)
@@ -422,7 +422,7 @@ class RedisManager:
     async def zadd(self, key: str, mapping: dict[str, float]) -> int:
         client = await self.get_client()
         try:
-            return await client.zadd(key, mapping)
+            return await client.zadd(key, mapping)  # type: ignore[arg-type]
         except RedisError as e:
             logger.error(f"Redis ZADD error for key {key}: {e}")
             raise RedisOperationError(f"ZADD failed: {e}") from e

@@ -159,7 +159,7 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         self,
         file_content: BinaryIO,
         file_name: str,
-        content_type: str = None,
+        content_type: str | None = None,
         metadata: dict[str, str] | None = None,
         bucket: str | None = None,
     ) -> str:
@@ -211,7 +211,6 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         """
         Download archive from Glacier (initiates retrieval if needed).
         """
-        client = await self._get_client()
         vault_name, archive_id = self._parse_uri(file_uri)
 
         # Check if already retrieved and in cache

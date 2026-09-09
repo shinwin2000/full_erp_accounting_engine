@@ -135,6 +135,10 @@ class MovementEntity:
         so_line_id: UUID | None = None,
         po_line_id: UUID | None = None,
         wo_line_id: UUID | None = None,
+        serial_number: str | None = None,
+        to_warehouse_id: UUID | None = None,
+        reversed_at: datetime | None = None,
+        reversed_by: UUID | None = None,
         **kwargs,
     ):
         final_id = id or movement_id
@@ -169,6 +173,14 @@ class MovementEntity:
         self.so_line_id = so_line_id
         self.po_line_id = po_line_id
         self.wo_line_id = wo_line_id
+        # -- Field tambahan untuk selaras dengan kontrak router (movements API) --
+        self.serial_number = serial_number
+        # to_warehouse_id dipakai untuk transfer; destination_warehouse_id (lama)
+        # tetap dipertahankan terpisah untuk backward-compat, tapi keduanya
+        # merujuk konsep yang sama untuk movement TRANSFER_OUT.
+        self.to_warehouse_id = to_warehouse_id or destination_warehouse_id
+        self.reversed_at = reversed_at
+        self.reversed_by = reversed_by
 
         # Internal audit trail
         self._audit_trail: list[dict[str, Any]] = []
@@ -205,6 +217,11 @@ class MovementEntity:
     @property
     def is_outbound(self) -> bool:
         return self.movement_type.is_outbound() if self.movement_type else False
+
+    @property
+    def total_value(self) -> Decimal:
+        """Alias untuk total_cost - beberapa konsumen lama pakai nama total_value."""
+        return self.total_cost
 
     # ==================== DUMMY METHODS FOR CHECKER COMPLIANCE ====================
 
@@ -941,6 +958,18 @@ class MovementEntity:
         new_movement._record_audit("reverse", {"reversed_by": reversed_by, "reason": reason})
         return new_movement
 
+    def mark_as_reversed(self, reversed_by: UUID) -> None:
+        """Tandai movement ini sebagai sudah dibalik (dipanggil pada movement ASLI,
+        bukan movement hasil reversal). Mutasi in-place karena hanya mengubah
+        metadata status, bukan angka kuantitas/nilai."""
+        if self.status != MovementStatus.CONFIRMED:
+            raise ValueError(f"Cannot mark as reversed: status is {self.status.value}, expected confirmed")
+        self.status = MovementStatus.REVERSED
+        self.reversed_at = datetime.now(UTC)
+        self.reversed_by = reversed_by
+        self.version += 1
+        self._record_audit("mark_as_reversed", {"reversed_by": str(reversed_by)})
+
     # ==================== DICTIONARY METHODS ====================
 
     def to_dict(self) -> dict[str, Any]:
@@ -980,6 +1009,10 @@ class MovementEntity:
             "so_line_id": str(self.so_line_id) if self.so_line_id else None,
             "po_line_id": str(self.po_line_id) if self.po_line_id else None,
             "wo_line_id": str(self.wo_line_id) if self.wo_line_id else None,
+            "serial_number": self.serial_number,
+            "to_warehouse_id": str(self.to_warehouse_id) if self.to_warehouse_id else None,
+            "reversed_at": self.reversed_at.isoformat() if self.reversed_at else None,
+            "reversed_by": str(self.reversed_by) if self.reversed_by else None,
         }
 
     @classmethod
@@ -1032,6 +1065,10 @@ class MovementEntity:
             so_line_id=UUID(data["so_line_id"]) if data.get("so_line_id") else None,
             po_line_id=UUID(data["po_line_id"]) if data.get("po_line_id") else None,
             wo_line_id=UUID(data["wo_line_id"]) if data.get("wo_line_id") else None,
+            serial_number=data.get("serial_number"),
+            to_warehouse_id=UUID(data["to_warehouse_id"]) if data.get("to_warehouse_id") else None,
+            reversed_at=datetime.fromisoformat(data["reversed_at"]) if data.get("reversed_at") else None,
+            reversed_by=UUID(data["reversed_by"]) if data.get("reversed_by") else None,
         )
 
 

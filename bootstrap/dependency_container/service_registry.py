@@ -331,6 +331,37 @@ class ServiceRegistrar:
             container.register_singleton(ForexService, factory=_create_forex_service)
             logger.info("ForexService registered")
 
+            # ----- Registrasi GoodwillService (sebelumnya TIDAK PERNAH
+            # terdaftar sama sekali - endpoint /goodwill/goodwill/* selalu
+            # gagal dengan DependencyNotFoundError) -----
+            from application.service_layer.service_goodwill import GoodwillService
+            from ports.primary.goodwill_repository_port import GoodwillRepositoryPort
+
+            async def _create_goodwill_service():
+                goodwill_repo = await container.resolve_async(GoodwillRepositoryPort)
+                try:
+                    ledger_repo = await container.resolve_async(LedgerRepositoryPort)
+                except Exception:
+                    ledger_repo = None
+                try:
+                    uow = await container.resolve_async(UnitOfWorkPort)
+                except Exception:
+                    uow = None
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return GoodwillService(
+                    goodwill_repo=goodwill_repo,
+                    ledger_repo=ledger_repo,
+                    uow=uow,
+                    event_publisher=event_publisher,
+                )
+
+            container.register_singleton(GoodwillService, factory=_create_goodwill_service)
+            logger.info("GoodwillService registered")
+
             # ----- Registrasi ForexRevaluationUseCase (sebelumnya TIDAK
             # PERNAH terdaftar - endpoint POST /forex/forex/revaluation
             # selalu gagal DependencyNotFoundError) -----

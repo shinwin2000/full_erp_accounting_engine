@@ -150,6 +150,41 @@ class StockOpnameEntity:
     def id(self) -> UUID:
         return self.opname_id
 
+    # -- Convenience properties untuk kompatibilitas dengan alur service yang
+    # memperlakukan satu StockOpname sebagai satu item (bukan multi-line).
+    # Kalau ada lebih dari satu item, properti ini merujuk ke item PERTAMA. --
+    @property
+    def item_id(self) -> UUID | None:
+        return self.items[0].item_id if self.items else None
+
+    @property
+    def system_quantity(self) -> Decimal:
+        return self.items[0].system_quantity if self.items else Decimal(0)
+
+    @property
+    def physical_quantity(self) -> Decimal:
+        return self.items[0].physical_quantity if self.items else Decimal(0)
+
+    @property
+    def discrepancy(self) -> Decimal:
+        return self.items[0].discrepancy if self.items else Decimal(0)
+
+    @property
+    def discrepancy_value(self) -> Decimal:
+        return self.items[0].discrepancy_value if self.items else Decimal(0)
+
+    @property
+    def unit_cost(self) -> Decimal:
+        return self.items[0].unit_cost if self.items else Decimal(0)
+
+    @property
+    def counted_by(self) -> UUID | None:
+        return self.items[0].counted_by if self.items else None
+
+    @property
+    def counted_at(self) -> datetime | None:
+        return self.items[0].counted_at if self.items else None
+
     @property
     def total_discrepancy(self) -> Decimal:
         return sum((i.discrepancy for i in self.items), Decimal(0))

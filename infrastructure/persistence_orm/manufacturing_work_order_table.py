@@ -23,7 +23,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -53,12 +53,12 @@ class ManufacturingWorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, Version
         Index("idx_wo_actual_completion_date", "actual_completion_date"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     wo_number: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    bill_of_materials_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    bill_of_materials_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False, default=1)
     completed_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False, default=0)
     rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False, default=0)
@@ -73,8 +73,8 @@ class ManufacturingWorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, Version
     total_overhead_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     total_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @property

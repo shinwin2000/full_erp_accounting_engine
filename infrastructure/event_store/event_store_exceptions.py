@@ -343,42 +343,42 @@ SnapshotCompressionError = CompressionError
 # ============================================================================
 
 __all__ = [
-    # Base
-    "EventStoreError",
     # Append-only store
     "AppendOnlyStoreError",
-    "EventNotFoundError",
-    "IntegrityViolationError",
-    "StoreNotInitializedError",
-    "DuplicateSequenceError",
-    # Hash chain
-    "HashChainError",
-    "HashChainBrokenError",
-    "HashChainValidationError",
-    # Snapshot
-    "SnapshotStoreError",
-    "SnapshotNotFoundError",
-    "SnapshotCorruptedError",
-    # Compression
-    "CompressionError",
-    "DecompressionError",
-    "UnsupportedAlgorithmError",
-    "IntegrityCheckError",
-    "EncryptionError",
-    "SnapshotCompressionError",
+    "AttestationNotFoundError",
+    "AttestationVerificationError",
     # Backup
     "BackupArchiverError",
     "BackupNotFoundError",
-    "RestoreError",
-    "VerificationError",
-    # Tamper detection
-    "TamperDetectionError",
-    "ScanInterruptedError",
+    # Compression
+    "CompressionError",
+    "DecompressionError",
+    "DuplicateSequenceError",
+    "EncryptionError",
+    "EventNotFoundError",
+    # Base
+    "EventStoreError",
+    "HashChainBrokenError",
+    # Hash chain
+    "HashChainError",
+    "HashChainValidationError",
     # Integrity attestation
     "IntegrityAttestationError",
-    "AttestationNotFoundError",
-    "AttestationVerificationError",
-    "SigningError",
+    "IntegrityCheckError",
+    "IntegrityViolationError",
     # Metrics
     "MetricsCollectionError",
+    "RestoreError",
+    "ScanInterruptedError",
+    "SigningError",
+    "SnapshotCompressionError",
+    "SnapshotCorruptedError",
+    "SnapshotNotFoundError",
+    # Snapshot
+    "SnapshotStoreError",
+    "StoreNotInitializedError",
+    # Tamper detection
+    "TamperDetectionError",
+    "UnsupportedAlgorithmError",
+    "VerificationError",
 ]

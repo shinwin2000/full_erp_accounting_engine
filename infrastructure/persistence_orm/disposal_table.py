@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -21,6 +22,9 @@ from infrastructure.persistence_orm.base_model import (
     SoftDeleteMixin,
     TimestampMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.fixed_asset_table import FixedAssetTable
 
 
 class DisposalTable(Base, TimestampMixin, SoftDeleteMixin):

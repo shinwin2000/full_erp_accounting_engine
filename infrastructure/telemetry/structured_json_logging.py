@@ -15,26 +15,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-try:
-    from pythonjsonlogger import jsonlogger
-
-    JSON_LOGGER_AVAILABLE = True
-except ImportError:
-    JSON_LOGGER_AVAILABLE = False
-
 from config.loader_yaml import load_yaml_config
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_LOG_FORMAT = {
-    "timestamp": "%(asctime)s",
-    "level": "%(levelname)s",
-    "logger": "%(name)s",
-    "message": "%(message)s",
-    "module": "%(module)s",
-    "function": "%(funcName)s",
-    "line": "%(lineno)d",
-}
 
 DEFAULT_CONFIG = {
     "level": "INFO",
@@ -68,7 +51,7 @@ class StructuredJsonLogger:
         level = getattr(logging, self._config.get("level", "INFO").upper())
         self._logger.setLevel(level)
         self._logger.handlers.clear()
-        if self._config.get("format") == "json" and JSON_LOGGER_AVAILABLE:
+        if self._config.get("format") == "json":
             formatter = CustomJsonFormatter()
         else:
             formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -149,7 +132,7 @@ class StructuredJsonLogger:
 class CustomJsonFormatter(logging.Formatter):
     def __init__(self, fmt: dict | None = None, style: str = "%", validate: bool = True):
         super().__init__(style=style, validate=validate)
-        self._fmt = fmt or DEFAULT_LOG_FORMAT
+        self._fmt = fmt  # not used, but kept for compatibility
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         # Manual ISO format with microseconds, works on all platforms

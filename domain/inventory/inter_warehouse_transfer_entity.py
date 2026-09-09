@@ -108,9 +108,9 @@ class InterWarehouseTransferEntity:
 
     transfer_id: UUID
     transfer_number: str
-    source_warehouse_id: UUID
+    source_warehouse_id: UUID | None = None
     source_warehouse_name: str
-    destination_warehouse_id: UUID
+    destination_warehouse_id: UUID | None = None
     destination_warehouse_name: str
     transfer_date: date
     priority: TransferPriority
@@ -190,6 +190,10 @@ class InterWarehouseTransferEntity:
     @property
     def to_warehouse(self) -> str:
         return self.destination_warehouse_name
+
+    @property
+    def item_id(self) -> UUID | None:
+        return self.items[0].item_id if self.items else None
 
     # ==================== BUSINESS METHODS ====================
 

@@ -177,30 +177,21 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
                 int(val)
             elif self.data_type == "float" or self.data_type == "decimal":
                 Decimal(str(val))
-            elif self.data_type == "boolean":
-                if isinstance(val, str):
-                    val = val.lower() in ("true", "1", "yes", "on")
+            elif self.data_type == "boolean" and isinstance(val, str):
+                val = val.lower() in ("true", "1", "yes", "on")
         except (ValueError, TypeError):
             return False
 
         # Min/Max
         if self.min_value is not None:
             min_val = Decimal(self.min_value)
-            if self.data_type == "integer":
-                if int(val) < int(min_val):
-                    return False
-            elif self.data_type in ("float", "decimal"):
-                if Decimal(str(val)) < min_val:
-                    return False
+            if (self.data_type == "integer" and int(val) < int(min_val)) or (self.data_type in ("float", "decimal") and Decimal(str(val)) < min_val):
+                return False
 
         if self.max_value is not None:
             max_val = Decimal(self.max_value)
-            if self.data_type == "integer":
-                if int(val) > int(max_val):
-                    return False
-            elif self.data_type in ("float", "decimal"):
-                if Decimal(str(val)) > max_val:
-                    return False
+            if (self.data_type == "integer" and int(val) > int(max_val)) or (self.data_type in ("float", "decimal") and Decimal(str(val)) > max_val):
+                return False
 
         # Allowed values
         if self.allowed_values:

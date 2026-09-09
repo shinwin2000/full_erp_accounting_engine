@@ -120,7 +120,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     attachment_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     is_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
 
-    # Period association (foreign key only – relationship removed to avoid mapper conflict)
+    # Period association (foreign key only - relationship removed to avoid mapper conflict)
     period_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("fiscal_period.id"), nullable=True
     )
@@ -196,7 +196,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         uselist=False,
     )
 
-    # PERIOD RELATIONSHIP REMOVED – hanya foreign key period_id yang tersisa.
+    # PERIOD RELATIONSHIP REMOVED - hanya foreign key period_id yang tersisa.
     # Jika navigasi diperlukan di masa depan, tambahkan relasi dengan back_populates
     # setelah FiscalPeriodTable memiliki relasi 'journals'.
 

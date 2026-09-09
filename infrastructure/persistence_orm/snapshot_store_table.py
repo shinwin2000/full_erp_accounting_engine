@@ -22,7 +22,8 @@ from sqlalchemy import (
     LargeBinary,
     String,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base
@@ -37,8 +38,8 @@ class SnapshotStoreTable(Base):
         Index("idx_snapshot_status", "status"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    aggregate_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    aggregate_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
     snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -67,7 +68,7 @@ class SnapshotStoreTable(Base):
             "snapshot_version": self.snapshot_version,
             "data_format": self.data_format,
             "is_encrypted": self.is_encrypted,
-            "metadata": self.metadata,
+            "metadata": self.payload_metadata,
             "taken_at": self.taken_at.isoformat(),
             "status": self.status,
             "archived_at": self.archived_at.isoformat() if self.archived_at else None,

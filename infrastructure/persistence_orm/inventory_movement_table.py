@@ -8,7 +8,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel inventory_movement.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -19,6 +19,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    TIMESTAMP,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -94,10 +95,10 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     reference_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Foreign keys to warehouse
-    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("warehouse.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
@@ -109,6 +110,12 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+
+    # -- Kolom tambahan (migration inv_mvmt_add_status_fields_002) --
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="confirmed")
+    serial_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reversed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    reversed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS (hanya untuk warehouse, karena item dan fifo_layers via backref)

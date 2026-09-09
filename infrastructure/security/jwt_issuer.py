@@ -27,7 +27,7 @@ from uuid import UUID
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
+import jwt
 
 from config.loader_yaml import load_yaml_config
 
@@ -102,7 +102,7 @@ class JWTIssuer:
 
         self._private_key = self._load_private_key()
         self._public_key = self._load_public_key()
-        self._revocation_list = None
+        self._revocation_list: JWTRevocationList | None = None
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
@@ -111,15 +111,23 @@ class JWTIssuer:
             logger.warning(f"Security config load failed: {type(e).__name__}")
             return {}
 
-    def _load_private_key(self) -> bytes:
-        """Load RSA private key (raw PEM bytes) from file or environment."""
+    def _load_private_key(self) -> rsa.RSAPrivateKey:
+        """Load RSA private key (PEM) and return as RSAPrivateKey object."""
         key_path = self.config.get("jwt", {}).get("private_key_path", "/secrets/jwt_private.pem")
 
         try:
             with open(key_path, "rb") as f:
                 key_data = f.read()
+
+            private_key = serialization.load_pem_private_key(
+                key_data,
+                password=None,
+                backend=default_backend(),
+            )
+            if not isinstance(private_key, rsa.RSAPrivateKey):
+                raise PrivateKeyNotFoundError("Loaded key is not RSA private key")
             logger.info("Signing material initialized")
-            return key_data
+            return private_key
         except Exception as e:
             logger.error("Failed to initialize signing material")
             raise PrivateKeyNotFoundError("Private key not found") from e
@@ -133,6 +141,9 @@ class JWTIssuer:
                 key_data = f.read()
 
             public_key = serialization.load_pem_public_key(key_data, backend=default_backend())
+            if not isinstance(public_key, rsa.RSAPublicKey):
+                logger.warning("Loaded public key is not RSA public key")
+                return None
             logger.info("Verification material initialized")
             return public_key
         except Exception as e:
@@ -144,6 +155,7 @@ class JWTIssuer:
             from infrastructure.security.jwt_revocation_list import get_revocation_list
 
             self._revocation_list = await get_revocation_list()
+        assert self._revocation_list is not None
         return self._revocation_list
 
     def _generate_jti(self) -> str:
@@ -309,14 +321,16 @@ class JWTIssuer:
             ).decode("utf-8")
 
         # Derive from private key
-        return (
-            self._private_key.public_key()
-            .public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        if self._private_key:
+            return (
+                self._private_key.public_key()
+                .public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                .decode("utf-8")
             )
-            .decode("utf-8")
-        )
+        raise PrivateKeyNotFoundError("No private key available to derive public key")
 
 
 # ============================================================================

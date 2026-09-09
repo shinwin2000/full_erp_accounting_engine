@@ -7,6 +7,7 @@ Responsibility: ORM models untuk Delivery Order.
 
 from __future__ import annotations
 
+from typing import ClassVar
 from uuid import uuid4
 
 from sqlalchemy import UUID as SQLUUID
@@ -18,7 +19,7 @@ from infrastructure.persistence_orm.base_model import Base
 
 class DeliveryOrderTable(Base):
     __tablename__ = "delivery_order"
-    __table_args__ = {"extend_existing": True}
+    __table_args__: ClassVar[dict] = {"extend_existing": True}
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -52,7 +53,7 @@ class DeliveryOrderTable(Base):
 
 class DeliveryOrderLineTable(Base):
     __tablename__ = "delivery_order_line"
-    __table_args__ = {"extend_existing": True}
+    __table_args__: ClassVar[dict] = {"extend_existing": True}
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     delivery_order_id = Column(SQLUUID(as_uuid=True), nullable=False)

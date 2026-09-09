@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.report_definition_table import ReportDefinitionTable
 
 
 class ReportScheduleTable(Base):
@@ -26,15 +29,15 @@ class ReportScheduleTable(Base):
         Index("idx_report_schedule_next_run", "next_run_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    definition_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("report_definition.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    definition_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("report_definition.id"), nullable=False)
     cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     recipient_emails: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     definition: Mapped[ReportDefinitionTable] = relationship("ReportDefinitionTable")
 

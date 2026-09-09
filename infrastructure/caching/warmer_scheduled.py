@@ -107,12 +107,16 @@ class CacheWarmer:
         Acquire distributed lock for warming job.
         """
         redis = await self._get_redis()
+        client = await redis.get_client()
         lock_key = f"{self._lock_key}:{job_name}"
-        # Use SET NX to acquire lock
-        result = await redis._client.setnx(lock_key, str(datetime.now(timezone.UTC).timestamp()))
-        if result:
-            await redis.expire(lock_key, WARMING_LOCK_TTL)
-        return result
+        # Use SET with NX and EX to acquire lock
+        result = await client.set(
+            lock_key,
+            str(datetime.now(timezone.utc).timestamp()),
+            nx=True,
+            ex=WARMING_LOCK_TTL,
+        )
+        return result is True
 
     async def _release_lock(self, job_name: str) -> None:
         """
@@ -134,7 +138,7 @@ class CacheWarmer:
 
         try:
             logger.info(f"Starting cache warming job: {job.name}")
-            start_time = datetime.now(timezone.UTC)
+            start_time = datetime.now(timezone.utc)
 
             # Execute the warming function
             data = await job.function()
@@ -152,7 +156,7 @@ class CacheWarmer:
             job.last_status = "success"
             self._warmed_count += len(data)
 
-            duration = (datetime.now(timezone.UTC) - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.info(
                 f"Cache warming job {job.name} completed: {len(data)} items in {duration:.2f}s"
             )
@@ -314,7 +318,7 @@ async def warm_chart_of_accounts() -> dict[str, Any]:
         result[f"coa:{entity.id}"] = {
             "legal_entity_id": str(entity.id),
             "accounts": [acc.to_dict() for acc in accounts],
-            "warmed_at": datetime.now(timezone.UTC).isoformat(),
+            "warmed_at": datetime.now(timezone.utc).isoformat(),
         }
     return result
 
@@ -328,7 +332,7 @@ async def warm_trial_balance() -> dict[str, Any]:
     legal_entities = await ledger_service.get_all_legal_entities()
 
     result = {}
-    today = datetime.now(timezone.UTC).date()
+    today = datetime.now(timezone.utc).date()
     for entity in legal_entities:
         tb = await ledger_service.get_trial_balance(entity.id, today)
         result[f"trial_balance:{entity.id}:{today.isoformat()}"] = tb
@@ -359,7 +363,7 @@ async def warm_ar_aging() -> dict[str, Any]:
     legal_entities = await ar_service.get_all_legal_entities()
 
     result = {}
-    today = datetime.now(timezone.UTC).date()
+    today = datetime.now(timezone.utc).date()
     for entity in legal_entities:
         aging = await ar_service.get_aging_all_customers(entity.id, today)
         result[f"ar_aging:{entity.id}:{today.isoformat()}"] = aging
@@ -375,7 +379,7 @@ async def warm_ap_aging() -> dict[str, Any]:
     legal_entities = await ap_service.get_all_legal_entities()
 
     result = {}
-    today = datetime.now(timezone.UTC).date()
+    today = datetime.now(timezone.utc).date()
     for entity in legal_entities:
         aging = await ap_service.get_aging_all_vendors(entity.id, today)
         result[f"ap_aging:{entity.id}:{today.isoformat()}"] = aging
@@ -391,7 +395,7 @@ async def warm_fixed_asset_summary() -> dict[str, Any]:
     legal_entities = await fa_service.get_all_legal_entities()
 
     result = {}
-    today = datetime.now(timezone.UTC).date()
+    today = datetime.now(timezone.utc).date()
     for entity in legal_entities:
         summary = await fa_service.get_summary(entity.id, today)
         result[f"fixed_asset_summary:{entity.id}:{today.isoformat()}"] = summary

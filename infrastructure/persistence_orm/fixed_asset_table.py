@@ -218,13 +218,11 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         self.increment_version()
 
     def can_depreciate(self, as_of_date: date) -> bool:
-        if self.status not in ("active", "impaired"):
-            return False
-        if self.is_fully_depreciated:
-            return False
-        if self.last_depreciation_date and self.last_depreciation_date >= as_of_date:
-            return False
-        return True
+        return (
+            self.status in ("active", "impaired")
+            and not self.is_fully_depreciated
+            and (self.last_depreciation_date is None or self.last_depreciation_date < as_of_date)
+        )
 
 
 __all__ = ["FixedAssetTable"]

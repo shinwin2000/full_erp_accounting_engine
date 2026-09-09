@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
@@ -29,16 +29,16 @@ class ProjectionCheckpointTable(Base, TimestampMixin):
         Index("idx_projection_checkpoint_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     projection_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    last_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_event_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     last_event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_rebuilding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     rebuild_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rebuild_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     def update_checkpoint(self, event_id: uuid.UUID, sequence: int) -> None:
         self.last_event_id = event_id

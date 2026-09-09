@@ -12,7 +12,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -39,7 +40,7 @@ class UMKMProfileTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
         Index("idx_umkm_profile_business_type", "business_type"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     business_name: Mapped[str] = mapped_column(String(200), nullable=False)
     business_type: Mapped[str] = mapped_column(String(20), nullable=False, default="individual")
     taxpayer_npwp: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -49,8 +50,8 @@ class UMKMProfileTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     annual_revenue_threshold: Mapped[int | None] = mapped_column(nullable=True)
     extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {

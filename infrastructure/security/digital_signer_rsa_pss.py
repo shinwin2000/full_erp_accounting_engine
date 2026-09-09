@@ -43,9 +43,7 @@ DEFAULT_KEY_SIZE = 2048  # RSA key size in bits
 SIGNATURE_ALGORITHM = "RSA-PSS"
 HASH_ALGORITHM = "SHA-256"
 SALT_LENGTH = 32  # PSS salt length
-DEFAULT_KEY_ID = (
-    "default"  # ✅ FIX: Ditambahkan agar tidak terjadi NameError saat inisialisasi awal
-)
+DEFAULT_KEY_ID = "default"
 
 # ============================================================================
 # EXCEPTIONS
@@ -111,9 +109,9 @@ class DigitalSignerRSA:
         """Load RSA keys from files or generate if not exist."""
         key_config = self.config.get("digital_signing", {}).get("keys", {})
 
-        for key_id, key_config in key_config.items():
-            private_key_path = key_config.get("private_key_path")
-            public_key_path = key_config.get("public_key_path")
+        for key_id, key_cfg in key_config.items():
+            private_key_path = key_cfg.get("private_key_path")
+            public_key_path = key_cfg.get("public_key_path")
 
             if private_key_path and Path(private_key_path).exists():
                 self._load_private_key(key_id, private_key_path)
@@ -290,11 +288,7 @@ class DigitalSignerRSA:
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         ).decode("utf-8")
 
-    async def rotate_key(
-        self, new_key_id: str
-    ) -> (
-        None
-    ):  # ✅ FIX: Mengubah 'def' menjadi 'async def' karena menggunakan await di dalam fungsinya
+    async def rotate_key(self, new_key_id: str) -> None:
         """
         Rotate to a new key (for key rotation).
         This generates a new key pair and sets it as current.

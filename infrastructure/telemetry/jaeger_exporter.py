@@ -68,7 +68,6 @@ class JaegerExporterConfig:
 
     def _validate_config(self) -> None:
         """Validate Jaeger configuration."""
-        agent_host = self.config.get("agent_host_name", "localhost")
         agent_port = self.config.get("agent_port", 6831)
 
         # Validate port range

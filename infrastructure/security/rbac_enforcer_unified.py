@@ -256,7 +256,7 @@ class RBACEnforcer:
 
         # Alert if too many denials
         if self._access_denied_counter[key] >= 10:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Multiple Permission Denials",
                     message=f"User {user_id} denied access to {permission} {self._access_denied_counter[key]} times",

@@ -19,7 +19,8 @@ Audit: Setiap rekonsiliasi bank dicatat untuk compliance audit trail.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -242,7 +243,7 @@ class SLOMonitorBankReconciliation:
 
         # Send alert if SLO violated
         if critical_violated:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Bank Reconciliation SLO Critical Violation",
                     message=f"Reconciliation for account {bank_account_id} (statement {statement_date}) completed {days_after} days after statement date "
@@ -259,7 +260,7 @@ class SLOMonitorBankReconciliation:
                 )
             )
         elif warning_violated:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Bank Reconciliation SLO Warning",
                     message=f"Reconciliation for account {bank_account_id} (statement {statement_date}) completed {days_after} days after statement date "
@@ -319,7 +320,7 @@ class SLOMonitorBankReconciliation:
             status="failed",
         ).inc()
 
-        asyncio.create_task(
+        _task = asyncio.create_task(  # noqa: RUF006
             trigger_alert(
                 title="Bank Reconciliation Failed",
                 message=f"Reconciliation for account {bank_account_id} (statement {statement_date}) failed: {error}",
@@ -383,7 +384,7 @@ class SLOMonitorBankReconciliation:
 
             self._outstanding_alerts_sent[alert_key] = datetime.now(UTC)
 
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title=f"Outstanding Bank Reconciliation ({severity})",
                     message=f"Bank account {bank_account_id} has outstanding reconciliation for {statement_date} "

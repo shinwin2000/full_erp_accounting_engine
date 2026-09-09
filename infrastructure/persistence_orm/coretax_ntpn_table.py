@@ -21,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import JSON, Date, DateTime, Index, Numeric, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
@@ -36,7 +36,7 @@ class CoretaxNTPNTable(Base, TimestampMixin):
         {"extend_existing": True},
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ntpn: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)

@@ -25,6 +25,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.inventory.aggregate_root import InventoryItemAggregate, StockMovement, StockMovementType
 from domain.inventory.item_entity import ItemType, ValuationMethod
+from domain.inventory.movement_entity import MovementEntity, MovementStatus, MovementType
+from domain.inventory.stock_opname_entity import DiscrepancyType, OpnameItem, OpnameStatus, StockOpname
+from domain.inventory.inter_warehouse_transfer_entity import (
+    InterWarehouseTransfer,
+    TransferItem,
+    TransferPriority,
+    TransferStatus,
+)
+from infrastructure.persistence_orm.inter_warehouse_transfer_table import (
+    InterWarehouseTransferLineTable,
+    InterWarehouseTransferTable,
+)
 from domain.inventory.valuation_method import FIFOLayer
 from domain.shared_value_objects.money_vo import Money
 from domain.shared_value_objects.quantity_vo import Quantity
@@ -32,6 +44,7 @@ from infrastructure.persistence_orm.inventory_fifo_layer_table import InventoryF
 from infrastructure.persistence_orm.inventory_item_table import InventoryItemTable
 from infrastructure.persistence_orm.inventory_movement_table import InventoryMovementTable
 from infrastructure.persistence_orm.stock_opname_table import StockOpnameTable
+from infrastructure.persistence_orm.stock_opname_line_table import StockOpnameLineTable
 from infrastructure.persistence_orm.warehouse_table import WarehouseTable
 from ports.primary.inventory_repository_port import InventoryRepositoryPort
 
@@ -80,7 +93,19 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     @property
     def session(self) -> AsyncSession:
         if self._session is None:
-            raise InventoryRepositoryError("Session not set")
+            # Lazy-init: sebelumnya repo ini SELALU dibuat tanpa session oleh
+            # IoC container (auto-wiring adapter_registry tidak menyuntikkan
+            # AsyncSession), jadi setiap panggilan repo di seluruh modul
+            # Inventory gagal dengan "Session not set". Perbaikan: buat
+            # session sendiri di sini, sama seperti pola yang sudah dipakai
+            # (dan terbukti jalan) di SQLAlchemySupplierRepository dkk.
+            from infrastructure.database.session_factory_sqlalchemy import get_session_factory_sync
+
+            factory = get_session_factory_sync()
+            session_maker = factory.get_session_factory()
+            if session_maker is None:
+                raise InventoryRepositoryError("Session factory not available")
+            self._session = session_maker()
         return self._session
 
     @session.setter
@@ -224,6 +249,157 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             created_at=movement.created_at,
             created_by=movement.created_by,
         )
+
+    # ========================================================================
+    # MOVEMENT ENTITY (canonical) - dipakai save_movement/get_movement_by_id/
+    # list_movements/get_movements_by_item/get_movements_by_reference.
+    # Model kanonik untuk Stock Movement adalah domain.inventory.movement_entity.MovementEntity
+    # (BUKAN domain.inventory.aggregate_root.StockMovement di atas, yang hanya
+    # dipertahankan untuk method lama record_movement() demi kompatibilitas port).
+    # ========================================================================
+
+    def _to_domain_movement_entity(self, table: InventoryMovementTable) -> MovementEntity:
+        return MovementEntity(
+            movement_id=table.id,
+            movement_number=table.movement_number,
+            movement_type=MovementType(table.movement_type),
+            item_id=table.item_id,
+            item_sku="",  # diisi oleh pemanggil (list_movements) via join, kosong di sini
+            item_name="",
+            warehouse_id=table.warehouse_id,
+            quantity=table.quantity,
+            unit_cost=table.unit_cost,
+            total_cost=table.total_cost,
+            movement_date=table.movement_date,
+            status=MovementStatus(table.status) if getattr(table, "status", None) else MovementStatus.CONFIRMED,
+            reference_document_type=table.reference_type,
+            reference_document_id=table.reference_id,
+            reference_document_number=None,
+            created_by=str(table.created_by) if table.created_by else "",
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+            version=getattr(table, "version", 1),
+            legal_entity_id=table.legal_entity_id,
+            warehouse_code=None,
+            notes=table.notes,
+            batch_number=table.batch_number,
+            expiry_date=table.expiry_date,
+            serial_number=getattr(table, "serial_number", None),
+            to_warehouse_id=table.to_warehouse_id,
+            reversed_at=getattr(table, "reversed_at", None),
+            reversed_by=getattr(table, "reversed_by", None),
+        )
+
+    def _to_orm_movement_entity(self, movement: MovementEntity) -> InventoryMovementTable:
+        return InventoryMovementTable(
+            id=movement.movement_id,
+            movement_number=movement.movement_number,
+            item_id=movement.item_id,
+            movement_type=movement.movement_type.value,
+            quantity=movement.quantity,
+            uom="PCS",  # UoM sudah dikelola di level item, tidak dobel disimpan per-movement
+            unit_cost=movement.unit_cost,
+            total_cost=movement.total_cost,
+            currency="IDR",
+            movement_date=movement.movement_date,
+            reference_type=movement.reference_document_type or "MANUAL",
+            reference_id=movement.reference_document_id,
+            warehouse_id=movement.warehouse_id,
+            to_warehouse_id=movement.to_warehouse_id,
+            batch_number=movement.batch_number,
+            expiry_date=movement.expiry_date,
+            notes=movement.notes,
+            created_by=movement.created_by if isinstance(movement.created_by, UUID) else None,
+            legal_entity_id=movement.legal_entity_id,
+            status=movement.status.value,
+            serial_number=movement.serial_number,
+            reversed_at=movement.reversed_at,
+            reversed_by=movement.reversed_by,
+        )
+
+    async def save_movement(self, movement: MovementEntity) -> MovementEntity:
+        """Simpan movement (MovementEntity - model kanonik). Upsert by id."""
+        try:
+            existing = await self.session.get(InventoryMovementTable, movement.movement_id)
+            if existing is not None:
+                existing.status = movement.status.value
+                existing.reversed_at = movement.reversed_at
+                existing.reversed_by = movement.reversed_by
+                existing.notes = movement.notes
+                existing.version = movement.version
+                await self.session.flush()
+                return movement
+            table = self._to_orm_movement_entity(movement)
+            self.session.add(table)
+            await self.session.flush()
+            return movement
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to save movement: {e}") from e
+
+    async def get_movement_by_id(
+        self, movement_id: UUID, legal_entity_id: UUID | None = None
+    ) -> MovementEntity | None:
+        conditions = [InventoryMovementTable.id == movement_id]
+        if legal_entity_id is not None:
+            conditions.append(InventoryMovementTable.legal_entity_id == legal_entity_id)
+        stmt = select(InventoryMovementTable, InventoryItemTable, WarehouseTable).join(
+            InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
+        ).outerjoin(
+            WarehouseTable, WarehouseTable.id == InventoryMovementTable.warehouse_id
+        ).where(*conditions)
+        result = await self.session.execute(stmt)
+        row = result.first()
+        if row is None:
+            return None
+        mov_table, item_table, _wh_table = row
+        entity = self._to_domain_movement_entity(mov_table)
+        entity.item_sku = item_table.item_code if hasattr(item_table, "item_code") else getattr(item_table, "sku", "")
+        entity.item_name = item_table.item_name if hasattr(item_table, "item_name") else getattr(item_table, "name", "")
+        return entity
+
+    async def list_movements(
+        self,
+        legal_entity_id: UUID,
+        item_id: UUID | None = None,
+        movement_type: str | None = None,
+        status: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[MovementEntity], int]:
+        conditions = [InventoryMovementTable.legal_entity_id == legal_entity_id]
+        if item_id is not None:
+            conditions.append(InventoryMovementTable.item_id == item_id)
+        if movement_type:
+            conditions.append(InventoryMovementTable.movement_type == movement_type)
+        if status:
+            conditions.append(InventoryMovementTable.status == status)
+        if start_date is not None:
+            conditions.append(InventoryMovementTable.movement_date >= start_date)
+        if end_date is not None:
+            conditions.append(InventoryMovementTable.movement_date <= end_date)
+
+        count_stmt = select(func.count()).select_from(InventoryMovementTable).where(*conditions)
+        total = (await self.session.execute(count_stmt)).scalar_one()
+
+        stmt = (
+            select(InventoryMovementTable, InventoryItemTable)
+            .join(InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id)
+            .where(*conditions)
+            .order_by(InventoryMovementTable.movement_date.desc(), InventoryMovementTable.created_at.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        entities = []
+        for mov_table, item_table in rows:
+            entity = self._to_domain_movement_entity(mov_table)
+            entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
+            entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
+            entities.append(entity)
+        return entities, total
 
     def _to_domain_fifo_layer(self, table: InventoryFIFOLayerTable) -> FIFOLayer:
         # FIX: use purchase_date instead of layer_date, remove warehouse_id
@@ -402,21 +578,24 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to record movement: {e}") from e
 
     async def get_movements_by_item(
-        self, item_id: UUID, start_date: date, end_date: date, limit: int = 100
-    ) -> list[StockMovement]:
+        self, item_id: UUID, start_date: date | None = None, end_date: date | None = None, limit: int = 100
+    ) -> list[MovementEntity]:
         try:
-            stmt = select(InventoryMovementTable).where(
-                InventoryMovementTable.item_id == item_id,
-                InventoryMovementTable.movement_date >= start_date,
-                InventoryMovementTable.movement_date <= end_date,
-            ).order_by(InventoryMovementTable.movement_date.desc()).limit(limit)
+            conditions = [InventoryMovementTable.item_id == item_id]
+            if start_date is not None:
+                conditions.append(InventoryMovementTable.movement_date >= start_date)
+            if end_date is not None:
+                conditions.append(InventoryMovementTable.movement_date <= end_date)
+            stmt = select(InventoryMovementTable).where(*conditions).order_by(
+                InventoryMovementTable.movement_date.desc()
+            ).limit(limit)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-            return [self._to_domain_movement(t) for t in tables]
+            return [self._to_domain_movement_entity(t) for t in tables]
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get movements: {e}") from e
 
-    async def get_movements_by_reference(self, reference_type: str, reference_id: UUID) -> list[StockMovement]:
+    async def get_movements_by_reference(self, reference_type: str, reference_id: UUID) -> list[MovementEntity]:
         try:
             stmt = select(InventoryMovementTable).where(
                 InventoryMovementTable.reference_type == reference_type,
@@ -424,7 +603,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             ).order_by(InventoryMovementTable.movement_date)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-            return [self._to_domain_movement(t) for t in tables]
+            return [self._to_domain_movement_entity(t) for t in tables]
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get movements by reference: {e}") from e
 
@@ -686,6 +865,158 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to complete stock opname: {e}") from e
 
     # ========================================================================
+    # STOCK OPNAME (model kanonik) - dipakai create_stock_opname/approve_stock_opname
+    # di service_inventory.py. Model kanonik adalah StockOpnameEntity (header + lines)
+    # dari domain.inventory.stock_opname_entity - BUKAN parameter mentah yang
+    # dipakai create_stock_opname()/complete_stock_opname() di atas, yang
+    # dipertahankan untuk endpoint lain yang memakai alur berbeda.
+    # ========================================================================
+
+    async def save_opname(self, opname: StockOpname) -> StockOpname:
+        """Simpan StockOpnameEntity (header + lines). Upsert by id."""
+        try:
+            existing = await self.session.get(StockOpnameTable, opname.opname_id)
+            total_expected = sum((i.system_quantity * i.unit_cost for i in opname.items), Decimal("0"))
+            total_counted = sum((i.physical_quantity * i.unit_cost for i in opname.items), Decimal("0"))
+            total_variance = sum((i.discrepancy_value for i in opname.items), Decimal("0"))
+
+            if existing is not None:
+                existing.status = opname.status.value
+                existing.approved_by = opname.approved_by
+                existing.approved_at = opname.approved_at
+                existing.completed_by = opname.completed_by if hasattr(opname, "completed_by") else existing.completed_by
+                existing.total_expected_value = total_expected
+                existing.total_counted_value = total_counted
+                existing.total_variance_value = total_variance
+                existing.version = opname.version
+                # Sinkronkan ulang lines (hapus lama, tulis baru - jumlah baris kecil, aman)
+                await self.session.execute(
+                    text("DELETE FROM stock_opname_line WHERE stock_opname_id = :oid"),
+                    {"oid": opname.opname_id},
+                )
+                for it in opname.items:
+                    self.session.add(StockOpnameLineTable(
+                        stock_opname_id=opname.opname_id,
+                        product_id=it.item_id,
+                        product_code=it.item_sku,
+                        product_name=it.item_name,
+                        warehouse_id=opname.warehouse_id or existing.warehouse_id,
+                        system_quantity=it.system_quantity,
+                        physical_quantity=it.physical_quantity,
+                        difference_quantity=it.discrepancy,
+                        unit_cost=it.unit_cost,
+                        difference_value=it.discrepancy_value,
+                        notes=it.notes,
+                    ))
+                await self.session.flush()
+                return opname
+
+            table = StockOpnameTable(
+                id=opname.opname_id,
+                legal_entity_id=opname.legal_entity_id,
+                opname_number=opname.opname_number,
+                opname_date=opname.opname_date,
+                warehouse_id=opname.warehouse_id,
+                description=opname.notes,
+                status=opname.status.value,
+                total_expected_value=total_expected,
+                total_counted_value=total_counted,
+                total_variance_value=total_variance,
+                created_by=opname.created_by,
+            )
+            self.session.add(table)
+            for it in opname.items:
+                self.session.add(StockOpnameLineTable(
+                    stock_opname_id=opname.opname_id,
+                    product_id=it.item_id,
+                    product_code=it.item_sku,
+                    product_name=it.item_name,
+                    warehouse_id=opname.warehouse_id,
+                    system_quantity=it.system_quantity,
+                    physical_quantity=it.physical_quantity,
+                    difference_quantity=it.discrepancy,
+                    unit_cost=it.unit_cost,
+                    difference_value=it.discrepancy_value,
+                    notes=it.notes,
+                ))
+            await self.session.flush()
+            return opname
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to save opname: {e}") from e
+
+    async def get_opname_by_id(self, opname_id: UUID) -> StockOpname | None:
+        try:
+            header = await self.session.get(StockOpnameTable, opname_id)
+            if header is None:
+                return None
+            stmt = select(StockOpnameLineTable).where(StockOpnameLineTable.stock_opname_id == opname_id)
+            result = await self.session.execute(stmt)
+            lines = result.scalars().all()
+
+            items = [
+                OpnameItem(
+                    item_id=line.product_id,
+                    item_sku=line.product_code,
+                    item_name=line.product_name,
+                    system_quantity=line.system_quantity,
+                    physical_quantity=line.physical_quantity,
+                    discrepancy=line.difference_quantity,
+                    discrepancy_type=(
+                        DiscrepancyType.SURPLUS if line.difference_quantity > 0
+                        else DiscrepancyType.SHORTAGE if line.difference_quantity < 0
+                        else DiscrepancyType.NONE
+                    ),
+                    unit_cost=line.unit_cost,
+                    notes=line.notes or "",
+                )
+                for line in lines
+            ]
+            return StockOpname(
+                opname_id=header.id,
+                opname_number=header.opname_number,
+                warehouse_id=header.warehouse_id,
+                warehouse_name="",
+                opname_date=header.opname_date,
+                status=OpnameStatus.from_string(header.status),
+                items=items,
+                performed_by=header.created_by or UUID(int=0),
+                approved_by=header.approved_by,
+                approved_at=header.approved_at,
+                notes=header.description or "",
+                created_by=header.created_by or UUID(int=0),
+                legal_entity_id=header.legal_entity_id,
+                version=header.version,
+            )
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to get opname: {e}") from e
+
+    async def get_outbound_movements(
+        self, legal_entity_id: UUID, from_date: date | None = None, to_date: date | None = None
+    ) -> list[MovementEntity]:
+        """Ambil semua movement outbound (dipakai calculate_cogs)."""
+        outbound_types = [t.value for t in MovementType if t.is_outbound()]
+        conditions = [
+            InventoryMovementTable.legal_entity_id == legal_entity_id,
+            InventoryMovementTable.movement_type.in_(outbound_types),
+        ]
+        if from_date is not None:
+            conditions.append(InventoryMovementTable.movement_date >= from_date)
+        if to_date is not None:
+            conditions.append(InventoryMovementTable.movement_date <= to_date)
+        stmt = select(InventoryMovementTable, InventoryItemTable).join(
+            InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
+        ).where(*conditions).order_by(InventoryMovementTable.movement_date)
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        entities = []
+        for mov_table, item_table in rows:
+            entity = self._to_domain_movement_entity(mov_table)
+            entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
+            entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
+            entities.append(entity)
+        return entities
+
+    # ========================================================================
     # TRANSFER
     # ========================================================================
 
@@ -761,6 +1092,124 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         })
         logger.info("Stock transferred: %s from %s to %s", item_id, from_warehouse_id, to_warehouse_id)
         return mov_out.id, mov_in.id
+
+    # ========================================================================
+    # INTER-WAREHOUSE TRANSFER (model kanonik) - dipakai create_transfer/
+    # complete_transfer di service_inventory.py. Model kanonik adalah
+    # InterWarehouseTransferEntity (header + lines) dari
+    # domain.inventory.inter_warehouse_transfer_entity - BUKAN transfer_stock()
+    # di atas, yang dipertahankan sebagai alur lama/tidak dipakai lagi.
+    # ========================================================================
+
+    async def save_transfer(self, transfer: InterWarehouseTransfer) -> InterWarehouseTransfer:
+        """Simpan InterWarehouseTransferEntity (header + lines). Upsert by id."""
+        try:
+            existing = await self.session.get(InterWarehouseTransferTable, transfer.transfer_id)
+            if existing is not None:
+                existing.status = transfer.status.value
+                existing.approved_by = transfer.approved_by
+                existing.approved_at = transfer.approved_at
+                existing.shipped_by = transfer.shipped_by
+                existing.shipped_at = transfer.shipped_at
+                existing.received_by = transfer.received_by
+                existing.received_at = transfer.received_at
+                existing.completed_by = transfer.completed_by
+                existing.completed_at = transfer.completed_at
+                existing.notes = transfer.notes
+                existing.quantity = transfer.quantity
+                existing.unit_cost = transfer.unit_cost
+                existing.total_value = transfer.total_value
+                existing.version = transfer.version
+                await self.session.flush()
+                return transfer
+
+            table = InterWarehouseTransferTable(
+                id=transfer.transfer_id,
+                legal_entity_id=transfer.legal_entity_id,
+                transfer_number=transfer.transfer_number,
+                source_warehouse_id=transfer.source_warehouse_id,
+                source_warehouse_name=transfer.source_warehouse_name,
+                destination_warehouse_id=transfer.destination_warehouse_id,
+                destination_warehouse_name=transfer.destination_warehouse_name,
+                transfer_date=transfer.transfer_date,
+                priority=transfer.priority.value,
+                status=transfer.status.value,
+                quantity=transfer.quantity,
+                unit_cost=transfer.unit_cost,
+                total_value=transfer.total_value,
+                notes=transfer.notes,
+                requested_by=transfer.requested_by,
+                requested_at=transfer.requested_at,
+                created_by=transfer.requested_by,
+            )
+            self.session.add(table)
+            for it in transfer.items:
+                self.session.add(InterWarehouseTransferLineTable(
+                    transfer_id=transfer.transfer_id,
+                    item_id=it.item_id,
+                    item_sku=it.item_sku,
+                    item_name=it.item_name,
+                    quantity=it.quantity,
+                    unit_cost=it.unit_cost,
+                    total_value=it.total_value,
+                    batch_number=getattr(it, "batch_number", None),
+                    expiry_date=getattr(it, "expiry_date", None),
+                ))
+            await self.session.flush()
+            return transfer
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to save transfer: {e}") from e
+
+    async def get_transfer_by_id(self, transfer_id: UUID) -> InterWarehouseTransfer | None:
+        try:
+            header = await self.session.get(InterWarehouseTransferTable, transfer_id)
+            if header is None:
+                return None
+            stmt = select(InterWarehouseTransferLineTable).where(
+                InterWarehouseTransferLineTable.transfer_id == transfer_id
+            )
+            result = await self.session.execute(stmt)
+            lines = result.scalars().all()
+            items = [
+                TransferItem(
+                    item_id=line.item_id,
+                    item_sku=line.item_sku,
+                    item_name=line.item_name,
+                    quantity=line.quantity,
+                    unit_cost=line.unit_cost,
+                    total_value=line.total_value,
+                    batch_number=line.batch_number,
+                    expiry_date=line.expiry_date,
+                )
+                for line in lines
+            ]
+            return InterWarehouseTransfer(
+                transfer_id=header.id,
+                transfer_number=header.transfer_number,
+                source_warehouse_id=header.source_warehouse_id,
+                source_warehouse_name=header.source_warehouse_name,
+                destination_warehouse_id=header.destination_warehouse_id,
+                destination_warehouse_name=header.destination_warehouse_name,
+                transfer_date=header.transfer_date,
+                priority=TransferPriority(header.priority),
+                status=TransferStatus(header.status),
+                items=items,
+                notes=header.notes or "",
+                requested_by=header.requested_by or UUID(int=0),
+                requested_at=header.requested_at,
+                approved_by=header.approved_by,
+                approved_at=header.approved_at,
+                shipped_by=header.shipped_by,
+                shipped_at=header.shipped_at,
+                received_by=header.received_by,
+                received_at=header.received_at,
+                completed_by=header.completed_by,
+                completed_at=header.completed_at,
+                legal_entity_id=header.legal_entity_id,
+                version=header.version,
+            )
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to get transfer: {e}") from e
 
     # ========================================================================
     # EXPORT / IMPORT
@@ -963,6 +1412,44 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             return result.scalar_one_or_none() is not None
         except Exception:
             return False
+
+    async def list_warehouses(
+        self, legal_entity_id: UUID, is_active: bool | None = None
+    ) -> list[dict[str, Any]]:
+        """List semua warehouse milik satu legal entity (dipakai endpoint GET /warehouses)."""
+        conditions = [
+            WarehouseTable.legal_entity_id == legal_entity_id,
+            WarehouseTable.deleted_at.is_(None),
+        ]
+        if is_active is not None:
+            conditions.append(WarehouseTable.is_active == is_active)
+        stmt = select(WarehouseTable).where(*conditions).order_by(WarehouseTable.warehouse_code)
+        result = await self.session.execute(stmt)
+        rows = result.scalars().all()
+        return [
+            {
+                "id": w.id,
+                "warehouse_code": w.warehouse_code,
+                "name": w.name,
+                "location_code": w.location_code,
+                "is_active": w.is_active,
+                "is_default": w.is_default,
+                "notes": w.notes,
+                "created_at": w.created_at,
+                "created_by": w.created_by,
+                "version": w.version,
+            }
+            for w in rows
+        ]
+
+    async def get_warehouse_name_by_id(self, warehouse_id: UUID) -> str | None:
+        """Lookup nama warehouse langsung dari ID (dipakai untuk enrich response movement)."""
+        try:
+            stmt = select(WarehouseTable.name).where(WarehouseTable.id == warehouse_id)
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception:
+            return None
 
     # ========================================================================
     # METHODS REQUIRED BY CONTRACT (save_item, find_item_by_id, adjust_stock)

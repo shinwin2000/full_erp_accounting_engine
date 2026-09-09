@@ -501,7 +501,7 @@ def cli():
 
     args = parser.parse_args()
 
-    async def run():
+    async def main():
         executor = await get_rollback_executor()
 
         if args.command == "rollback":
@@ -529,13 +529,7 @@ def cli():
             success = await executor.delete_backup(args.backup_name)
             print(f"Deleted: {success}")
 
-    # Eksekusi CLI dengan event loop
-    try:
-        asyncio.get_running_loop()
-        # Loop berjalan, buat task baru
-        asyncio.create_task(run())
-    except RuntimeError:
-        asyncio.run(run())
+    asyncio.run(main())
 
 
 # ============================================================================
@@ -557,3 +551,5 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
+
+

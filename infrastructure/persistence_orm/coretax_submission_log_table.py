@@ -13,7 +13,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import DateTime, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base
@@ -28,8 +29,8 @@ class CoretaxSubmissionLogTable(Base):
         Index("idx_coretax_log_created_at", "created_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    submission_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     spt_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     npwp: Mapped[str | None] = mapped_column(String(16), nullable=True)
     action: Mapped[str | None] = mapped_column(String(50), nullable=True)

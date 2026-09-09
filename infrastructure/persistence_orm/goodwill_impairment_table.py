@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -30,10 +30,13 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, LegalEntityMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.goodwill_table import GoodwillTable
 
 
 class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
@@ -52,11 +55,11 @@ class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
         Index("idx_goodwill_imp_approved_by", "approved_by"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Relasi ke goodwill
     goodwill_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+        PGUUID(as_uuid=True),
         ForeignKey("goodwill.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
@@ -82,9 +85,9 @@ class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Persetujuan dan audit
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS

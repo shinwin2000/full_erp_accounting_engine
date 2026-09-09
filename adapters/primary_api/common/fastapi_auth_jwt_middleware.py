@@ -31,8 +31,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import Depends, HTTPException
-from jose import JWTError, jwt
-from jose.exceptions import ExpiredSignatureError
+import jwt
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -450,7 +449,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 status_code=HTTP_403_FORBIDDEN,
                 content={"detail": str(e), "code": "insufficient_permission"},
             )
-        except JWTError as e:
+        except jwt.PyJWTError as e:
             logger.warning("JWT decoding error: %s", type(e).__name__)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
@@ -471,9 +470,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 algorithms=[self.algorithm],
                 options={"verify_aud": False},
             )
-        except ExpiredSignatureError:
+        except jwt.ExpiredSignatureError:
             raise TokenExpiredError("Token expired")
-        except JWTError as e:
+        except jwt.PyJWTError as e:
             raise InvalidTokenError(f"JWT decode error: {e}")
 
         if claims.get("token_type") != token_type:

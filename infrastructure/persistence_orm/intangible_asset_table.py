@@ -12,7 +12,7 @@ import enum
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -29,6 +29,14 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.amortization_schedule_table import (
+        AmortizationScheduleTable,
+    )
+    from infrastructure.persistence_orm.intangible_revaluation_table import (
+        IntangibleRevaluationTable,
+    )
 
 
 class IntangibleAssetType(str, enum.Enum):

@@ -594,7 +594,7 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     async def get_pending_approval(self, legal_entity_id: UUID) -> list[Journal]:
         return await self.find_by_status(JournalStatus.SUBMITTED, legal_entity_id)
 
-    async def list(
+    async def list_journals(
         self,
         legal_entity_id: UUID,
         status: str | None = None,

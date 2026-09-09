@@ -63,7 +63,7 @@ class AppendOnlyEventStore:
 
     async def update_event(self, stream: str, position: int, new_data: dict[str, Any]) -> None:
         """
-        Simulasi update event (tidak mungkin di append‑only store asli).
+        Simulasi update event (tidak mungkin di append-only store asli).
         Digunakan hanya untuk test integrity (tamper detection).
         """
         logger.warning(

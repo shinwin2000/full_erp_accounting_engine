@@ -391,7 +391,7 @@ class TransactionalOutboxPoller:
             return "permanent"
         if isinstance(exception, TemporaryError):
             return "temporary"
-        if isinstance(exception, (asyncio.TimeoutError, ConnectionError, OSError)):
+        if isinstance(exception, asyncio.TimeoutError | ConnectionError | OSError):
             return "temporary"
         if isinstance(exception, ValidationError):
             return "permanent"
@@ -606,10 +606,9 @@ class TransactionalOutboxPoller:
                     await self._mark_as_processing(session, event_ids)
                     await session.commit()
 
-                    async with get_async_session() as session2:
-                        async with session2.begin():
-                            await self._process_batch(session2, events)
-                            await session2.commit()
+                    async with get_async_session() as session2, session2.begin():
+                        await self._process_batch(session2, events)
+                        await session2.commit()
                     return len(events)
             return 0
 

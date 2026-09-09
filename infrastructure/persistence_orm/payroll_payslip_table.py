@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import Date, ForeignKey, Numeric, String
@@ -43,9 +43,9 @@ class PayrollPayslipTable(
     Model untuk tabel payroll_payslip.
     """
 
-    __tablename__ = "payroll_payslip"
+    __tablename__: ClassVar[str] = "payroll_payslip"
     # 🔧 TAMBAHKAN baris ini untuk mengatasi duplikasi jika ada model lain dengan nama tabel sama
-    __table_args__ = {'extend_existing': True}
+    __table_args__: ClassVar[dict] = {'extend_existing': True}
 
     # Primary Key
     id: Mapped[UUID] = mapped_column(

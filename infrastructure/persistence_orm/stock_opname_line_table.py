@@ -42,7 +42,7 @@ class StockOpnameLineTable(Base, TimestampMixin):
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    warehouse_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     system_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
     physical_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
     difference_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)

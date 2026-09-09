@@ -2005,7 +2005,7 @@ async def logout(
     service.set_context(session, legal_entity_id)
 
     try:
-        await service.logout(current_user.user_id, current_user.session_id)
+        await service.logout(current_user.user_id, current_user.jti)
         logger.info("User logged out")
     except Exception as e:
         logger.exception(f"Logout failed: {type(e).__name__}")

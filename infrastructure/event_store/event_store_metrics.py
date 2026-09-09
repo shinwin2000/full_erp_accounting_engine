@@ -8,6 +8,7 @@ Responsibility: Mengumpulkan dan mengekspos metrik tentang event store.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from datetime import UTC, datetime
@@ -16,24 +17,11 @@ from typing import Any
 from sqlalchemy import func, select, text
 
 from infrastructure.telemetry.prometheus_registry import (
+    PROMETHEUS_AVAILABLE,
     get_counter,
     get_gauge,
     get_histogram,
 )
-
-try:
-    import prometheus_client
-    PROMETHEUS_AVAILABLE = True
-except ImportError:
-    PROMETHEUS_AVAILABLE = False
-    class Gauge:
-        def set(self, *args, **kwargs): pass
-        def inc(self, *args, **kwargs): pass
-        def dec(self, *args, **kwargs): pass
-    class Counter:
-        def inc(self, *args, **kwargs): pass
-    class Histogram:
-        def observe(self, *args, **kwargs): pass
 
 logger = logging.getLogger(__name__)
 
@@ -246,10 +234,8 @@ class EventStoreMetricsCollector:
         self._running = False
         if self._collection_task:
             self._collection_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._collection_task
-            except asyncio.CancelledError:
-                pass
             self._collection_task = None
         logger.info("Stopped periodic metrics collection")
 

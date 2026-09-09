@@ -23,8 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from jose import jwt
-from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
+import jwt
 
 from config.loader_yaml import load_yaml_config
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
@@ -113,8 +112,8 @@ class JWTValidator:
         )  # 60 seconds leeway for clock skew
 
         self._public_key = self._load_public_key()
-        self._revocation_list = None
-        self._redis_manager = None
+        self._revocation_list: JWTRevocationList | None = None
+        self._redis_manager: RedisManager | None = None
         self._validation_cache: dict[str, tuple[bool, float]] = {}
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
@@ -142,11 +141,14 @@ class JWTValidator:
             from infrastructure.security.jwt_revocation_list import get_revocation_list
 
             self._revocation_list = await get_revocation_list()
+        # mypy doesn't know that after the if, it's not None, so we assert
+        assert self._revocation_list is not None
         return self._revocation_list
 
     async def _get_redis(self) -> RedisManager:
         if self._redis_manager is None:
             self._redis_manager = await get_redis_manager()
+        assert self._redis_manager is not None
         return self._redis_manager
 
     async def _cache_validation_result(self, token_jti: str, is_valid: bool) -> None:
@@ -192,12 +194,12 @@ class JWTValidator:
                 algorithms=[self.algorithm],
                 audience=self.expected_audience,
                 issuer=self.expected_issuer,
+                leeway=self.leeway_seconds,
                 options={
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_aud": True,
                     "verify_iss": True,
-                    "leeway": self.leeway_seconds,
                 },
             )
 
@@ -238,7 +240,7 @@ class JWTValidator:
                 "token_type": token_type,
             }
 
-        except ExpiredSignatureError as e:
+        except jwt.ExpiredSignatureError as e:
             logger.warning("Identity expired")
             await trigger_alert(
                 title="Expired Token Used",
@@ -248,11 +250,19 @@ class JWTValidator:
             )
             raise ExpiredTokenError("Token has expired") from e
 
-        except JWSSignatureError as e:
+        except jwt.InvalidSignatureError as e:
             logger.warning("Invalid signature")
             raise InvalidTokenError("Invalid token signature") from e
 
-        except JWTError as e:
+        except jwt.InvalidAudienceError as e:
+            logger.warning("Invalid audience")
+            raise InvalidAudienceError("Invalid token audience") from e
+
+        except jwt.InvalidIssuerError as e:
+            logger.warning("Invalid issuer")
+            raise InvalidIssuerError("Invalid token issuer") from e
+
+        except jwt.InvalidTokenError as e:
             logger.warning("Validation failure")
             raise InvalidTokenError("Invalid token") from e
 
@@ -271,7 +281,7 @@ class JWTValidator:
             if verify:
                 return await self.validate(token)
             else:
-                payload = jwt.get_unverified_claims(token)
+                payload = jwt.decode(token, options={"verify_signature": False})
                 return payload
         except Exception as e:
             logger.error(f"Failed to extract payload: {type(e).__name__}")
@@ -282,7 +292,7 @@ class JWTValidator:
         Get token expiry time without full validation.
         """
         try:
-            payload = jwt.get_unverified_claims(token)
+            payload = jwt.decode(token, options={"verify_signature": False})
             exp = payload.get("exp")
             if exp:
                 return datetime.fromtimestamp(exp, tz=UTC)
@@ -304,7 +314,7 @@ class JWTValidator:
         Get token JWT ID.
         """
         try:
-            payload = jwt.get_unverified_claims(token)
+            payload = jwt.decode(token, options={"verify_signature": False})
             return payload.get("jti")
         except Exception:
             return None

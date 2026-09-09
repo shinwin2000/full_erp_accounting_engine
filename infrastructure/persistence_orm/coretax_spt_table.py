@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Date, DateTime, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -37,7 +37,7 @@ class CoretaxSPTTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         {"extend_existing": True},
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     spt_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     spt_type: Mapped[str] = mapped_column(String(50), nullable=False)
     npwp: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -49,12 +49,12 @@ class CoretaxSPTTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     coretax_tracking_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     approval_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    submitted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ===== PERBAIKAN TIMESTAMP =====
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {

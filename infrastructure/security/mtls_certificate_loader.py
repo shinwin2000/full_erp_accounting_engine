@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 import cryptography.x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -128,6 +128,10 @@ class MTLSClientCertificateLoader:
         Returns:
             Tuple of (cert_pem_bytes, key_pem_bytes, ca_pem_bytes)
         """
+        # Pastikan path tidak None (seharusnya sudah diisi di __init__)
+        if self._cert_path is None or self._key_path is None:
+            raise CertificateNotFoundError("Certificate or key path is not configured")
+
         try:
             # Load certificate dengan aiofiles
             if not self._cert_path.exists():
@@ -221,6 +225,8 @@ class MTLSClientCertificateLoader:
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
 
         # Load certificate and key
+        if self._cert_path is None or self._key_path is None:
+            raise CertificateNotFoundError("Certificate or key path not configured for SSL context")
         context.load_cert_chain(str(self._cert_path), str(self._key_path))
 
         # Load CA certificate for client verification

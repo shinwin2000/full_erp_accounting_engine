@@ -211,7 +211,6 @@ class DatabaseBackupPgDump:
     async def _upload_to_s3(self, backup_file: Path, backup_name: str) -> str:
         """Upload backup to S3."""
         s3 = await get_s3_storage_adapter()
-        s3_key = f"{self.config.get('s3_prefix', 'backups/')}{backup_name}.dump.gz"
         async with aiofiles.open(backup_file, "rb") as f:
             file_content = await f.read()
         uri = await s3.upload(
@@ -372,9 +371,8 @@ class DatabaseBackupPgDump:
         backup_file = self._backup_dir / f"{backup_name}.dump"
         if not backup_file.exists():
             backup_file = self._backup_dir / f"{backup_name}.dump.gz"
-            if not backup_file.exists():
-                if self.config.get("upload_to_s3", False):
-                    backup_file = await self._download_from_s3(backup_name)
+            if not backup_file.exists() and self.config.get("upload_to_s3", False):
+                backup_file = await self._download_from_s3(backup_name)
 
         if not backup_file or not backup_file.exists():
             raise BackupNotFoundError(f"Backup {backup_name} not found")

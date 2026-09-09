@@ -28,7 +28,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -72,14 +73,14 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         Index("idx_approval_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Nomor permintaan (human-readable)
     request_number: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Entity yang memerlukan persetujuan
     entity_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     entity_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Data entity snapshot (opsional, untuk audit)
@@ -94,10 +95,10 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
 
     # Level approval saat ini (naik saat escalate; dipakai bareng approval_matrix)
     current_level: Mapped[int] = mapped_column(nullable=False, default=1)
-    approval_matrix_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approval_matrix_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Approval metadata
-    approver_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    approver_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     approver_name: Mapped[str] = mapped_column(String(200), nullable=False)
     approver_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -115,19 +116,19 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     approval_comments: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Action details
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Escalation / cancellation
-    escalated_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    escalated_to: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Audit
-    requested_by: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    requested_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS

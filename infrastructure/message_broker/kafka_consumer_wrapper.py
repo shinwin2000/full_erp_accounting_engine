@@ -11,6 +11,7 @@ Responsibility: Wrapper untuk Kafka Consumer dengan async interface.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from typing import Any
 # Try to import aiokafka first (async native)
 try:
     from aiokafka import AIOKafkaConsumer, ConsumerRecord
-    from aiokafka.errors import KafkaConnectionError, KafkaError
+    from aiokafka.errors import KafkaError
 
     AIOKAFKA_AVAILABLE = True
 except ImportError:
@@ -65,10 +66,8 @@ class ConsumerMessage:
     def from_aiokafka_record(cls, record: ConsumerRecord) -> ConsumerMessage:
         value = record.value
         if isinstance(value, bytes):
-            try:
+            with contextlib.suppress(UnicodeDecodeError, json.JSONDecodeError):
                 value = json.loads(value.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                pass  # keep as bytes or string fallback
         key = record.key.decode("utf-8") if record.key else None
         return cls(
             topic=record.topic,
@@ -83,10 +82,8 @@ class ConsumerMessage:
     def from_kafka_python_record(cls, record: SyncConsumerRecord) -> ConsumerMessage:
         value = record.value
         if isinstance(value, bytes):
-            try:
+            with contextlib.suppress(UnicodeDecodeError, json.JSONDecodeError):
                 value = json.loads(value.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                pass
         key = record.key.decode("utf-8") if record.key else None
         return cls(
             topic=record.topic,
@@ -233,7 +230,7 @@ class KafkaConsumerWrapper:
             max_records = max_records or self.max_poll_records
             messages = await self._consumer.getmany(timeout_ms=timeout_ms, max_records=max_records)
             result = []
-            for tp, records in messages.items():
+            for _tp, records in messages.items():
                 for record in records:
                     result.append(ConsumerMessage.from_aiokafka_record(record))
             return result
@@ -244,7 +241,7 @@ class KafkaConsumerWrapper:
             def _poll():
                 records_dict = self._consumer.poll(timeout_ms=timeout_ms, max_records=max_records)
                 msgs = []
-                for tp, recs in records_dict.items():
+                for _tp, recs in records_dict.items():
                     for rec in recs:
                         msgs.append(ConsumerMessage.from_kafka_python_record(rec))
                 return msgs

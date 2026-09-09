@@ -15,7 +15,8 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -44,9 +45,9 @@ class SagaStateTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_saga_state_created_at", "created_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     saga_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
+        PGUUID(as_uuid=True), nullable=False
     )  # unique identifier for this saga instance
     saga_type: Mapped[str] = mapped_column(
         String(100), nullable=False
@@ -84,10 +85,10 @@ class SagaStateTable(Base, TimestampMixin, SoftDeleteMixin):
     )  # 1 hour default
 
     # Legal entity
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES

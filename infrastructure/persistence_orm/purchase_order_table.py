@@ -121,11 +121,13 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         order_by="PurchaseOrderLineTable.line_number",
     )
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._events = []
+
     # =========================================================================
     # EVENT STORING
     # =========================================================================
-    _events: list[dict[str, Any]] = []
-
     def _record_event(self, event_type: str, data: dict[str, Any]) -> None:
         event = {
             "event_type": event_type,

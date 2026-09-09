@@ -113,9 +113,10 @@ class SlackAlertChannel(BaseAlertChannel):
             logger.warning("aiohttp not available, cannot send Slack alert")
             return False
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.webhook_url, json=payload) as resp:
-                    return resp.status == 200
+            async with aiohttp.ClientSession() as session, session.post(
+                self.webhook_url, json=payload
+            ) as resp:
+                return resp.status == 200
         except Exception as e:
             logger.error(f"Failed to send Slack alert: {e}")
             return False
@@ -152,9 +153,10 @@ class PagerDutyAlertChannel(BaseAlertChannel):
             logger.warning("aiohttp not available, cannot send PagerDuty alert")
             return False
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.api_url, json=payload) as resp:
-                    return resp.status == 202
+            async with aiohttp.ClientSession() as session, session.post(
+                self.api_url, json=payload
+            ) as resp:
+                return resp.status == 202
         except Exception as e:
             logger.error(f"Failed to send PagerDuty alert: {e}")
             return False
@@ -198,12 +200,9 @@ class WebhookAlertChannel(BaseAlertChannel):
             logger.warning("aiohttp not available, cannot send webhook alert")
             return False
         try:
-            async with (
-                aiohttp.ClientSession() as session,
-                session.request(
-                    method=self.method, url=self.webhook_url, json=payload, headers=self.headers
-                ) as resp,
-            ):
+            async with aiohttp.ClientSession() as session, session.request(
+                method=self.method, url=self.webhook_url, json=payload, headers=self.headers
+            ) as resp:
                 return 200 <= resp.status < 300
         except Exception as e:
             logger.error(f"Failed to send webhook alert: {e}")
@@ -295,10 +294,11 @@ class AlertManagerRouter:
         if self._is_duplicate(dedup_key):
             logger.debug(f"Duplicate alert suppressed: {title}")
             return False
-        if severity != SEVERITY_CRITICAL and not force:
-            if self._is_rate_limited(source, severity):
-                logger.debug(f"Rate limited alert from {source}: {title}")
-                return False
+        # Combine conditions: if not critical and not force and rate limited
+        if severity != SEVERITY_CRITICAL and not force and self._is_rate_limited(source, severity):
+            logger.debug(f"Rate limited alert from {source}: {title}")
+            return False
+
         self._alert_history.append(alert)
         if len(self._alert_history) > 1000:
             self._alert_history = self._alert_history[-1000:]

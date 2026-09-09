@@ -7,6 +7,7 @@ Responsibility: ORM model untuk Coretax Faktur Keluaran.
 
 from __future__ import annotations
 
+from typing import ClassVar
 from uuid import uuid4
 
 from sqlalchemy import UUID as SQLUUID
@@ -17,8 +18,8 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class CoretaxFakturKeluaranTable(Base):
-    __tablename__ = "coretax_faktur_keluaran"
-    __table_args__ = {"extend_existing": True}
+    __tablename__: ClassVar[str] = "coretax_faktur_keluaran"
+    __table_args__: ClassVar[dict] = {"extend_existing": True}
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)

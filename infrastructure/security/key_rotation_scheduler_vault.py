@@ -256,7 +256,8 @@ class KeyRotationScheduler:
         # If Vault is available, store key there
         vault = await self._get_vault()
         if vault:
-            await vault.create_kv_key(key_id, new_key)
+            # Use create_key method (available in KeyManagementVault)
+            await vault.create_key(key_id, new_key)  # type: ignore[attr-defined]
 
         logger.info(f"Generated new encryption key: {key_id}")
 
@@ -334,7 +335,7 @@ class KeyRotationScheduler:
         all_keys = self._encryption.get_key_ids()
 
         # Get key ages (simplified)
-        key_ages = {}
+        key_ages: dict[str, int | None] = {}
         for key_id in all_keys:
             # Try to parse timestamp from key_id
             if key_id.startswith("key_"):

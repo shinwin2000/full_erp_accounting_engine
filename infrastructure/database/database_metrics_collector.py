@@ -120,8 +120,8 @@ class DatabaseMetricsCollector:
         async with session_factory.get_session() as session:
             # Total connections by state
             query = """
-            SELECT state, datname, count(*) 
-            FROM pg_stat_activity 
+            SELECT state, datname, count(*)
+            FROM pg_stat_activity
             WHERE datname IS NOT NULL
             GROUP BY state, datname
             """
@@ -147,7 +147,7 @@ class DatabaseMetricsCollector:
         async with session_factory.get_session() as session:
             # Get transaction counters
             query = """
-            SELECT datname, xact_commit, xact_rollback 
+            SELECT datname, xact_commit, xact_rollback
             FROM pg_stat_database
             WHERE datname IS NOT NULL
             """
@@ -165,8 +165,8 @@ class DatabaseMetricsCollector:
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
             query = """
-            SELECT locktype, mode, count(*) 
-            FROM pg_locks 
+            SELECT locktype, mode, count(*)
+            FROM pg_locks
             GROUP BY locktype, mode
             """
             result = await session.execute(query)
@@ -180,9 +180,9 @@ class DatabaseMetricsCollector:
         async with session_factory.get_session() as session:
             # Table sizes
             query = """
-            SELECT 
-                schemaname, 
-                tablename, 
+            SELECT
+                schemaname,
+                tablename,
                 pg_total_relation_size(schemaname||'.'||tablename) as total_size
             FROM pg_tables
             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
@@ -196,7 +196,7 @@ class DatabaseMetricsCollector:
 
             # Index sizes
             query_idx = """
-            SELECT 
+            SELECT
                 schemaname,
                 tablename,
                 indexname,
@@ -216,9 +216,9 @@ class DatabaseMetricsCollector:
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
             query = """
-            SELECT 
+            SELECT
                 datname,
-                CASE 
+                CASE
                     WHEN (heap_blks_hit + heap_blks_read) = 0 THEN 0
                     ELSE heap_blks_hit::float / (heap_blks_hit + heap_blks_read)
                 END as hit_ratio
@@ -237,7 +237,7 @@ class DatabaseMetricsCollector:
             # Check if pg_stat_statements is available
             try:
                 query = """
-                SELECT 
+                SELECT
                     query,
                     calls,
                     total_time,

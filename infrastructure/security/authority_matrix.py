@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 Module: authority_matrix.py
 Layer: Infrastructure / Security
 Responsibility: Matriks otorisasi untuk RBAC. Mendefinisikan permission untuk setiap role.
 
 PERBAIKAN (lihat riwayat debugging 403 Forbidden):
-- Ditambahkan method `is_allowed()` async, yang sebelumnya TIDAK ADA sama
-  sekali padahal dipanggil oleh RBACEnforcer.check_permission() dan
+- Ditambahkan method `is_allowed()` async, yang sebelumnya TIDAK ADA
+  sama sekali padahal dipanggil oleh RBACEnforcer.check_permission() dan
   RBACEnforcer.check_permissions_batch() di infrastructure/security/
   rbac_enforcer_unified.py. Tanpa method ini, setiap kali permission tidak
   ditemukan langsung di cache/DB, kode akan raise AttributeError yang
@@ -17,6 +15,8 @@ PERBAIKAN (lihat riwayat debugging 403 Forbidden):
 - `is_allowed()` melakukan resolusi role user secara defensif karena bentuk
   IAMUserRepositoryPort/real repository tidak seragam di seluruh codebase.
 """
+
+from __future__ import annotations
 
 import logging
 
@@ -130,10 +130,7 @@ class AuthorityMatrix:
             role_names = ["guest"]
 
         permission = f"{resource}:{action}"
-        for role_name in role_names:
-            if self.has_permission(role_name, permission):
-                return True
-        return False
+        return any(self.has_permission(role_name, permission) for role_name in role_names)
 
     def get_permissions_for_role(self, role_name: str) -> list:
         """Mendapatkan daftar permission untuk role."""

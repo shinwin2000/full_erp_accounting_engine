@@ -32,7 +32,7 @@ from sqlalchemy.orm import declarative_base
 
 from domain.intangible_asset.aggregate_root import IntangibleAsset
 from domain.intangible_asset.asset_entity import IntangibleAssetEntity
-from infrastructure.database.session_factory_sqlalchemy import get_async_session
+from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
 from infrastructure.persistence_orm.intangible_asset_table import (
     IntangibleAssetTable,
     IntangibleAssetType,
@@ -83,7 +83,7 @@ class SQLAlchemyIntangibleAssetRepository(IntangibleAssetRepositoryPort):
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            self._session = await get_async_session()
+            self._session = await get_async_session_direct()
         return self._session
 
     def _get_legal_entity_id(self) -> UUID:

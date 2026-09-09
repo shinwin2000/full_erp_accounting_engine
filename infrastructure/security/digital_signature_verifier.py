@@ -97,23 +97,45 @@ class DigitalSignatureVerifier:
         Returns:
             Summary with results for each item
         """
-        results = []
+        results: list[dict[str, Any]] = []
         for item in items:
             data = item.get("data")
             signature = item.get("signature")
             key_id = item.get("key_id")
+            index = item.get("index")
+
+            # Validate required fields
+            if data is None or signature is None:
+                results.append({
+                    "index": index,
+                    "is_valid": False,
+                    "key_id": key_id,
+                    "error": "Missing data or signature"
+                })
+                continue
+
+            # Ensure signature is a string
+            if not isinstance(signature, str):
+                results.append({
+                    "index": index,
+                    "is_valid": False,
+                    "key_id": key_id,
+                    "error": "Signature must be a string"
+                })
+                continue
 
             if isinstance(data, dict):
                 is_valid = self.verify_json(data, signature, key_id)
             else:
-                is_valid = self.verify(data, signature, key_id)
+                # data is str or bytes (after checking not None)
+                is_valid = self.verify(data, signature, key_id)  # type: ignore[arg-type]
 
-            results.append({"index": item.get("index"), "is_valid": is_valid, "key_id": key_id})
+            results.append({"index": index, "is_valid": is_valid, "key_id": key_id})
 
         return {
             "total": len(items),
-            "valid_count": sum(1 for r in results if r["is_valid"]),
-            "invalid_count": sum(1 for r in results if not r["is_valid"]),
+            "valid_count": sum(1 for r in results if r.get("is_valid", False)),
+            "invalid_count": sum(1 for r in results if not r.get("is_valid", False)),
             "results": results,
         }
 

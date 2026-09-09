@@ -141,7 +141,7 @@ class HashChainBuilder:
     @staticmethod
     def is_genesis_hash(hash_value: str) -> bool:
         """Check if hash is the genesis hash."""
-        return hash_value == GENESIS_HASH or hash_value == GENESIS_HASH_ALT
+        return hash_value in (GENESIS_HASH, GENESIS_HASH_ALT)
 
     async def build_chain(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """

@@ -191,9 +191,9 @@ class CoretaxAPILatencyMetrics:
 
         # Alert if too slow
         if duration_seconds > SLO_CRITICAL:
-            asyncio.create_task(self._alert_slow_request(endpoint_name, duration_seconds))
+            _task = asyncio.create_task(self._alert_slow_request(endpoint_name, duration_seconds))  # noqa: RUF006
         elif duration_seconds > SLO_WARNING:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 self._alert_slow_request(endpoint_name, duration_seconds, "warning")
             )
 
@@ -234,9 +234,9 @@ class CoretaxAPILatencyMetrics:
 
             # Check error rate thresholds
             if rate > ERROR_RATE_CRITICAL:
-                asyncio.create_task(self._alert_high_error_rate(endpoint, rate, "critical"))
+                _task = asyncio.create_task(self._alert_high_error_rate(endpoint, rate, "critical"))  # noqa: RUF006
             elif rate > ERROR_RATE_WARNING:
-                asyncio.create_task(self._alert_high_error_rate(endpoint, rate, "warning"))
+                _task = asyncio.create_task(self._alert_high_error_rate(endpoint, rate, "warning"))  # noqa: RUF006
 
     def _check_slo(self, duration: float, endpoint: str) -> None:
         """
@@ -263,9 +263,8 @@ class CoretaxAPILatencyMetrics:
         now = datetime.now(UTC)
 
         # Rate limit alerts (max 1 per 5 minutes per endpoint)
-        if key in self._last_alert_time:
-            if (now - self._last_alert_time[key]).total_seconds() < 300:
-                return
+        if key in self._last_alert_time and (now - self._last_alert_time[key]).total_seconds() < 300:
+            return
 
         self._last_alert_time[key] = now
 
@@ -284,9 +283,8 @@ class CoretaxAPILatencyMetrics:
         now = datetime.now(UTC)
 
         # Rate limit alerts (max 1 per 5 minutes per endpoint)
-        if key in self._last_alert_time:
-            if (now - self._last_alert_time[key]).total_seconds() < 300:
-                return
+        if key in self._last_alert_time and (now - self._last_alert_time[key]).total_seconds() < 300:
+            return
 
         self._last_alert_time[key] = now
 
@@ -306,7 +304,7 @@ class CoretaxAPILatencyMetrics:
 
         # Alert if token expires soon
         if seconds_until_expiry < 300:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Coretax Token Expiring Soon",
                     message=f"Coretax access token expires in {seconds_until_expiry:.0f} seconds",
@@ -324,7 +322,7 @@ class CoretaxAPILatencyMetrics:
 
         # Alert if rate limit low
         if remaining < 10:
-            asyncio.create_task(
+            _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Coretax Rate Limit Low",
                     message=f"Rate limit for {endpoint_name} has only {remaining} requests remaining",

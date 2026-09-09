@@ -22,7 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Date, Index, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -43,17 +43,17 @@ class HedgedItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_hedged_item_period", "start_date", "end_date"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hedge_instrument_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    hedge_instrument_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     item_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     @property
     def is_active_item(self) -> bool:

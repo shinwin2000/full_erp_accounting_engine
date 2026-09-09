@@ -23,7 +23,6 @@ from typing import Any
 
 # Try to import prometheus_client
 try:
-    import prometheus_client
     from prometheus_client import Counter, Enum, Gauge, Histogram, Info, Summary, start_http_server
     from prometheus_client.registry import REGISTRY
 
@@ -344,7 +343,7 @@ def get_info(name: str, documentation: str) -> Info:
 
 
 # ============================================================================
-# PREâ€‘DEFINED METRICS
+# PRE-DEFINED METRICS
 # ============================================================================
 
 # Command bus metrics
@@ -565,7 +564,7 @@ def timed_metric(metric_name: str, labelnames: list[str] | None = None):
                 duration = time.time() - start
                 metric = get_histogram(metric_name, f"Duration of {func.__name__}", labelnames)
                 if labelnames:
-                    metric.labels(**{l: str(kwargs.get(l, "default")) for l in labelnames}).observe(
+                    metric.labels(**{label: str(kwargs.get(label, "default")) for label in labelnames}).observe(
                         duration
                     )
                 else:
@@ -587,7 +586,7 @@ def count_metric(metric_name: str, labelnames: list[str] | None = None):
         async def wrapper(*args, **kwargs):
             metric = get_counter(metric_name, f"Count of {func.__name__}", labelnames)
             if labelnames:
-                labels = {l: str(kwargs.get(l, "default")) for l in labelnames}
+                labels = {label: str(kwargs.get(label, "default")) for label in labelnames}
                 metric.labels(**labels).inc()
             else:
                 metric.inc()
@@ -611,7 +610,7 @@ def error_metric(metric_name: str, labelnames: list[str] | None = None):
                 return await func(*args, **kwargs)
             except Exception:
                 if labelnames:
-                    labels = {l: str(kwargs.get(l, "default")) for l in labelnames}
+                    labels = {label: str(kwargs.get(label, "default")) for label in labelnames}
                     metric.labels(**labels).inc()
                 else:
                     metric.inc()
@@ -627,44 +626,41 @@ def error_metric(metric_name: str, labelnames: list[str] | None = None):
 # ============================================================================
 
 __all__ = [
-    "PrometheusMetricRegistry",
-    "get_registry",
-    "get_counter",
-    "get_gauge",
-    "get_histogram",
-    "get_summary",
-    "get_info",
-    "timed_metric",
-    "count_metric",
-    "error_metric",
-    "flush",
-    "setup_prometheus",
     "PROMETHEUS_AVAILABLE",
-    # Pre-defined metrics
+    "PrometheusMetricRegistry",
     "commands_dispatched_total",
+    "commands_duration_seconds",
     "commands_execution_latency_seconds",
     "commands_failed_total",
     "commands_succeeded_total",
-    "commands_duration_seconds",
-    "queries_dispatched_total",
-    "queries_latency_seconds",
-    "queries_cache_hits_total",
-    "queries_duration_seconds",
-    "events_published_total",
-    "events_publish_latency_seconds",
-    "events_publish_errors_total",
-    "events_handled_total",
-    # Outbox Relay metrics
-    "outbox_events_published_total",
-    "outbox_events_failed_total",
-    "outbox_publish_latency_seconds",
-    "outbox_batch_size",
-    # Subscriber metrics
+    "count_metric",
+    "dead_letter_events_total",
+    "error_metric",
     "events_consumed_total",
+    "events_handled_total",
     "events_processed_total",
     "events_processing_errors_total",
     "events_processing_latency_seconds",
-    "dead_letter_events_total",
+    "events_publish_errors_total",
+    "events_publish_latency_seconds",
+    "events_published_total",
+    "flush",
+    "get_counter",
+    "get_gauge",
+    "get_histogram",
+    "get_info",
+    "get_registry",
+    "get_summary",
     "journal_entries_total",
+    "outbox_batch_size",
+    "outbox_events_failed_total",
+    "outbox_events_published_total",
+    "outbox_publish_latency_seconds",
+    "queries_cache_hits_total",
+    "queries_dispatched_total",
+    "queries_duration_seconds",
+    "queries_latency_seconds",
+    "setup_prometheus",
+    "timed_metric",
     "transaction_volume_total",
 ]

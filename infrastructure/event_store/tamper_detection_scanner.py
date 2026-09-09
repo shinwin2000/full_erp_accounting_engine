@@ -213,7 +213,7 @@ class TamperDetectionScanner:
             for stream_name, stream_events in events_by_stream.items():
                 last_event_before = await self._event_store.get_last_event(stream_name)
                 if last_event_before:
-                    full_events = [last_event_before] + stream_events
+                    full_events = [last_event_before, *stream_events]
                     is_valid, broken_at, error = await self._hash_builder.verify_chain(full_events)
                     if not is_valid:
                         result.add_anomaly(

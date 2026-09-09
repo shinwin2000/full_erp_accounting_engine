@@ -197,7 +197,7 @@ class DatabaseHealthProbe:
 
                 # Get replication lag
                 result = await session.execute(text("""
-                    SELECT 
+                    SELECT
                         EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())) as lag_seconds
                 """))
                 lag_seconds = result.scalar() or 0

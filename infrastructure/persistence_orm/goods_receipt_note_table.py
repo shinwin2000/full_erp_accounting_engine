@@ -111,10 +111,13 @@ class GoodsReceiptNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
         order_by="GoodsReceiptNoteLineTable.line_number",
     )
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._events: list[dict[str, Any]] = []
+
     # =========================================================================
     # EVENT STORING
     # =========================================================================
-    _events: list[dict[str, Any]] = []
 
     def _record_event(self, event_type: str, data: dict[str, Any]) -> None:
         event = {

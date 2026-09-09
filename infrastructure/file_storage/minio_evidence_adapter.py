@@ -205,7 +205,7 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
 
         # Upload to MinIO
         try:
-            result = client.put_object(
+            _ = client.put_object(
                 bucket_name=self._bucket,
                 object_name=key,
                 data=io.BytesIO(content),
@@ -248,19 +248,19 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
             response.close()
             response.release_conn()
 
-            # Verify integrity
-            if verify_hash:
-                stored_hash = response.metadata.get("content_hash")
-                if stored_hash:
-                    computed_hash = self._hasher.compute_hash(content)
-                    if not self._hasher.verify_hash(content, stored_hash):
-                        await trigger_alert(
-                            title="Evidence Integrity Check Failed",
-                            message=f"File {file_uri} hash mismatch. Possible corruption or tampering.",
-                            severity="critical",
-                            source="MinioEvidenceAdapter",
-                        )
-                        raise FileStorageError("Evidence integrity check failed")
+            # Verify integrity - combine conditions into single if
+            if (
+                verify_hash
+                and (stored_hash := response.metadata.get("content_hash"))
+                and not self._hasher.verify_hash(content, stored_hash)
+            ):
+                await trigger_alert(
+                    title="Evidence Integrity Check Failed",
+                    message=f"File {file_uri} hash mismatch. Possible corruption or tampering.",
+                    severity="critical",
+                    source="MinioEvidenceAdapter",
+                )
+                raise FileStorageError("Evidence integrity check failed")
 
             logger.info(f"Evidence downloaded from MinIO: {file_uri} (size: {len(content)} bytes)")
             return io.BytesIO(content)
@@ -284,7 +284,7 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
         self,
         file_content: BinaryIO,
         file_name: str,
-        content_type: str = None,
+        content_type: str | None = None,
         metadata: dict[str, str] | None = None,
         bucket: str | None = None,
     ) -> str:

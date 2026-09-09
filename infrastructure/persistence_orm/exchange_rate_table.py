@@ -28,7 +28,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -69,7 +69,7 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     )
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Currency pair
@@ -88,7 +88,7 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     rate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="mid")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     is_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
-    locked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    locked_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Source of the rate (e.g., Bank Indonesia, internal, etc.)
@@ -102,12 +102,12 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
 
     # Approval (for manually entered rates)
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES
@@ -138,7 +138,7 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # ========================================================================
     # METHODS
     # ========================================================================
-    def approve(self, approved_by: uuid.UUID) -> None:
+    def approve(self, approved_by: UUID) -> None:
         """Approve this exchange rate (for manual rates)."""
         self.approved_by = approved_by
         self.approved_at = datetime.utcnow()

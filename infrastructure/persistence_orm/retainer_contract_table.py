@@ -174,13 +174,12 @@ class RetainerContractTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     @property
     def needs_billing(self) -> bool:
         """Check if billing is due."""
-        if not self.is_active_contract:
-            return False
-        if self.available_amount <= 0:
-            return False
-        if self.next_billing_date and date.today() >= self.next_billing_date:
-            return True
-        return False
+        return (
+            self.is_active_contract
+            and self.available_amount > 0
+            and self.next_billing_date is not None
+            and date.today() >= self.next_billing_date
+        )
 
     # ========================================================================
     # METHODS

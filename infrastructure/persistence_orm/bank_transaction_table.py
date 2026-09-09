@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
@@ -24,7 +25,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -34,6 +35,9 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.bank_account_table import BankAccountTable
 
 
 class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -64,14 +68,14 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     )
 
     # Primary key
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Transaction identification
     transaction_number: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Foreign key
     bank_account_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("bank_account.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("bank_account.id"), nullable=False
     )
 
     # Transaction details
@@ -89,7 +93,7 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     counterparty_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     # Linking to journal
-    journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    journal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Status and reconciliation
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
@@ -103,10 +107,10 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     # Property duplikat itu sudah dihapus - JANGAN tambahkan lagi
     # property lain dengan nama yang sama dengan kolom mapped_column.
     is_reconciled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    reconciliation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reconciliation_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS (string referensi)
@@ -160,7 +164,7 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     # METHODS
     # ========================================================================
 
-    def post(self, journal_id: uuid.UUID, posted_by: uuid.UUID) -> None:
+    def post(self, journal_id: UUID, posted_by: UUID) -> None:
         """Post transaction to general ledger."""
         if self.status != "pending":
             raise ValueError(f"Cannot post transaction with status {self.status}")
@@ -168,7 +172,7 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         self.journal_id = journal_id
         self.increment_version()
 
-    def reconcile(self, reconciliation_id: uuid.UUID, reconciled_by: uuid.UUID) -> None:
+    def reconcile(self, reconciliation_id: UUID, reconciled_by: UUID) -> None:
         """Mark transaction as reconciled."""
         if self.status not in ("posted", "pending"):
             raise ValueError(f"Cannot reconcile transaction with status {self.status}")
@@ -177,7 +181,7 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         self.reconciliation_id = reconciliation_id
         self.increment_version()
 
-    def cancel(self, cancelled_by: uuid.UUID) -> None:
+    def cancel(self, cancelled_by: UUID) -> None:
         """Cancel transaction."""
         if self.status in ("reconciled", "cancelled"):
             raise ValueError(f"Cannot cancel transaction with status {self.status}")

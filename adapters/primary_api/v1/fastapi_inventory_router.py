@@ -661,7 +661,7 @@ async def create_item(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await inventory_service.create_item(create_dto)
+        result = await inventory_service.create_item(create_dto, current_user.user_id)
 
         response = ItemResponseSchema(
             id=result.id,
@@ -1096,6 +1096,72 @@ async def list_items(
 # ----------------------------------------------------------------------------
 
 
+@router.get(
+    "/movements",
+    response_model=list[StockMovementResponseSchema],
+    summary="List stock movements",
+    operation_id="list_stock_movements",
+)
+async def list_movements(
+    item_id: UUID | None = Query(None, description="Filter by item"),
+    movement_type: MovementType | None = Query(None, description="Filter by movement type"),
+    status_filter: MovementStatus | None = Query(None, alias="status", description="Filter by status"),
+    start_date: date | None = Query(None, description="Filter movement_date >= start_date"),
+    end_date: date | None = Query(None, description="Filter movement_date <= end_date"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=200, description="Movements per page"),
+    _permission: None = Depends(require_permission("inventory:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> list[StockMovementResponseSchema]:
+    """List stock movements with pagination and filters."""
+    try:
+        result = await inventory_service.list_movements(
+            legal_entity_id=legal_entity_id,
+            item_id=item_id,
+            movement_type=movement_type.value if movement_type else None,
+            status=status_filter.value if status_filter else None,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
+        )
+        return [
+            StockMovementResponseSchema(
+                id=m.id,
+                movement_number=m.movement_number,
+                item_id=m.item_id,
+                item_code=m.item_code,
+                item_name=m.item_name,
+                movement_type=MovementType(m.movement_type),
+                quantity=m.quantity,
+                unit_cost=m.unit_cost,
+                total_cost=m.total_cost,
+                movement_date=m.movement_date,
+                reference_type=m.reference_type or "",
+                reference_id=m.reference_id,
+                warehouse_id=m.warehouse_id,
+                warehouse_name=m.warehouse_name,
+                to_warehouse_id=m.to_warehouse_id,
+                batch_number=m.batch_number,
+                serial_number=m.serial_number,
+                expiry_date=m.expiry_date,
+                notes=m.notes,
+                status=MovementStatus(m.status),
+                created_at=m.created_at,
+                created_by=m.created_by,
+                created_by_name=m.created_by_name,
+                reversed_at=m.reversed_at,
+                reversed_by=m.reversed_by,
+                version=m.version,
+            )
+            for m in result.items
+        ]
+    except Exception as e:
+        logger.exception("Failed to list movements: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.post(
     "/movements",
     response_model=StockMovementResponseSchema,
@@ -1131,7 +1197,7 @@ async def record_stock_movement(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await inventory_service.record_movement(dto)
+        result = await inventory_service.record_movement(dto, current_user.user_id)
 
         return StockMovementResponseSchema(
             id=result.id,

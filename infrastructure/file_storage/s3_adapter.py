@@ -184,7 +184,7 @@ class S3FileStorageAdapter(BaseFileStorageAdapter):
         self,
         file_content: BinaryIO,
         file_name: str,
-        content_type: str = None,
+        content_type: str | None = None,
         metadata: dict[str, str] | None = None,
         bucket: str | None = None,
     ) -> str:
@@ -469,7 +469,7 @@ class S3FileStorage(S3FileStorageAdapter):
     Alias for S3FileStorageAdapter with additional convenience methods for tests.
     """
 
-    def create_bucket(self, bucket_name: str = None) -> None:
+    def create_bucket(self, bucket_name: str | None = None) -> None:
         """
         Stub method for test compatibility.
         In a real implementation, this would create the bucket.
@@ -478,7 +478,7 @@ class S3FileStorage(S3FileStorageAdapter):
         # In production, implement bucket creation using aioboto3
         pass
 
-    def upload(self, key: str, content: bytes, metadata: dict = None) -> None:
+    def upload(self, key: str, content: bytes, metadata: dict | None = None) -> None:
         """
         Simplified upload method for test compatibility.
         Maps to the async upload method (synchronous stub).

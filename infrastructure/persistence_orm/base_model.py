@@ -13,7 +13,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Integer, event, func
@@ -77,7 +77,7 @@ def prevent_audit_modification(session, flush_context, instances):
 class Base(DeclarativeBase):
     __abstract__ = True
 
-    type_annotation_map = {
+    type_annotation_map: ClassVar[dict] = {
         UUID: PGUUID(as_uuid=True)
     }
 
@@ -102,7 +102,7 @@ class Base(DeclarativeBase):
                 result[column.name] = None
             elif isinstance(value, datetime):
                 result[column.name] = value.isoformat()
-            elif isinstance(value, UUID) or isinstance(value, Decimal):
+            elif isinstance(value, UUID | Decimal):
                 result[column.name] = str(value)
             else:
                 result[column.name] = value
@@ -125,9 +125,8 @@ class Base(DeclarativeBase):
                     elif isinstance(col_type, DateTime) or "DateTime" in str(col_type):
                         if isinstance(value, str):
                             value = datetime.fromisoformat(value)
-                    elif "Numeric" in str(col_type) or "Decimal" in str(col_type):
-                        if isinstance(value, (str, float, int)):
-                            value = Decimal(str(value))
+                    elif ("Numeric" in str(col_type) or "Decimal" in str(col_type)) and isinstance(value, (str | float | int)):
+                        value = Decimal(str(value))
                 clean_data[key] = value
         return cls(**clean_data)
 

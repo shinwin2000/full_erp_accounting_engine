@@ -129,15 +129,13 @@ class PartitionManagerPgPartman:
 
     def _interval_to_days(self, interval: str) -> int:
         """Convert interval string to days."""
-        if interval == "daily":
-            return 1
-        elif interval == "weekly":
-            return 7
-        elif interval == "monthly":
-            return 30
-        elif interval == "yearly":
-            return 365
-        return 30
+        interval_map = {
+            "daily": 1,
+            "weekly": 7,
+            "monthly": 30,
+            "yearly": 365,
+        }
+        return interval_map.get(interval, 30)
 
     def _get_partition_range(self, table_config: dict, base_date: datetime) -> tuple:
         """
@@ -145,7 +143,6 @@ class PartitionManagerPgPartman:
         Returns (start_date, end_date) for the partition.
         """
         interval = table_config.get("partition_interval", "monthly")
-        column = table_config.get("partition_column", "created_at")
 
         if interval == "daily":
             start = base_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -237,7 +234,6 @@ class PartitionManagerPgPartman:
         Create a single partition for a table.
         """
         table_name = table_config["name"]
-        interval = table_config.get("partition_interval", "monthly")
         start, end = self._get_partition_range(table_config, partition_date)
         partition_name = self._get_partition_name(table_name, partition_date)
 
@@ -246,8 +242,8 @@ class PartitionManagerPgPartman:
             # Check if partition already exists
             check_query = """
                 SELECT EXISTS (
-                    SELECT 1 FROM pg_inherits 
-                    WHERE inhparent = :parent::regclass 
+                    SELECT 1 FROM pg_inherits
+                    WHERE inhparent = :parent::regclass
                     AND inhrelid = :partition::regclass
                 )
                 """
@@ -301,7 +297,6 @@ class PartitionManagerPgPartman:
             return 0
 
         table_name = table_config["name"]
-        partition_column = table_config.get("partition_column", "created_at")
         cutoff_date = datetime.now(UTC) - timedelta(days=retention_days)
 
         session_factory = await get_session_factory()
@@ -431,7 +426,7 @@ class PartitionManagerPgPartman:
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
             query = """
-            SELECT 
+            SELECT
                 inhrelid::regclass::text as partition_name,
                 pg_get_expr(c.relpartbound, inhrelid) as partition_range
             FROM pg_inherits

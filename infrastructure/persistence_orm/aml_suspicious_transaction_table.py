@@ -29,7 +29,8 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -70,12 +71,12 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
     )
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Transaction reference
     transaction_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        PGUUID(as_uuid=True), nullable=False, index=True
     )
     transaction_type: Mapped[str] = mapped_column(
         String(30), nullable=False
@@ -84,7 +85,7 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
 
     # Customer information
     customer_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        PGUUID(as_uuid=True), nullable=False, index=True
     )
     customer_name: Mapped[str] = mapped_column(String(200), nullable=False)
 
@@ -105,7 +106,7 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
 
     # Status workflow
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending_review")
-    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -118,14 +119,14 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
     filed_to_authority: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     filing_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    filed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    filed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Audit
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    detected_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # system or user
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    detected_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)  # system or user
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES

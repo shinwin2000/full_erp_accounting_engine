@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     ARRAY,
@@ -35,6 +35,9 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.budget_actual_table import BudgetActualTable
 
 # ============================================================================
 # BUDGET HEADER TABLE
@@ -77,7 +80,7 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
         Index("idx_budget_expiry_date", "expiry_date"),
     )
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
@@ -90,7 +93,7 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     # Period
     fiscal_year: Mapped[int] = mapped_column(nullable=False)
     period: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly")
-    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
+    version_label: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")  # renamed to avoid conflict with VersionMixin
 
     # Tanggal
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -108,15 +111,15 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
 
     # Audit
-    created_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Approval
-    submitted_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    approved_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    rejected_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -167,7 +170,7 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
             "budget_type": self.budget_type,
             "fiscal_year": self.fiscal_year,
             "period": self.period,
-            "version": self.version,
+            "version_label": self.version_label,
             "status": self.status,
             "effective_date": self.effective_date.isoformat(),
             "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
@@ -212,18 +215,18 @@ class BudgetLineTable(Base, TimestampMixin, VersionMixin):
         Index("idx_budget_line_account", "account_id", "account_code"),
     )
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    budget_id: Mapped[UUID] = mapped_column(
+    budget_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("budget.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    account_id: Mapped[UUID] = mapped_column(
+    account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -231,8 +234,8 @@ class BudgetLineTable(Base, TimestampMixin, VersionMixin):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Audit
-    created_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Relationship
     budget: Mapped[BudgetTable] = relationship("BudgetTable", back_populates="lines")

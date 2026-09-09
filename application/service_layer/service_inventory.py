@@ -39,11 +39,16 @@ from domain.inventory.domain_events import (
     StockOpnameCreated,
     TransferCompleted,
 )
-from domain.inventory.inter_warehouse_transfer_entity import InterWarehouseTransfer, TransferStatus
+from domain.inventory.inter_warehouse_transfer_entity import (
+    InterWarehouseTransfer,
+    TransferItem,
+    TransferPriority,
+    TransferStatus,
+)
 from domain.inventory.invariants import InventoryInvariantsValidator
 from domain.inventory.item_entity import Item, ItemStatus, ItemType, UnitOfMeasure
-from domain.inventory.movement_entity import MovementType, StockMovement
-from domain.inventory.stock_opname_entity import OpnameStatus, StockOpname
+from domain.inventory.movement_entity import MovementStatus, MovementType, StockMovement
+from domain.inventory.stock_opname_entity import DiscrepancyType, OpnameItem, OpnameStatus, StockOpname
 from domain.inventory.valuation_method import (
     FIFOValuation,
     ValuationMethod,
@@ -140,6 +145,77 @@ class ItemResponse:
     warehouse_code: str | None
     status: str
     created_at: datetime
+    # -- Field tambahan supaya cocok dengan kontrak router (ItemResponseSchema) --
+    item_code: str = ""
+    item_name: str = ""
+    unit_of_measure: str = ""
+    brand: str | None = None
+    reorder_quantity: Decimal = Decimal("0")
+    min_stock: Decimal | None = None
+    max_stock: Decimal | None = None
+    valuation_method: str = "FIFO"
+    is_active: bool = True
+    is_locked: bool = False
+    weight_kg: Decimal | None = None
+    volume_m3: Decimal | None = None
+    last_purchase_price: Decimal | None = None
+    last_purchase_date: date | None = None
+    total_value: Decimal = Decimal("0")
+    updated_at: datetime | None = None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    version: int = 1
+
+    def __post_init__(self) -> None:
+        # Alias otomatis supaya konsumen lama (sku/name/uom) dan baru
+        # (item_code/item_name/unit_of_measure) sama-sama terisi tanpa
+        # perlu diisi dobel oleh pemanggil.
+        if not self.item_code:
+            self.item_code = self.sku
+        if not self.item_name:
+            self.item_name = self.name
+        if not self.unit_of_measure:
+            self.unit_of_measure = self.uom
+        if not self.total_value:
+            self.total_value = self.current_stock_value
+
+
+@dataclass(kw_only=True)
+class ItemListResult:
+    """Hasil query list item dengan paginasi (dipakai endpoint GET /items)."""
+
+    items: list[ItemResponse]
+    total: int
+    page: int = 1
+    page_size: int = 20
+
+
+@dataclass(kw_only=True)
+class WarehouseResponse:
+    id: UUID
+    warehouse_code: str
+    warehouse_name: str
+    location: str | None
+    is_active: bool
+    is_default: bool
+    notes: str | None
+    created_at: datetime
+    created_by: UUID | None
+    version: int = 1
+
+
+@dataclass(kw_only=True)
+class LowStockAlert:
+    item_id: UUID
+    item_code: str
+    item_name: str
+    current_stock: Decimal
+    reorder_point: Decimal
+    reorder_quantity: Decimal
+    shortage: Decimal
+    warehouse_id: UUID | None = None
+    warehouse_name: str | None = None
+    days_until_out: int | None = None
 
 
 @dataclass(kw_only=True)
@@ -154,6 +230,14 @@ class StockMovementRequest:
     movement_date: date | None = None
     warehouse_code: str | None = None
     notes: str | None = None
+    # -- Field tambahan supaya cocok dengan kontrak router (StockMovementCreateSchema) --
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+    warehouse_id: UUID | None = None
+    to_warehouse_id: UUID | None = None
+    batch_number: str | None = None
+    serial_number: str | None = None
+    expiry_date: date | None = None
 
 
 @dataclass(kw_only=True)
@@ -171,6 +255,45 @@ class StockMovementResponse:
     warehouse_code: str | None
     notes: str | None
     created_at: datetime
+    # -- Field tambahan supaya cocok dengan kontrak router (MovementResponseSchema) --
+    movement_number: str = ""
+    item_code: str = ""
+    item_name: str = ""
+    total_cost: Decimal = Decimal("0")
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+    warehouse_id: UUID | None = None
+    warehouse_name: str | None = None
+    to_warehouse_id: UUID | None = None
+    batch_number: str | None = None
+    serial_number: str | None = None
+    expiry_date: date | None = None
+    status: str = "confirmed"
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    reversed_at: datetime | None = None
+    reversed_by: UUID | None = None
+    version: int = 1
+
+    def __post_init__(self) -> None:
+        if not self.item_code:
+            self.item_code = self.sku
+        if not self.item_name:
+            self.item_name = self.sku
+        if not self.total_cost:
+            self.total_cost = self.total_value
+        if not self.reference_type:
+            self.reference_type = self.reference_document_type
+
+
+@dataclass(kw_only=True)
+class MovementListResult:
+    """Hasil query list movement dengan paginasi (dipakai endpoint GET /movements)."""
+
+    items: list[StockMovementResponse]
+    total: int
+    page: int = 1
+    page_size: int = 20
 
 
 @dataclass(kw_only=True)
@@ -352,11 +475,14 @@ class InventoryService:
     ) -> ItemResponse:
         self._check_authority(user_id, "create_item")
 
-        existing = await self._inv_repo.find_item_by_sku(request.legal_entity_id, request.sku)
+        existing = await self._inv_repo.get_item_by_sku(request.sku, request.legal_entity_id)
         if existing:
             raise InventoryServiceError(f"Item with SKU {request.sku} already exists")
 
-        valid_types = ["raw_material", "work_in_progress", "finished_good", "packaging", "spare_part"]
+        valid_types = [
+            "raw_material", "work_in_progress", "finished_goods", "finished_good",
+            "packaging", "spare_part", "trading", "consumable", "service", "asset", "supplies",
+        ]
         if request.item_type not in valid_types:
             raise InventoryServiceError(f"Invalid item_type: {request.item_type}")
 
@@ -372,10 +498,10 @@ class InventoryService:
             current_stock_value=Decimal("0"),
             average_cost=Decimal("0"),
             last_cost=Decimal("0"),
-            reorder_point=request.reorder_point,
-            safety_stock=request.safety_stock,
-            maximum_stock=request.maximum_stock,
-            minimum_stock=request.minimum_stock,
+            reorder_point=request.reorder_point or Decimal("0"),
+            safety_stock=request.safety_stock or Decimal("0"),
+            maximum_stock=request.maximum_stock or Decimal("0"),
+            minimum_stock=request.minimum_stock or Decimal("0"),
             status=ItemStatus.ACTIVE,
             standard_cost=request.standard_cost,
             selling_price=request.selling_price,
@@ -385,10 +511,14 @@ class InventoryService:
             created_at=datetime.utcnow(),
             updated_at=None,
             updated_by=None,
+            # -- Field tambahan (kontrak router ItemCreateSchema) --
+            brand=request.brand,
+            reorder_quantity=getattr(request, "reorder_quantity", None) or Decimal("0"),
+            valuation_method=getattr(request, "valuation_method", None),
+            weight_gram=(request.weight_kg * Decimal("1000")) if getattr(request, "weight_kg", None) else None,
         )
 
-        aggregate = InventoryAggregate(item=item, version=0)
-        aggregate.create(user_id)
+        aggregate = InventoryAggregate.create(item, user_id)
 
         await self._inv_repo.save_item(aggregate)
         await self._uow.commit()
@@ -563,19 +693,147 @@ class InventoryService:
         legal_entity_id: UUID,
         item_type: str | None = None,
         status: str | None = None,
+        category: str | None = None,
+        is_active: bool | None = None,
+        low_stock_only: bool = False,
+        search: str | None = None,
+        warehouse_id: UUID | None = None,  # noqa: ARG002 - item belum tracking warehouse_id per-unit, hanya warehouse_code
+        warehouse_code: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[ItemResponse]:
-        items = await self._inv_repo.list_items(
-            legal_entity_id=legal_entity_id,
-            item_type=item_type,
-            status=status,
-            limit=limit,
-            offset=offset,
-        )
-        return [self._to_item_response(agg.item) for agg in items]
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> ItemListResult:
+        """List item dengan filter dan paginasi (dipakai endpoint GET /items).
+
+        CATATAN: filtering saat ini dilakukan di memori (mengambil batch besar
+        dari repository lalu difilter di Python) karena repository belum
+        punya method list_items dengan filter native di level SQL. Untuk
+        dataset besar sebaiknya nanti dipindah jadi query SQL langsung.
+        """
+        if page is not None or page_size is not None:
+            page = max(page or 1, 1)
+            page_size = max(min(page_size or 20, 200), 1)
+        else:
+            page = (offset // limit) + 1 if limit else 1
+            page_size = limit
+
+        # Ambil batch besar dari repo (bukan solusi jangka panjang, lihat catatan di atas)
+        all_items = await self._inv_repo.get_all_items(legal_entity_id, limit=5000, offset=0)
+        responses = [self._to_item_response(agg.item) for agg in all_items]
+
+        if item_type:
+            responses = [r for r in responses if r.item_type == item_type]
+        if status:
+            responses = [r for r in responses if r.status == status]
+        if category:
+            responses = [r for r in responses if r.category == category]
+        if warehouse_code:
+            responses = [r for r in responses if r.warehouse_code == warehouse_code]
+        if is_active is not None:
+            responses = [r for r in responses if r.is_active == is_active]
+        if low_stock_only:
+            responses = [r for r in responses if r.current_stock <= r.reorder_point]
+        if search:
+            needle = search.lower()
+            responses = [
+                r for r in responses
+                if needle in r.item_code.lower() or needle in r.item_name.lower()
+            ]
+
+        total = len(responses)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_items = responses[start:end]
+
+        return ItemListResult(items=page_items, total=total, page=page, page_size=page_size)
+
+    async def list_warehouses(
+        self, legal_entity_id: UUID, is_active: bool | None = None
+    ) -> list[WarehouseResponse]:
+        """List semua warehouse milik satu legal entity."""
+        rows = await self._inv_repo.list_warehouses(legal_entity_id, is_active=is_active)
+        return [
+            WarehouseResponse(
+                id=w["id"],
+                warehouse_code=w["warehouse_code"],
+                warehouse_name=w["name"],
+                location=w.get("location_code"),
+                is_active=w["is_active"],
+                is_default=w["is_default"],
+                notes=w.get("notes"),
+                created_at=w["created_at"],
+                created_by=w.get("created_by"),
+                version=w.get("version", 1),
+            )
+            for w in rows
+        ]
+
+    async def get_low_stock_alerts(
+        self,
+        legal_entity_id: UUID,
+        warehouse_id: UUID | None = None,  # noqa: ARG002 - lihat catatan di bawah
+        include_zero_stock: bool = False,
+    ) -> list[LowStockAlert]:
+        """Ambil daftar item yang stoknya di bawah reorder point.
+
+        CATATAN: filter warehouse_id belum diterapkan karena domain Item
+        saat ini hanya menyimpan `warehouse_code` (string bebas), bukan
+        `warehouse_id` (UUID relasi ke tabel warehouse). Semua item dalam
+        legal entity akan dicek terlepas dari warehouse.
+        """
+        aggregates = await self._inv_repo.get_items_below_reorder_point(legal_entity_id)
+        alerts: list[LowStockAlert] = []
+        for agg in aggregates:
+            item = agg.item
+            if not include_zero_stock and item.current_stock <= 0:
+                continue
+            shortage = item.reorder_point - item.current_stock
+            if shortage < 0:
+                shortage = Decimal("0")
+            alerts.append(
+                LowStockAlert(
+                    item_id=item.id,
+                    item_code=item.sku,
+                    item_name=item.name,
+                    current_stock=item.current_stock,
+                    reorder_point=item.reorder_point,
+                    reorder_quantity=getattr(item, "reorder_quantity", Decimal("0")) or Decimal("0"),
+                    shortage=shortage,
+                    warehouse_id=None,
+                    warehouse_name=item.warehouse_code,
+                    days_until_out=None,  # butuh data rata-rata konsumsi - belum diimplementasikan
+                )
+            )
+        return alerts
 
     # ==================== STOCK MOVEMENTS ====================
+
+    # Mapping dari kode movement generik (dipakai router/API publik) ke
+    # MovementType domain yang lebih spesifik secara bisnis. Beberapa kode
+    # generik sengaja dipetakan ke tipe ADJUSTMENT_* karena tidak ada
+    # informasi dokumen referensi yang lebih spesifik dari caller.
+    _GENERIC_MOVEMENT_TYPE_MAP = {
+        "IN": MovementType.ADJUSTMENT_IN,
+        "OUT": MovementType.ADJUSTMENT_OUT,
+        "ADJUSTMENT": MovementType.ADJUSTMENT_IN,
+        "ADJUSTMENT_IN": MovementType.ADJUSTMENT_IN,
+        "ADJUSTMENT_OUT": MovementType.ADJUSTMENT_OUT,
+        "TRANSFER_IN": MovementType.TRANSFER_IN,
+        "TRANSFER_OUT": MovementType.TRANSFER_OUT,
+        "RETURN_IN": MovementType.RETURN_FROM_CUSTOMER,
+        "RETURN_OUT": MovementType.RETURN_TO_SUPPLIER,
+        "SCRAP": MovementType.WRITE_OFF,
+        "SAMPLE": MovementType.SAMPLE_ISSUE,
+    }
+
+    def _resolve_movement_type(self, raw: str) -> MovementType:
+        """Terima baik kode generik (IN/OUT/TRANSFER_IN/...) dari API publik
+        maupun value MovementType domain (purchase_receipt/sales_issue/...)
+        dari pemanggil internal, lalu kembalikan MovementType domain."""
+        if raw in self._GENERIC_MOVEMENT_TYPE_MAP:
+            return self._GENERIC_MOVEMENT_TYPE_MAP[raw]
+        return MovementType(raw)
 
     @audit
     async def record_movement(
@@ -587,8 +845,16 @@ class InventoryService:
         if not item_agg:
             raise ItemNotFoundError(f"Item {request.item_id} not found")
 
-        movement_type = MovementType(request.movement_type)
+        original_type_code = request.movement_type
+        movement_type = self._resolve_movement_type(request.movement_type)
         movement_date = request.movement_date or date.today()
+
+        warehouse_id = request.warehouse_id
+        if warehouse_id is None:
+            raise ValueError(
+                "warehouse_id wajib diisi untuk mencatat stock movement "
+                "(tabel inventory_movement mensyaratkan referensi warehouse yang valid)"
+            )
 
         if movement_type in (MovementType.SALES_ISSUE, MovementType.TRANSFER_OUT, MovementType.ADJUSTMENT_OUT):
             if item_agg.item.current_stock < request.quantity:
@@ -610,21 +876,35 @@ class InventoryService:
             total_value = request.quantity * unit_cost
             new_avg_cost = item_agg.item.average_cost
 
+        movement_number = await self._inv_repo.get_next_movement_number(
+            "TRF" if movement_type in (MovementType.TRANSFER_IN, MovementType.TRANSFER_OUT) else "MOV"
+        )
+
         movement = StockMovement(
             id=uuid4(),
+            movement_number=movement_number,
             legal_entity_id=request.legal_entity_id,
             item_id=request.item_id,
+            item_sku=item_agg.item.sku,
+            item_name=item_agg.item.name,
             movement_type=movement_type,
             quantity=request.quantity,
             unit_cost=unit_cost,
-            total_value=total_value,
+            total_cost=total_value,
             movement_date=movement_date,
-            reference_document_type=request.reference_document_type,
-            reference_document_number=request.reference_document_number,
+            warehouse_id=warehouse_id,
+            to_warehouse_id=request.to_warehouse_id,
+            reference_document_type=request.reference_type or request.reference_document_type or "",
+            reference_document_id=request.reference_id,
+            reference_document_number=request.reference_document_number or "",
+            batch_number=request.batch_number,
+            serial_number=request.serial_number,
+            expiry_date=request.expiry_date,
             warehouse_code=request.warehouse_code,
             notes=request.notes,
-            created_by=user_id,
+            created_by=str(user_id),
             created_at=datetime.utcnow(),
+            status=MovementStatus.CONFIRMED,
         )
 
         if movement_type.is_inbound():
@@ -708,7 +988,7 @@ class InventoryService:
         })
 
         logger.info(f"Stock movement recorded: {movement_type.value} {request.quantity} of {item_agg.item.sku}")
-        return self._to_movement_response(movement, item_agg.item.sku)
+        return self._to_movement_response(movement, item_agg.item.sku, original_type_code=original_type_code)
 
     async def _get_movement_cost(self, item: Item, quantity: Decimal) -> Decimal:
         if self._valuation_method == ValuationMethod.FIFO:
@@ -740,23 +1020,40 @@ class InventoryService:
         system_qty = item_agg.item.current_stock
         physical_qty = request.physical_quantity
         discrepancy = physical_qty - system_qty
+        discrepancy_value = discrepancy * item_agg.item.average_cost
+        discrepancy_type = (
+            DiscrepancyType.SURPLUS if discrepancy > 0
+            else DiscrepancyType.SHORTAGE if discrepancy < 0
+            else DiscrepancyType.NONE
+        )
 
-        opname = StockOpname(
-            id=uuid4(),
-            legal_entity_id=request.legal_entity_id,
+        opname_item = OpnameItem(
             item_id=request.item_id,
-            opname_date=request.opname_date or date.today(),
+            item_sku=item_agg.item.sku,
+            item_name=item_agg.item.name,
             system_quantity=system_qty,
             physical_quantity=physical_qty,
             discrepancy=discrepancy,
+            discrepancy_type=discrepancy_type,
             unit_cost=item_agg.item.average_cost,
-            discrepancy_value=discrepancy * item_agg.item.average_cost,
-            status=OpnameStatus.PENDING,
-            notes=request.notes,
+            notes=request.notes or "",
             counted_by=user_id,
             counted_at=datetime.utcnow(),
-            approved_by=None,
-            approved_at=None,
+        )
+
+        opname = StockOpname(
+            opname_id=uuid4(),
+            opname_number=f"OPN-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            warehouse_id=None,
+            warehouse_name=item_agg.item.warehouse_code or "",
+            opname_date=request.opname_date or date.today(),
+            status=OpnameStatus.PENDING,
+            items=[opname_item],
+            performed_by=user_id,
+            notes=request.notes or "",
+            created_by=user_id,
+            legal_entity_id=request.legal_entity_id,
+            warehouse_code=item_agg.item.warehouse_code,
         )
 
         await self._inv_repo.save_opname(opname)
@@ -814,16 +1111,19 @@ class InventoryService:
                 id=uuid4(),
                 legal_entity_id=opname.legal_entity_id,
                 item_id=opname.item_id,
+                item_sku=item_agg.item.sku,
+                item_name=item_agg.item.name,
                 movement_type=adjustment_type,
                 quantity=abs(discrepancy),
                 unit_cost=item_agg.item.average_cost,
-                total_value=abs(opname.discrepancy_value),
+                total_cost=abs(opname.discrepancy_value),
                 movement_date=date.today(),
                 reference_document_type="STOCK_OPNAME",
                 reference_document_number=opname.id.hex[:8],
                 notes=f"Adjustment from opname {opname.id} (system={system_qty}, physical={physical_qty})",
-                created_by=approver_id,
+                created_by=str(approver_id),
                 created_at=datetime.utcnow(),
+                status=MovementStatus.CONFIRMED,
             )
             await self._inv_repo.save_movement(movement)
 
@@ -872,22 +1172,28 @@ class InventoryService:
         if item_agg.item.current_stock < request.quantity:
             raise InsufficientStockError("Insufficient stock for transfer")
 
-        transfer = InterWarehouseTransfer(
-            id=uuid4(),
-            legal_entity_id=request.legal_entity_id,
+        transfer_item = TransferItem(
             item_id=request.item_id,
-            from_warehouse=request.from_warehouse,
-            to_warehouse=request.to_warehouse,
+            item_sku=item_agg.item.sku,
+            item_name=item_agg.item.name,
             quantity=request.quantity,
             unit_cost=item_agg.item.average_cost,
             total_value=request.quantity * item_agg.item.average_cost,
+        )
+
+        transfer = InterWarehouseTransfer(
+            transfer_id=uuid4(),
+            transfer_number=f"TRF-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            source_warehouse_name=request.from_warehouse,
+            destination_warehouse_name=request.to_warehouse,
             transfer_date=request.transfer_date or date.today(),
+            priority=TransferPriority.NORMAL,
             status=TransferStatus.PENDING,
-            notes=request.notes,
+            items=[transfer_item],
+            notes=request.notes or "",
             requested_by=user_id,
             requested_at=datetime.utcnow(),
-            completed_by=None,
-            completed_at=None,
+            legal_entity_id=request.legal_entity_id,
         )
 
         await self._inv_repo.save_transfer(transfer)
@@ -896,17 +1202,20 @@ class InventoryService:
             id=uuid4(),
             legal_entity_id=request.legal_entity_id,
             item_id=request.item_id,
+            item_sku=item_agg.item.sku,
+            item_name=item_agg.item.name,
             movement_type=MovementType.TRANSFER_OUT,
             quantity=request.quantity,
             unit_cost=item_agg.item.average_cost,
-            total_value=transfer.total_value,
+            total_cost=transfer.total_value,
             movement_date=request.transfer_date or date.today(),
             reference_document_type="TRANSFER",
             reference_document_number=transfer.id.hex[:8],
             warehouse_code=request.from_warehouse,
             notes=f"Transfer to {request.to_warehouse}",
-            created_by=user_id,
+            created_by=str(user_id),
             created_at=datetime.utcnow(),
+            status=MovementStatus.CONFIRMED,
         )
         await self._inv_repo.save_movement(movement)
 
@@ -987,17 +1296,20 @@ class InventoryService:
             id=uuid4(),
             legal_entity_id=transfer.legal_entity_id,
             item_id=transfer.item_id,
+            item_sku=item_agg.item.sku,
+            item_name=item_agg.item.name,
             movement_type=MovementType.TRANSFER_IN,
             quantity=transfer.quantity,
             unit_cost=transfer.unit_cost,
-            total_value=transfer.total_value,
+            total_cost=transfer.total_value,
             movement_date=date.today(),
             reference_document_type="TRANSFER",
             reference_document_number=transfer.id.hex[:8],
             warehouse_code=transfer.to_warehouse,
             notes=f"Transfer from {transfer.from_warehouse} completed",
-            created_by=user_id,
+            created_by=str(user_id),
             created_at=datetime.utcnow(),
+            status=MovementStatus.CONFIRMED,
         )
         await self._inv_repo.save_movement(movement)
 
@@ -1105,7 +1417,7 @@ class InventoryService:
     ) -> dict[str, Any]:
         self._check_authority(user_id, "update_inventory_valuation")
 
-        items = await self._inv_repo.list_items(request.legal_entity_id, limit=10000)
+        items = await self._inv_repo.get_all_items(request.legal_entity_id, limit=10000)
         total_value = Decimal("0")
         for agg in items:
             total_value += agg.item.current_stock_value
@@ -1159,9 +1471,11 @@ class InventoryService:
     async def get_low_stock_items(
         self, legal_entity_id: UUID, threshold_percentage: Decimal = Decimal("20")
     ) -> list[ItemResponse]:
-        items = await self._inv_repo.list_items(legal_entity_id, status="ACTIVE", limit=10000)
+        items = await self._inv_repo.get_all_items(legal_entity_id, limit=10000)
         low_stock = []
         for agg in items:
+            if agg.item.status != ItemStatus.ACTIVE:
+                continue
             if agg.item.current_stock <= agg.item.reorder_point and agg.item.reorder_point > 0:
                 low_stock.append(agg.item)
         return [self._to_item_response(item) for item in low_stock]
@@ -1188,24 +1502,172 @@ class InventoryService:
             warehouse_code=item.warehouse_code,
             status=item.status.value,
             created_at=item.created_at,
+            item_code=item.sku,
+            item_name=item.name,
+            unit_of_measure=item.unit_of_measure.value,
+            brand=getattr(item, "brand", None),
+            reorder_quantity=getattr(item, "reorder_quantity", Decimal("0")) or Decimal("0"),
+            min_stock=getattr(item, "minimum_stock", None),
+            max_stock=getattr(item, "maximum_stock", None),
+            valuation_method=getattr(item, "valuation_method", None) or "FIFO",
+            is_active=item.is_active,
+            is_locked=False,  # belum dimodelkan di domain Item - default aman
+            weight_kg=(item.weight_gram / Decimal("1000")) if getattr(item, "weight_gram", None) else None,
+            volume_m3=None,  # belum dimodelkan (domain hanya simpan dimension_cm string)
+            last_purchase_price=item.last_cost or None,
+            last_purchase_date=None,  # belum ada kolom tanggal pembelian terakhir di domain
+            total_value=item.current_stock_value,
+            updated_at=item.updated_at,
+            created_by=getattr(item, "created_by", None),
+            created_by_name=None,  # butuh join ke user - belum diimplementasikan
+            version=getattr(item, "version", 1),
         )
 
-    def _to_movement_response(self, movement: StockMovement, sku: str) -> StockMovementResponse:
+    @staticmethod
+    def _parse_created_by(value: Any) -> UUID | None:
+        """created_by di MovementEntity disimpan sebagai str, tapi kontrak
+        router mengharapkan UUID - parse dengan aman, kembalikan None kalau
+        tidak valid (misal string kosong)."""
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                return UUID(value)
+            except ValueError:
+                return None
+        return None
+
+    def _to_movement_response(
+        self, movement: StockMovement, sku: str, original_type_code: str | None = None
+    ) -> StockMovementResponse:
         return StockMovementResponse(
             id=movement.id,
             item_id=movement.item_id,
             sku=sku,
-            movement_type=movement.movement_type.value,
+            movement_type=original_type_code or movement.movement_type.value,
             quantity=movement.quantity,
             unit_cost=movement.unit_cost,
-            total_value=movement.total_value,
+            total_value=movement.total_cost,
             movement_date=movement.movement_date,
             reference_document_type=movement.reference_document_type,
             reference_document_number=movement.reference_document_number,
             warehouse_code=movement.warehouse_code,
             notes=movement.notes,
             created_at=movement.created_at,
+            movement_number=movement.movement_number,
+            item_code=sku,
+            item_name=movement.item_name or sku,
+            total_cost=movement.total_cost,
+            reference_type=movement.reference_document_type,
+            reference_id=movement.reference_document_id,
+            warehouse_id=movement.warehouse_id,
+            warehouse_name=None,  # diisi pemanggil (get_movement_by_id/list_movements) lewat join
+            to_warehouse_id=movement.to_warehouse_id,
+            batch_number=movement.batch_number,
+            serial_number=movement.serial_number,
+            expiry_date=movement.expiry_date,
+            status=movement.status.value,
+            created_by=self._parse_created_by(movement.created_by),
+            created_by_name=None,  # butuh join ke user - belum diimplementasikan
+            reversed_at=movement.reversed_at,
+            reversed_by=movement.reversed_by,
+            version=movement.version,
         )
+
+    async def get_movement_by_id(
+        self, movement_id: UUID, legal_entity_id: UUID | None = None
+    ) -> StockMovementResponse | None:
+        movement = await self._inv_repo.get_movement_by_id(movement_id, legal_entity_id)
+        if movement is None:
+            return None
+        warehouse_name = await self._get_warehouse_name(movement.warehouse_id)
+        response = self._to_movement_response(movement, movement.item_sku)
+        response.warehouse_name = warehouse_name
+        return response
+
+    async def list_movements(
+        self,
+        legal_entity_id: UUID,
+        item_id: UUID | None = None,
+        movement_type: str | None = None,
+        status: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> MovementListResult:
+        page = max(page, 1)
+        page_size = max(min(page_size, 200), 1)
+        domain_type = self._resolve_movement_type(movement_type).value if movement_type else None
+        movements, total = await self._inv_repo.list_movements(
+            legal_entity_id=legal_entity_id,
+            item_id=item_id,
+            movement_type=domain_type,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
+        )
+        responses = []
+        for m in movements:
+            resp = self._to_movement_response(m, m.item_sku)
+            resp.warehouse_name = await self._get_warehouse_name(m.warehouse_id)
+            responses.append(resp)
+        return MovementListResult(items=responses, total=total, page=page, page_size=page_size)
+
+    async def reverse_movement(
+        self, movement_id: UUID, reversed_by: UUID, legal_entity_id: UUID, reason: str
+    ) -> StockMovementResponse | None:
+        movement = await self._inv_repo.get_movement_by_id(movement_id, legal_entity_id)
+        if movement is None:
+            return None
+        if movement.status != MovementStatus.CONFIRMED:
+            raise ValueError(f"Cannot reverse movement with status {movement.status.value}")
+
+        item_agg = await self._inv_repo.get_item_by_id(movement.item_id)
+        if not item_agg:
+            raise ItemNotFoundError(f"Item {movement.item_id} not found")
+
+        # Balikkan efek movement asli terhadap stok (kebalikan dari saat direkam)
+        if movement.movement_type.is_inbound():
+            new_stock = item_agg.item.current_stock - movement.quantity
+            new_value = item_agg.item.current_stock_value - movement.total_cost
+        else:
+            new_stock = item_agg.item.current_stock + movement.quantity
+            new_value = item_agg.item.current_stock_value + movement.total_cost
+
+        if new_stock < 0 and not self._validator.allow_negative_stock(item_agg.item):
+            raise NegativeStockNotAllowedError(
+                f"Tidak bisa membalik movement: akan membuat stok negatif untuk item {item_agg.item.sku}"
+            )
+
+        item_agg.update_stock(new_stock, new_value, item_agg.item.average_cost, reversed_by)
+        movement.mark_as_reversed(reversed_by)
+        movement.notes = f"{movement.notes or ''} [REVERSED: {reason}]".strip()
+
+        await self._inv_repo.save_item(item_agg)
+        await self._inv_repo.save_movement(movement)
+        await self._uow.commit()
+
+        self._record_audit("reverse_movement", {
+            "movement_id": str(movement_id),
+            "reversed_by": str(reversed_by),
+            "reason": reason,
+        })
+
+        warehouse_name = await self._get_warehouse_name(movement.warehouse_id)
+        response = self._to_movement_response(movement, movement.item_sku or item_agg.item.sku)
+        response.warehouse_name = warehouse_name
+        return response
+
+    async def _get_warehouse_name(self, warehouse_id: UUID | None) -> str | None:
+        if warehouse_id is None:
+            return None
+        try:
+            return await self._inv_repo.get_warehouse_name_by_id(warehouse_id)
+        except Exception:
+            return None
 
     def _to_opname_response(self, opname: StockOpname, item: Item) -> StockOpnameResponse:
         return StockOpnameResponse(

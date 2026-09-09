@@ -124,7 +124,7 @@ class SeedDataValidationError(SeedDataError):
 class ValidationError(SeedDataValidationError):
     """Error validasi data."""
 
-    def __init__(self, errors: List[str]):
+    def __init__(self, errors: list[str]):
         self.errors = errors
         super().__init__(f"Validation failed with {len(errors)} error(s)")
 
@@ -289,51 +289,39 @@ class ReplicaUnavailableError(ReadReplicaError):
 # ============================================================================
 
 __all__ = [
-    # Base
-    "DatabaseError",
-    # Connection
+    "ArchiveCreateError",
+    "ArchiveRestoreError",
+    "AuditTriggerError",
+    "BackupCreateError",
+    "BackupCreationError",
+    "BackupNotFoundError",
+    "BackupRestoreError",
+    "DatabaseBackupError",
     "DatabaseConnectionError",
+    "DatabaseError",
+    "DatabaseHealthError",
     "DatabasePoolError",
-    "SessionFactoryError",
-    # Transaction
-    "TransactionError",
-    "TransactionPropagationError",
-    # Migration
+    "EncryptionKeyError",
     "MigrationError",
     "MigrationNotInitializedError",
     "MigrationRollbackError",
+    "PITRError",
+    "PITRRestoreError",
+    "PartitionArchiverError",
+    "PartitionCreateError",
+    "PartitionMaintenanceError",
+    "PartitionManagerError",
+    "ReadReplicaError",
+    "ReplicaUnavailableError",
     "RollbackFailedError",
-    "BackupCreationError",
-    # Seed data
     "SeedDataError",
     "SeedDataNotFoundError",
     "SeedDataValidationError",
-    "ValidationError",
-    # TDE
+    "SessionFactoryError",
     "TDEError",
-    "EncryptionKeyError",
-    # Audit
-    "AuditTriggerError",
-    # Partition
-    "PartitionManagerError",
-    "PartitionCreateError",
-    "PartitionMaintenanceError",
-    "PartitionArchiverError",
-    "ArchiveCreateError",
-    "ArchiveRestoreError",
-    # Backup
-    "DatabaseBackupError",
-    "BackupCreateError",
-    "BackupRestoreError",
-    "BackupNotFoundError",
-    # PITR
-    "PITRError",
-    "PITRRestoreError",
+    "TransactionError",
+    "TransactionPropagationError",
+    "ValidationError",
     "WALArchiveError",
-    # Health
-    "DatabaseHealthError",
-    # Read replica
-    "ReadReplicaError",
     "WriteToReplicaError",
-    "ReplicaUnavailableError",
 ]

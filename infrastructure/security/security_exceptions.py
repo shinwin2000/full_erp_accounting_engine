@@ -376,53 +376,53 @@ class HashVerificationError(HashingError):
 # ============================================================================
 
 __all__ = [
-    # Base
-    "SecurityError",
+    "CARequestError",
+    "CSRGenerationError",
+    # Certificate
+    "CertificateError",
+    "CertificateExpiredError",
+    "CertificateLoadError",
+    "CertificateNotFoundError",
+    "CertificateRenewalError",
+    "DecryptionError",
+    # Digital signing
+    "DigitalSignerError",
+    "ExpiredTokenError",
+    # Encryption
+    "FieldEncryptionError",
+    "HashVerificationError",
+    # Hashing
+    "HashingError",
+    "InvalidAudienceError",
+    "InvalidIssuerError",
+    "InvalidTokenError",
     # JWT
     "JWTError",
     "JWTIssuerError",
-    "PrivateKeyNotFoundError",
-    "TokenGenerationError",
-    "JWTValidatorError",
-    "InvalidTokenError",
-    "ExpiredTokenError",
-    "RevokedTokenError",
-    "InvalidIssuerError",
-    "InvalidAudienceError",
     "JWTRevocationError",
-    "RevocationNotFoundError",
-    # Encryption
-    "FieldEncryptionError",
-    "DecryptionError",
+    "JWTValidatorError",
     "KeyNotFoundError",
-    # Digital signing
-    "DigitalSignerError",
-    "SigningError",
-    "VerificationError",
-    # Certificate
-    "CertificateError",
-    "CertificateLoadError",
-    "CertificateNotFoundError",
-    "CertificateExpiredError",
-    "CertificateRenewalError",
-    "CSRGenerationError",
-    "CARequestError",
-    # RBAC
-    "RBACError",
-    "PermissionDeniedError",
-    "UserNotFoundError",
-    "SODConstraintError",
-    "SODViolationError",
-    # Vault
-    "VaultError",
-    "VaultNotAvailableError",
-    "SecretNotFoundError",
-    "LeaseRenewalError",
     # Key rotation
     "KeyRotationError",
     "KeyRotationLockError",
+    "LeaseRenewalError",
+    "PermissionDeniedError",
+    "PrivateKeyNotFoundError",
+    # RBAC
+    "RBACError",
     "ReEncryptionError",
-    # Hashing
-    "HashingError",
-    "HashVerificationError",
+    "RevocationNotFoundError",
+    "RevokedTokenError",
+    "SODConstraintError",
+    "SODViolationError",
+    "SecretNotFoundError",
+    # Base
+    "SecurityError",
+    "SigningError",
+    "TokenGenerationError",
+    "UserNotFoundError",
+    # Vault
+    "VaultError",
+    "VaultNotAvailableError",
+    "VerificationError",
 ]

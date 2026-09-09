@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Index, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base
@@ -41,8 +41,8 @@ class UMKMTransactionTable(Base):
         Index("idx_umkm_tx_status", "status"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    profile_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     transaction_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -53,14 +53,14 @@ class UMKMTransactionTable(Base):
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # --- Kolom Tambahan (Ditambahkan agar tidak di-drop oleh Alembic) ---
-    reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reference_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     reference_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    umkm_profile_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    umkm_profile_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     # -------------------------------------------------------------------
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
 
     @property

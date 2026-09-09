@@ -16,6 +16,7 @@ Audit: Kompresi/dekompresi dicatat untuk monitoring performance.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import zlib
@@ -28,18 +29,6 @@ try:
     LZ4_AVAILABLE = True
 except ImportError:
     LZ4_AVAILABLE = False
-
-    # Create dummy for type hints
-    class lz4:
-        class frame:
-            @staticmethod
-            def compress(data):
-                raise ImportError("lz4 not available")
-
-            @staticmethod
-            def decompress(data):
-                raise ImportError("lz4 not available")
-
 
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -134,7 +123,7 @@ class CompressionLZ4:
             original_size = len(data)
 
             if self.use_lz4:
-                # LZ4 compression
+                # LZ4 compression (guaranteed available because use_lz4 is True only if LZ4_AVAILABLE)
                 compressed = lz4.frame.compress(data, compression_level=self.level)
                 format_header = b"L"  # 'L' for LZ4
             else:
@@ -203,19 +192,14 @@ class CompressionLZ4:
 
             # Decompress based on format
             if data[0:1] == b"L":
-                if not self.use_lz4:
-                    # Try anyway, maybe it was compressed with LZ4 earlier
-                    try:
-                        decompressed = lz4.frame.decompress(compressed_data)
-                    except Exception:
-                        raise UnsupportedAlgorithmError("LZ4 decompression failed")
-                else:
-                    decompressed = lz4.frame.decompress(compressed_data)
+                if not LZ4_AVAILABLE:
+                    raise UnsupportedAlgorithmError("LZ4 decompression requested but not available")
+                decompressed = lz4.frame.decompress(compressed_data)
             elif data[0:1] == b"Z":
                 decompressed = zlib.decompress(compressed_data)
             else:
                 # Try to detect by magic bytes
-                if data.startswith(LZ4_MAGIC):
+                if data.startswith(LZ4_MAGIC) and LZ4_AVAILABLE:
                     decompressed = lz4.frame.decompress(data)
                 elif data.startswith(ZLIB_MAGIC):
                     decompressed = zlib.decompress(data)
@@ -228,13 +212,15 @@ class CompressionLZ4:
                 computed_hash = hashlib.sha256(decompressed).digest()
                 if computed_hash != stored_hash:
                     logger.error("Hash mismatch during decompression")
-                    # trigger_alert is assumed to be synchronous; call without await
-                    trigger_alert(
-                        title="Cache Decompression Hash Mismatch",
-                        message="Hash verification failed during decompression",
-                        severity="warning",
-                        source="CompressionLZ4",
-                    )
+                    # trigger_alert is async, fire-and-forget
+                    asyncio.create_task(
+                        trigger_alert(
+                            title="Cache Decompression Hash Mismatch",
+                            message="Hash verification failed during decompression",
+                            severity="warning",
+                            source="CompressionLZ4",
+                        )
+                    )  # type: ignore
                     raise DecompressionError("Hash mismatch after decompression")
 
             self._stats["decompression_count"] += 1

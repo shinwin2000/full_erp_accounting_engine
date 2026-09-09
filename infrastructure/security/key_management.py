@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -81,12 +82,13 @@ class KeyManager:
     """
 
     _instance: KeyManager | None = None
-    _lock = None
+    _lock: threading.Lock | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> KeyManager:
         if cls._instance is None:
-            import threading
-            cls._lock = threading.Lock()
+            if cls._lock is None:
+                cls._lock = threading.Lock()
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)

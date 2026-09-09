@@ -218,7 +218,7 @@ class JournalPostingLatencyMetrics:
 
         # Alert if too slow
         if total_duration > SLO_CRITICAL:
-            asyncio.create_task(
+            alert_task = asyncio.create_task(
                 trigger_alert(
                     title="Journal Posting Slow",
                     message=f"Journal posting took {total_duration:.2f}s (critical: {SLO_CRITICAL}s)",
@@ -226,8 +226,10 @@ class JournalPostingLatencyMetrics:
                     source="JournalPostingLatencyMetrics",
                 )
             )
+            # Keep reference to avoid garbage collection
+            _task = alert_task
         elif total_duration > SLO_WARNING:
-            asyncio.create_task(
+            alert_task = asyncio.create_task(
                 trigger_alert(
                     title="Journal Posting Slow",
                     message=f"Journal posting took {total_duration:.2f}s (warning: {SLO_WARNING}s)",
@@ -235,6 +237,7 @@ class JournalPostingLatencyMetrics:
                     source="JournalPostingLatencyMetrics",
                 )
             )
+            _task = alert_task
 
         # Remove from active
         del self._active_postings[tracking_id]

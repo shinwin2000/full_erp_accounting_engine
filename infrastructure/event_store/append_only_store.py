@@ -8,6 +8,7 @@ Responsibility: Implementasi immutable append-only store untuk event sourcing.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -88,10 +89,8 @@ class AppendOnlyStore:
                 logger.info("AppendOnlyStore initialized")
         except Exception as e:
             # Rollback jika terjadi error (meskipun belum ada transaksi aktif)
-            try:
+            with contextlib.suppress(Exception):
                 await session.rollback()
-            except Exception:
-                pass
             logger.error(f"Failed to initialize event store: {e}")
             raise AppendOnlyStoreError(f"Initialization failed: {e}") from e
 

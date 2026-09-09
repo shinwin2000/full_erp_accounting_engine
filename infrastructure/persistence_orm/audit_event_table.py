@@ -15,7 +15,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -44,10 +45,10 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_ae_hash", "hash"),  # tambahan indeks untuk hash
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="INFO")
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -62,8 +63,8 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
     correlation_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     aggregate_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    aggregate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    aggregate_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ===== TAMBAHAN UNTUK HASH CHAIN =====
     hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -96,7 +97,7 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         cls,
         event_type: str,
         action: str,
-        user_id: uuid.UUID | None = None,
+        user_id: UUID | None = None,
         username: str | None = None,
         ip_address: str | None = None,
         resource_type: str | None = None,
@@ -105,7 +106,7 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         new_value: dict | None = None,
         details: dict | None = None,
         severity: str = "INFO",
-        legal_entity_id: uuid.UUID | None = None,
+        legal_entity_id: UUID | None = None,
         previous_hash: str | None = None,
     ) -> AuditEventTable:
         instance = cls(
@@ -134,7 +135,7 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         event_type: str,
         action: str,
         error_message: str,
-        user_id: uuid.UUID | None = None,
+        user_id: UUID | None = None,
         **kwargs,
     ) -> AuditEventTable:
         return cls.create(

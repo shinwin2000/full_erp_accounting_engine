@@ -20,6 +20,8 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import text as sa_text
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from config.loader_yaml import load_yaml_config
 
@@ -102,7 +104,7 @@ BEGIN
     v_changed_by := current_setting('audit.user_name', true);
     v_changed_by_id := current_setting('audit.user_id', true)::UUID;
     v_statement := current_query();
-    
+
     -- Capture record ID
     IF TG_OP = 'INSERT' THEN
         v_record_id := (NEW.id)::TEXT;
@@ -115,7 +117,7 @@ BEGIN
         v_record_id := (OLD.id)::TEXT;
         v_old_data := to_jsonb(OLD);
     END IF;
-    
+
     -- Insert audit record
     INSERT INTO {audit_schema}.{audit_table} (
         schema_name, table_name, operation, record_id,
@@ -126,7 +128,7 @@ BEGIN
         v_old_data, v_new_data, v_changed_by, v_changed_by_id,
         v_statement, current_setting('application_name', true)
     );
-    
+
     RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -326,9 +328,6 @@ async def install_audit_triggers() -> None:
 # ============================================================================
 # FASTAPI MIDDLEWARE (untuk set audit context per request)
 # ============================================================================
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
 
 class AuditContextMiddleware(BaseHTTPMiddleware):

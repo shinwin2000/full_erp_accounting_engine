@@ -298,7 +298,7 @@ class SLABreachAlerter:
             f"Started at: {process.start_time.isoformat()}"
         )
 
-        asyncio.create_task(
+        _task = asyncio.create_task(  # noqa: RUF006
             trigger_alert(
                 title=title,
                 message=message,

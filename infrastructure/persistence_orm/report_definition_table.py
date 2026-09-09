@@ -12,7 +12,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -32,7 +33,7 @@ class ReportDefinitionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
         Index("idx_report_def_is_active", "is_active"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     report_code: Mapped[str] = mapped_column(String(50), nullable=False)
     report_name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -42,7 +43,7 @@ class ReportDefinitionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     template_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     output_formats: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     def activate(self) -> None:
         self.is_active = True

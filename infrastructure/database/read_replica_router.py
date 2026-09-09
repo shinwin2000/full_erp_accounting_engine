@@ -180,12 +180,8 @@ class ReadReplicaRouter:
         if READ_ONLY_PATTERN.match(stmt):
             return True
 
-        # If not read-only pattern and not write pattern, assume read-only (safe)
-        if not WRITE_PATTERN.match(stmt):
-            # Could be a SELECT without leading SELECT? Be safe, treat as read-only
-            return True
-
-        return False
+        # If not write pattern, assume read-only (safe)
+        return not bool(WRITE_PATTERN.match(stmt))
 
     async def get_session(
         self, statement: str | None = None, force_master: bool = False

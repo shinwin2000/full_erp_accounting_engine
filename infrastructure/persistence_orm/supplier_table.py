@@ -161,10 +161,10 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
-    # RELATIONSHIPS – semua menggunakan back_populates untuk konsistensi
+    # RELATIONSHIPS - semua menggunakan back_populates untuk konsistensi
     # ========================================================================
 
-    # AP Invoices – kolom di APInvoiceTable adalah 'vendor_id'
+    # AP Invoices - kolom di APInvoiceTable adalah 'vendor_id'
     ap_invoices: Mapped[list[APInvoiceTable]] = relationship(
         "APInvoiceTable",
         back_populates="supplier",
@@ -172,7 +172,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         foreign_keys="[APInvoiceTable.vendor_id]",
     )
 
-    # AP Payments – kolom di APPaymentTable adalah 'supplier_id'
+    # AP Payments - kolom di APPaymentTable adalah 'supplier_id'
     ap_payments: Mapped[list[APPaymentTable]] = relationship(
         "APPaymentTable",
         back_populates="supplier",
@@ -180,7 +180,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         foreign_keys="[APPaymentTable.supplier_id]",
     )
 
-    # Purchase Orders – kolom di PurchaseOrderTable adalah 'supplier_id'
+    # Purchase Orders - kolom di PurchaseOrderTable adalah 'supplier_id'
     purchase_orders: Mapped[list[PurchaseOrderTable]] = relationship(
         "PurchaseOrderTable",
         back_populates="supplier",
@@ -188,7 +188,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         foreign_keys="[PurchaseOrderTable.supplier_id]",
     )
 
-    # Goods Receipt Notes – kolom di GoodsReceiptNoteTable adalah 'supplier_id'
+    # Goods Receipt Notes - kolom di GoodsReceiptNoteTable adalah 'supplier_id'
     goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="supplier",

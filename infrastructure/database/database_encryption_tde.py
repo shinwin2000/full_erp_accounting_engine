@@ -192,7 +192,7 @@ class DatabaseEncryptionTDE:
             return decrypted
 
     async def migrate_column_to_encrypted(
-        self, table: str, column: str, new_column: str = None
+        self, table: str, column: str, new_column: str | None = None
     ) -> None:
         """
         Migrate an existing plaintext column to encrypted column.
@@ -201,32 +201,31 @@ class DatabaseEncryptionTDE:
             new_column = f"{column}_encrypted"
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            async with session.begin():
-                # Check if new column exists - safe concatenation (from config)
-                check_query = (
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = '" + table + "' AND column_name = '" + new_column + "'"
-                )
-                col_exists = await session.execute(check_query)
-                if not col_exists.scalar():
-                    # Add the encrypted column
-                    alter_query = "ALTER TABLE " + table + " ADD COLUMN " + new_column + " TEXT"
-                    await session.execute(alter_query)
-                    logger.info(f"Added column {new_column} to {table}")
+        async with session_factory.get_session() as session, session.begin():
+            # Check if new column exists - safe concatenation (from config)
+            check_query = (
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = '" + table + "' AND column_name = '" + new_column + "'"
+            )
+            col_exists = await session.execute(check_query)
+            if not col_exists.scalar():
+                # Add the encrypted column
+                alter_query = "ALTER TABLE " + table + " ADD COLUMN " + new_column + " TEXT"
+                await session.execute(alter_query)
+                logger.info(f"Added column {new_column} to {table}")
 
-                # Migrate data - parameter binding for key
-                update_query = (
-                    "UPDATE " + table + " "
-                    "SET " + new_column + " = encode(pgp_sym_encrypt(" + column + ", :key, 'cipher-algo=aes256'), 'base64') "
-                    "WHERE " + column + " IS NOT NULL AND " + new_column + " IS NULL"
-                )
-                await session.execute(update_query, {"key": await self._get_encryption_key()})
+            # Migrate data - parameter binding for key
+            update_query = (
+                "UPDATE " + table + " "
+                "SET " + new_column + " = encode(pgp_sym_encrypt(" + column + ", :key, 'cipher-algo=aes256'), 'base64') "
+                "WHERE " + column + " IS NOT NULL AND " + new_column + " IS NULL"
+            )
+            await session.execute(update_query, {"key": await self._get_encryption_key()})
 
-                logger.info(f"Migrated {table}.{column} to {new_column}")
+            logger.info(f"Migrated {table}.{column} to {new_column}")
 
-                # Optional: drop the plaintext column after verification
-                # We'll keep both for safety
+            # Optional: drop the plaintext column after verification
+            # We'll keep both for safety
 
     async def setup_encrypted_columns(self) -> None:
         """

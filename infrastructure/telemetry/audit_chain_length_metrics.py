@@ -40,8 +40,12 @@ TOTAL_EVENTS_WARNING = 10000000
 chain_length = get_gauge(
     f"{METRIC_PREFIX}_length", "Number of events in hash chain", ["stream_name"]
 )
-total_events = get_gauge(f"{METRIC_PREFIX}_total_events", "Total number of events in event store")
-total_streams = get_gauge(f"{METRIC_PREFIX}_total_streams", "Total number of streams")
+total_events_metric = get_gauge(
+    f"{METRIC_PREFIX}_total_events", "Total number of events in event store"
+)
+total_streams_metric = get_gauge(
+    f"{METRIC_PREFIX}_total_streams", "Total number of streams"
+)
 chain_integrity = get_gauge(
     f"{METRIC_PREFIX}_integrity",
     "Hash chain integrity status (1=valid, 0=invalid)",
@@ -186,32 +190,32 @@ class AuditChainLengthMetrics:
                 result = await session.execute(stmt)
                 stream_names = result.scalars().all()
 
-            total_events = 0
+            total_events_count = 0
             results = []
             for stream_name in stream_names:
                 metrics = await self.collect_stream_metrics(stream_name)
                 results.append(metrics)
                 if "event_count" in metrics:
-                    total_events += metrics["event_count"]
+                    total_events_count += metrics["event_count"]
 
-            total_events_gauge.set(total_events)
-            total_streams_gauge.set(len(stream_names))
+            total_events_metric.set(total_events_count)
+            total_streams_metric.set(len(stream_names))
 
             self._previous_lengths = {
                 r["stream_name"]: r.get("event_count", 0) for r in results if "stream_name" in r
             }
             self._previous_collection_time = datetime.now(UTC)
 
-            if total_events > TOTAL_EVENTS_WARNING:
+            if total_events_count > TOTAL_EVENTS_WARNING:
                 await trigger_alert(
                     title="Event Store Size Warning",
-                    message=f"Total events in event store: {total_events:,} (warning threshold: {TOTAL_EVENTS_WARNING:,})",
+                    message=f"Total events in event store: {total_events_count:,} (warning threshold: {TOTAL_EVENTS_WARNING:,})",
                     severity="warning",
                     source="AuditChainLengthMetrics",
                 )
 
             return {
-                "total_events": total_events,
+                "total_events": total_events_count,
                 "total_streams": len(stream_names),
                 "streams": results,
             }

@@ -193,11 +193,12 @@ class StockOpnameCycleUseCase:
                     if item:
                         items.append(item)
             else:
-                items = await self._inventory_service.list_items(
+                result = await self._inventory_service.list_items(
                     legal_entity_id=command.legal_entity_id,
                     warehouse_code=command.warehouse_code,
                     limit=10000,
                 )
+                items = result.items
 
             if not items:
                 raise ValueError("No items found for stock opname")

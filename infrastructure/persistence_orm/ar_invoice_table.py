@@ -199,7 +199,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # ========================================================================
-    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) - ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # ========================================================================
     bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",

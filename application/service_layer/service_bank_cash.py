@@ -38,7 +38,7 @@ from domain.bank_cash.cash_book_entity import CashBook
 # CashBookRecord: representasi flat 1 baris tabel `cash_book`, didefinisikan
 # di adapter (bukan domain) karena domain.CashBookAggregate bentuknya beda
 # total (agregat besar, bukan 1 baris) -- lihat catatan di file adapter.
-from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import CashBookRecord
+from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import CashBookRecord, PettyCashFund
 from domain.bank_cash.cash_disbursement_entity import CashDisbursementEntity as CashDisbursement
 from domain.bank_cash.cash_receipt_entity import CashReceiptEntity as CashReceipt
 from domain.bank_cash.domain_events import (
@@ -71,7 +71,24 @@ from domain.bank_cash.domain_events import (
     PettyCashSuspendedEvent,
 )
 from domain.bank_cash.invariants import BankCashInvariantsValidator
-from domain.bank_cash.petty_cash_fund_entity import PettyCashFundEntity as PettyCashFund
+# PENTING (fix): baris import di bawah ini SEBELUMNYA meng-import
+# `PettyCashFundEntity` (domain/bank_cash/petty_cash_fund_entity.py) sebagai
+# `PettyCashFund` - padahal entity itu adalah model yang jauh lebih rumit
+# (field: petty_cash_id, petty_cash_code, petty_cash_name, custodian_name,
+# dst - custodian diidentifikasi lewat NAMA bukan ID, tidak ada field
+# gl_account_id sama sekali) yang TIDAK COCOK SAMA SEKALI dengan struktur
+# tabel `petty_cash_fund` sungguhan (id, fund_name, custodian_id,
+# gl_account_id, reimbursement_threshold, dst - lihat
+# infrastructure/persistence_orm/petty_cash_fund_table.py) MAUPUN dengan
+# cara semua method petty cash di bawah (create/adjust/activate/close/
+# suspend/disbursement/replenish) benar-benar memakainya (field flat
+# sederhana: fund.current_balance, fund.is_active, fund.updated_at, dst).
+# Akibatnya SETIAP operasi petty cash sebelumnya gagal TypeError begitu
+# mencoba membuat objek `PettyCashFund(...)` dengan kwargs yang tidak
+# dikenali oleh domain entity yang salah itu.
+#
+# Solusi: definisikan dataclass baru yang sederhana & flat di bawah,
+# BENAR-BENAR cocok dengan kolom tabel + cara seluruh kode ini memakainya.
 from domain.shared_value_objects.currency_vo import Currency
 from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -248,6 +265,69 @@ class BankReconciliationResponse:
     matched_count: int
     unmatched_system_ids: list[UUID]
     unmatched_statement_refs: list[str]
+
+
+@dataclass(kw_only=True)
+class BankReconciliationDetailResponse:
+    """Respons lengkap untuk satu baris riwayat/hasil rekonsiliasi -
+    field-nya dibuat mengikuti kebutuhan BankReconciliationResponseSchema
+    di fastapi_bank_cash_router.py, karena BankReconciliationResponse di
+    atas terlalu sederhana (dipakai reconcile_bank_account internal) dan
+    tabel bank_reconciliations sendiri tidak punya semua kolom detail
+    (mis. matched_count) - lihat catatan panjang di
+    sqlalchemy_bank_cash_repository_impl.py bagian BANK RECONCILIATION."""
+    id: UUID
+    reconciliation_number: str
+    bank_account_id: UUID
+    bank_account_name: str | None
+    statement_date: date
+    statement_balance: Decimal
+    book_balance: Decimal
+    difference: Decimal
+    matched_count: int = 0
+    unmatched_book_count: int = 0
+    unmatched_statement_count: int = 0
+    adjustment_amount: Decimal | None = None
+    adjustment_journal_id: UUID | None = None
+    status: str = "pending"
+    notes: str | None = None
+    created_at: datetime | None = None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    version: int = 1
+    completed_at: datetime | None = None
+    completed_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class BankTransferResponse:
+    """Respons untuk transfer antar rekening - field-nya mengikuti
+    kebutuhan BankTransferResponseSchema di fastapi_bank_cash_router.py.
+    BankTransfer (domain object dari transfer_between_accounts) tidak
+    punya semua field ini (transfer_number, nama rekening, dst), jadi
+    dilengkapi di sini."""
+    id: UUID
+    transfer_number: str
+    from_account_id: UUID
+    from_account_name: str | None
+    to_account_id: UUID
+    to_account_name: str | None
+    transfer_date: date
+    amount: Decimal
+    description: str
+    reference_number: str | None = None
+    notes: str | None = None
+    status: str = "completed"
+    from_journal_id: UUID | None = None
+    to_journal_id: UUID | None = None
+    created_at: datetime | None = None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    processed_at: datetime | None = None
+    version: int = 1
+
 
 
 @dataclass(kw_only=True)
@@ -1212,10 +1292,10 @@ class BankCashService:
 
         matched_ids = []
         for tx in transactions:
-            if tx.id in result.matched_system_ids:
+            if tx.transaction_id in result.matched_system_ids:
                 tx.is_reconciled = True
                 tx.reconciled_at = datetime.now(UTC)
-                matched_ids.append(tx.id)
+                matched_ids.append(tx.transaction_id)
                 await self._bank_repo.save_transaction(tx)
 
         # Publish cleared events for matched transactions
@@ -1247,6 +1327,8 @@ class BankCashService:
             matched_count=result.matched_count,
             reconciliation_date=datetime.now(UTC),
             reconciled_by=request.user_id,
+            unmatched_system_count=len(result.unmatched_system_ids),
+            unmatched_statement_count=len(result.unmatched_statement_refs),
         )
 
         if self._uow and getattr(self._uow, "_is_active", False):
@@ -1288,6 +1370,72 @@ class BankCashService:
             unmatched_statement_refs=result.unmatched_statement_refs,
         )
 
+    async def reconcile_bank_account_detailed(
+        self, request: BankReconciliationRequest, notes: str | None = None,
+        correlation_id: str | None = None,
+    ) -> BankReconciliationDetailResponse:
+        """Adapter di atas reconcile_bank_account() yang mengembalikan
+        respons lengkap (reconciliation_number, nama rekening, dst) sesuai
+        kebutuhan BankReconciliationResponseSchema di router.
+
+        FIX: fastapi_bank_cash_router.py (reconcile_bank) memanggil
+        `use_case.reconcile(...)` (lihat BankReconciliationUseCase di
+        application/use_cases/bank_reconciliation.py) yang sebelumnya
+        TIDAK ADA method `reconcile()` sama sekali -> POST
+        /bank-cash/bank-cash/reconciliations selalu gagal 500
+        AttributeError. Method use case itu sekarang memanggil method
+        INI untuk melakukan pekerjaan sesungguhnya.
+        """
+        result = await self.reconcile_bank_account(request, correlation_id=correlation_id)
+        bank_account = await self._bank_repo.get_bank_account_by_id(request.bank_account_id)
+        return BankReconciliationDetailResponse(
+            id=result.reconciliation_id,
+            reconciliation_number=f"REC-{result.statement_date.year}-{str(result.reconciliation_id)[:8].upper()}",
+            bank_account_id=result.bank_account_id,
+            bank_account_name=bank_account.account_name if bank_account else None,
+            statement_date=result.statement_date,
+            statement_balance=result.statement_balance,
+            book_balance=result.system_balance,
+            difference=result.difference,
+            matched_count=result.matched_count,
+            unmatched_book_count=len(result.unmatched_system_ids),
+            unmatched_statement_count=len(result.unmatched_statement_refs),
+            status="reconciled" if result.is_matched else "pending",
+            notes=notes,
+            created_at=datetime.now(UTC),
+            created_by=request.user_id,
+        )
+
+    async def get_reconciliation_history(
+        self, bank_account_id: UUID, legal_entity_id: UUID | None = None, limit: int = 12,
+    ) -> list[BankReconciliationDetailResponse]:
+        """FIX: fastapi_bank_cash_router.py (get_bank_reconciliation_history)
+        memanggil `service.get_reconciliation_history(...)` yang sebelumnya
+        TIDAK ADA SAMA SEKALI di service ini (yang ada cuma versi rusak di
+        level repository - lihat catatan di
+        sqlalchemy_bank_cash_repository_impl.py) -> selalu gagal 500
+        AttributeError."""
+        rows = await self._bank_repo.get_reconciliation_history(bank_account_id, limit=limit)
+        bank_account = await self._bank_repo.get_bank_account_by_id(bank_account_id)
+        account_name = bank_account.account_name if bank_account else None
+        return [
+            BankReconciliationDetailResponse(
+                id=row["id"],
+                reconciliation_number=f"REC-{row['statement_date'].year}-{str(row['id'])[:8].upper()}",
+                bank_account_id=row["bank_account_id"],
+                bank_account_name=account_name,
+                statement_date=row["statement_date"],
+                statement_balance=row["statement_balance"],
+                book_balance=row["book_balance"],
+                difference=row["difference"],
+                status=row["status"],
+                notes=row["notes"],
+                created_at=row["created_at"],
+                created_by=row["created_by"],
+            )
+            for row in rows
+        ]
+
     # ========================================================================
     # Bank Transfer
     # ========================================================================
@@ -1317,12 +1465,12 @@ class BankCashService:
                 f"To account {to_account_id} not found"
             )
 
-        if from_agg.bank_account.is_locked:
+        if from_agg.is_locked:
             raise BankAccountBlockedError("From account is locked")
-        if to_agg.bank_account.is_locked:
+        if to_agg.is_locked:
             raise BankAccountBlockedError("To account is locked")
 
-        if from_agg.bank_account.available_balance < amount:
+        if from_agg.available_balance < amount:
             raise InsufficientFundsError("Insufficient funds in from account")
 
         transfer_id = uuid4()
@@ -1341,9 +1489,54 @@ class BankCashService:
             await self._publish_event(event_init, f"Transfer {transfer_id} initiated", correlation_id)
 
         try:
+            # PENTING (fix menyeluruh): kode sebelumnya di sini memanggil
+            # `self._bank_repo.save_bank_account(...)` dan
+            # `self._bank_repo.save_transfer(...)` - DUA-DUANYA TIDAK
+            # PERNAH ADA di repository (dan memang tidak ada satupun
+            # tabel database untuk "bank transfer" sama sekali - cek
+            # infrastructure/persistence_orm/, tidak ada
+            # bank_transfer_table.py). Method ini sebelumnya TIDAK PERNAH
+            # bisa berhasil dijalankan sampai selesai.
+            #
+            # Solusi yang dipilih: SATU transfer direkam sebagai SEPASANG
+            # transaksi bank biasa yang saling terhubung lewat
+            # reference_number yang sama (transfer_out di rekening asal,
+            # transfer_in di rekening tujuan) - memakai jalur
+            # record_transaction() yang sudah teruji benar (validasi
+            # saldo, update saldo, simpan transaksi semuanya sudah
+            # berfungsi di sana), daripada membangun tabel+mekanisme baru
+            # dari nol.
+            reference_number = f"TRF-{transfer_date.year}-{str(transfer_id)[:8].upper()}"
+
+            out_request = BankTransactionRequest(
+                legal_entity_id=from_agg.legal_entity_id,
+                bank_account_id=from_account_id,
+                transaction_date=transfer_date,
+                amount=amount,
+                description=f"Transfer ke {to_agg.account_name}: {description}",
+                transaction_type=TransactionType.TRANSFER_OUT.value,
+                reference_number=reference_number,
+                counterparty_account=to_agg.account_number,
+                counterparty_name=to_agg.account_name,
+            )
+            await self.record_transaction(out_request, user_id=user_id, correlation_id=correlation_id)
+
+            in_request = BankTransactionRequest(
+                legal_entity_id=to_agg.legal_entity_id,
+                bank_account_id=to_account_id,
+                transaction_date=transfer_date,
+                amount=amount,
+                description=f"Transfer dari {from_agg.account_name}: {description}",
+                transaction_type=TransactionType.TRANSFER_IN.value,
+                reference_number=reference_number,
+                counterparty_account=from_agg.account_number,
+                counterparty_name=from_agg.account_name,
+            )
+            await self.record_transaction(in_request, user_id=user_id, correlation_id=correlation_id)
+
             transfer = BankTransfer(
                 id=transfer_id,
-                legal_entity_id=from_agg.bank_account.legal_entity_id,
+                legal_entity_id=from_agg.legal_entity_id,
                 from_account_id=from_account_id,
                 to_account_id=to_account_id,
                 amount=amount,
@@ -1354,17 +1547,6 @@ class BankCashService:
                 created_at=datetime.now(UTC),
                 completed_at=datetime.now(UTC),
             )
-
-            from_agg.bank_account.current_balance -= amount
-            from_agg.bank_account.available_balance -= amount
-            to_agg.bank_account.current_balance += amount
-            to_agg.bank_account.available_balance += amount
-
-            await self._bank_repo.save_bank_account(from_agg)
-            await self._bank_repo.save_bank_account(to_agg)
-            await self._bank_repo.save_transfer(transfer)
-            if self._uow and getattr(self._uow, "_is_active", False):
-                await self._uow.commit()
 
             # --- PUBLISH COMPLETED EVENT ---
             if self._event_publisher:
@@ -1410,6 +1592,61 @@ class BankCashService:
                 )
                 await self._publish_event(event_fail, f"Transfer {transfer_id} failed", correlation_id)
             raise
+
+    async def create_internal_transfer(
+        self,
+        legal_entity_id: UUID,
+        from_bank_account_id: UUID,
+        to_bank_account_id: UUID,
+        transfer_date: date,
+        amount: Decimal,
+        description: str,
+        created_by: UUID,
+        reference_number: str | None = None,
+        notes: str | None = None,
+        correlation_id: str | None = None,
+    ) -> BankTransferResponse:
+        """Adapter tipis di atas transfer_between_accounts().
+
+        FIX: fastapi_bank_cash_router.py (create_bank_transfer) memanggil
+        `service.create_internal_transfer(...)` dengan kwargs individual,
+        padahal method itu sebelumnya TIDAK PERNAH ada di service ini -
+        hanya `transfer_between_accounts(...)` yang ada, dengan nama
+        parameter berbeda (from_account_id bukan from_bank_account_id) dan
+        return value (BankTransfer domain object) yang tidak punya semua
+        field yang dibutuhkan BankTransferResponseSchema (transfer_number,
+        nama rekening, dst) - selalu gagal 500 AttributeError sebelumnya.
+        """
+        transfer = await self.transfer_between_accounts(
+            from_account_id=from_bank_account_id,
+            to_account_id=to_bank_account_id,
+            amount=amount,
+            transfer_date=transfer_date,
+            description=description,
+            user_id=created_by,
+            correlation_id=correlation_id,
+        )
+
+        from_account = await self._bank_repo.get_bank_account_by_id(from_bank_account_id)
+        to_account = await self._bank_repo.get_bank_account_by_id(to_bank_account_id)
+
+        return BankTransferResponse(
+            id=transfer.id,
+            transfer_number=f"TRF-{transfer.transfer_date.year}-{str(transfer.id)[:8].upper()}",
+            from_account_id=transfer.from_account_id,
+            from_account_name=from_account.account_name if from_account else None,
+            to_account_id=transfer.to_account_id,
+            to_account_name=to_account.account_name if to_account else None,
+            transfer_date=transfer.transfer_date,
+            amount=transfer.amount,
+            description=transfer.description,
+            reference_number=reference_number,
+            notes=notes,
+            status=transfer.status.value if hasattr(transfer.status, "value") else str(transfer.status),
+            created_at=transfer.created_at,
+            created_by=transfer.created_by,
+            processed_at=transfer.completed_at,
+        )
 
     @audit
     async def cancel_bank_transfer(
@@ -1968,23 +2205,47 @@ class BankCashService:
 
     @audit
     async def create_petty_cash_fund(
-        self, request: PettyCashRequest, user_id: UUID, correlation_id: str | None = None
+        self,
+        legal_entity_id: UUID,
+        fund_name: str,
+        currency_code: str,
+        initial_amount: Decimal,
+        custodian_id: UUID,
+        gl_petty_cash_account_id: UUID,
+        created_by: UUID,
+        reimbursement_threshold: Decimal | None = None,
+        fund_location: str | None = None,
+        notes: str | None = None,
+        correlation_id: str | None = None,
     ) -> PettyCashFund:
-        self._check_authority(user_id, "create_petty_cash_fund")
+        """FIX: fastapi_bank_cash_router.py (create_petty_cash_fund) memanggil
+        method ini dengan kwargs individual (legal_entity_id, fund_name,
+        gl_petty_cash_account_id, dst), tapi versi lama method ini
+        menerima satu objek `PettyCashRequest` yang bahkan tidak punya
+        field gl_petty_cash_account_id/reimbursement_threshold/
+        fund_location/notes sama sekali -> selalu gagal TypeError
+        "unexpected keyword argument". Ditambah lagi, versi lama
+        membangun `PettyCashFund(...)` pakai domain entity yang salah
+        (lihat catatan panjang di bagian import file ini)."""
+        self._check_authority(created_by, "create_petty_cash_fund")
 
         fund = PettyCashFund(
             id=uuid4(),
-            legal_entity_id=request.legal_entity_id,
-            fund_name=request.fund_name,
-            initial_amount=request.initial_amount,
-            current_balance=request.initial_amount,
-            custodian_id=request.custodian_id,
-            currency=Currency(request.currency_code),
+            legal_entity_id=legal_entity_id,
+            fund_name=fund_name,
+            currency_code=currency_code or "IDR",
+            initial_amount=initial_amount,
+            current_balance=initial_amount,
+            custodian_id=custodian_id,
+            gl_account_id=gl_petty_cash_account_id,
+            reimbursement_threshold=reimbursement_threshold or Decimal("1000000"),
+            fund_location=fund_location,
+            notes=notes,
+            status="active",
             is_active=True,
             is_closed=False,
-            created_by=user_id,
+            created_by=created_by,
             created_at=datetime.now(UTC),
-            last_replenishment_date=None,
         )
         await self._bank_repo.save_petty_cash_fund(fund)
         if self._uow and getattr(self._uow, "_is_active", False):
@@ -1997,18 +2258,18 @@ class BankCashService:
             event = PettyCashFundCreatedEvent(
                 aggregate_id=fund.id,
                 aggregate_version=1,
-                fund_name=request.fund_name,
-                initial_amount=request.initial_amount,
-                user_id=user_id,
+                fund_name=fund_name,
+                initial_amount=initial_amount,
+                user_id=created_by,
                 occurred_at=datetime.now(UTC),
             )
-            await self._publish_event(event, f"Petty cash fund {request.fund_name} created", correlation_id)
+            await self._publish_event(event, f"Petty cash fund {fund_name} created", correlation_id)
 
         self._record_audit("create_petty_cash_fund", {
             "fund_id": str(fund.id),
-            "fund_name": request.fund_name,
-            "initial_amount": str(request.initial_amount),
-            "user_id": str(user_id),
+            "fund_name": fund_name,
+            "initial_amount": str(initial_amount),
+            "user_id": str(created_by),
         })
 
         return fund
@@ -2071,6 +2332,12 @@ class BankCashService:
             raise PettyCashFundError(f"Petty cash fund {fund_id} not found")
 
         fund.is_active = True
+        # PENTING (fix): sebelumnya cuma set is_active=True tanpa
+        # menyentuh fund.status, padahal kolom `status` di tabel-lah yang
+        # dibaca ulang & divalidasi ke enum PettyCashStatus router setiap
+        # kali fund ini ditampilkan - membuat status tampil tetap
+        # "locked"/lainnya walau sebenarnya sudah diaktifkan.
+        fund.status = "active"
         fund.activated_at = datetime.now(UTC)
         fund.activated_by = user_id
         fund.updated_at = datetime.now(UTC)
@@ -2117,6 +2384,7 @@ class BankCashService:
 
         fund.is_closed = True
         fund.is_active = False
+        fund.status = "closed"
         fund.closed_at = datetime.now(UTC)
         fund.closed_by = user_id
         fund.updated_at = datetime.now(UTC)
@@ -2158,6 +2426,12 @@ class BankCashService:
             raise PettyCashFundError(f"Petty cash fund {fund_id} not found")
 
         fund.is_active = False
+        # PENTING (fix): router punya enum PettyCashStatus sendiri untuk
+        # respons (active/reimbursed/closed/locked) - TIDAK ADA nilai
+        # "suspended". Dipetakan ke "locked" (paling dekat maknanya: dana
+        # tidak bisa dipakai sementara) supaya PettyCashStatus(result.status)
+        # di router tidak meledak ValueError kalau nanti fund ini dibaca lagi.
+        fund.status = "locked"
         fund.suspend_reason = reason
         fund.suspended_at = datetime.now(UTC)
         fund.suspended_by = user_id
@@ -2252,6 +2526,7 @@ class BankCashService:
         bank_account_id: UUID,
         user_id: UUID,
         correlation_id: str | None = None,
+        description: str | None = None,
     ) -> PettyCashFund:
         self._check_authority(user_id, "replenish_petty_cash")
 
@@ -2259,16 +2534,25 @@ class BankCashService:
         if not fund:
             raise PettyCashFundError(f"Petty cash fund {fund_id} not found")
 
-        # Transfer from bank to petty cash
-        await self.transfer_between_accounts(
-            from_account_id=bank_account_id,
-            to_account_id=None,  # Petty cash doesn't have bank account
+        # PENTING (fix): sebelumnya di sini memanggil
+        # self.transfer_between_accounts(..., to_account_id=None, ...) -
+        # padahal transfer_between_accounts() MEWAJIBKAN to_account_id
+        # valid (untuk lookup rekening tujuan), jadi selalu gagal begitu
+        # dijalankan. Petty cash memang tidak punya "rekening bank"
+        # sendiri (saldonya cuma angka di tabel petty_cash_fund, bukan
+        # baris di bank_account), jadi cukup direkam sebagai SATU
+        # transaksi keluar (withdrawal) di rekening bank sumber dana,
+        # tanpa perlu leg kedua.
+        withdrawal_request = BankTransactionRequest(
+            legal_entity_id=fund.legal_entity_id,
+            bank_account_id=bank_account_id,
+            transaction_date=date.today(),
             amount=amount,
-            transfer_date=date.today(),
-            description=f"Petty cash replenishment for {fund.fund_name}",
-            user_id=user_id,
-            correlation_id=correlation_id,
+            description=description or f"Pengisian ulang petty cash {fund.fund_name}",
+            transaction_type=TransactionType.WITHDRAWAL.value,
+            reference_number=f"PettyCash-{str(fund_id)[:8].upper()}",
         )
+        await self.record_transaction(withdrawal_request, user_id=user_id, correlation_id=correlation_id)
 
         fund.current_balance += amount
         fund.last_replenishment_date = date.today()
@@ -2297,6 +2581,33 @@ class BankCashService:
         })
 
         return fund
+
+    async def reimburse_petty_cash(
+        self,
+        fund_id: UUID,
+        legal_entity_id: UUID,
+        reimbursement_date: date,
+        amount: Decimal,
+        bank_account_id: UUID,
+        description: str,
+        reimbursed_by: UUID,
+        notes: str | None = None,
+        correlation_id: str | None = None,
+    ) -> PettyCashFund:
+        """FIX: fastapi_bank_cash_router.py (reimburse_petty_cash) memanggil
+        `service.reimburse_petty_cash(...)` yang sebelumnya TIDAK ADA
+        SAMA SEKALI di service ini (yang ada cuma `replenish_petty_cash`
+        dengan nama & parameter berbeda) -> selalu gagal 500
+        AttributeError. Method ini adapter tipis yang meneruskan ke
+        replenish_petty_cash() yang sudah benar logikanya."""
+        return await self.replenish_petty_cash(
+            fund_id=fund_id,
+            amount=amount,
+            bank_account_id=bank_account_id,
+            user_id=reimbursed_by,
+            correlation_id=correlation_id,
+            description=description,
+        )
 
     # ========================================================================
     # Bank Statement Import
@@ -2327,7 +2638,7 @@ class BankCashService:
             if existing:
                 continue
             request = BankTransactionRequest(
-                legal_entity_id=bank_agg.bank_account.legal_entity_id,
+                legal_entity_id=bank_agg.legal_entity_id,
                 bank_account_id=bank_account_id,
                 transaction_date=txn_data["date"],
                 amount=txn_data["amount"],
