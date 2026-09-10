@@ -227,9 +227,16 @@ class SchemaRegistryClient:
             raise SchemaRegistryError(f"Get schema failed: {e}") from e
 
     async def get_schema_by_version(
-        self, topic: str, version: int = 1, is_key: bool = False
+        self, topic: str, version: int | str = 1, is_key: bool = False
     ) -> dict[str, Any]:
-        """Get schema by subject and version."""
+        """
+        Get schema by subject and version.
+
+        Args:
+            topic: Topic name
+            version: Version number (int) atau "latest" (str)
+            is_key: Whether this is a key schema
+        """
         client = await self._get_client()
         subject = self._get_subject(topic, is_key)
         url = f"{self._base_url}/subjects/{subject}/versions/{version}"

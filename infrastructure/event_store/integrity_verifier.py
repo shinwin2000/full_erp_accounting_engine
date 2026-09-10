@@ -17,7 +17,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 
 from infrastructure.event_store.hash_chain_builder import HashChainBuilder
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -185,7 +185,8 @@ class IntegrityVerifier:
         }
 
     async def generate_integrity_report(self, output_path: str | None = None) -> str:
-        report = {
+        # Anotasi eksplisit agar mypy tidak menginferensi sebagai dict[str, str]
+        report: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "verifier": "IntegrityVerifier",
         }

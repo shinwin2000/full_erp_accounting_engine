@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 
 from config.loader_yaml import load_yaml_config
 from infrastructure.file_storage.glacier_cold_storage_adapter import GlacierColdStorageAdapter

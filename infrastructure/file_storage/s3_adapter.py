@@ -31,8 +31,8 @@ try:
 except ImportError:
     S3_AVAILABLE = False
     aioboto3 = None
-    ClientError = Exception
-    NoCredentialsError = Exception
+    ClientError = Exception  # type: ignore[misc,assignment]
+    NoCredentialsError = Exception  # type: ignore[misc,assignment]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -165,9 +165,9 @@ class S3FileStorageAdapter(BaseFileStorageAdapter):
         content_type, _ = mimetypes.guess_type(file_name)
         return content_type or "application/octet-stream"
 
-    def _get_extra_args(self, metadata: dict | None = None) -> dict:
+    def _get_extra_args(self, metadata: dict | None = None) -> dict[str, Any]:
         """Get extra arguments for S3 upload."""
-        extra_args = {}
+        extra_args: dict[str, Any] = {}
 
         if self._sse == "AES256":
             extra_args["ServerSideEncryption"] = "AES256"
@@ -179,6 +179,19 @@ class S3FileStorageAdapter(BaseFileStorageAdapter):
             extra_args["Metadata"] = {k: str(v)[:1024] for k, v in metadata.items()}
 
         return extra_args
+
+    def create_bucket(self, bucket_name: str | None = None) -> None:
+        """
+        Stub method for test compatibility.
+        In a real implementation, this would create the bucket using aioboto3.
+        """
+        target_bucket = bucket_name or self._bucket
+        logger.warning(
+            f"create_bucket called for '{target_bucket}' but not implemented in this adapter stub"
+        )
+        # In production, implement bucket creation using aioboto3:
+        # async with self._session.client("s3") as client:
+        #     await client.create_bucket(Bucket=target_bucket)
 
     async def upload(
         self,
@@ -411,7 +424,7 @@ class S3FileStorageAdapter(BaseFileStorageAdapter):
         file_name: str,
         content_type: str = "application/octet-stream",
         expiration_seconds: int = 3600,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """
         Generate presigned URL for client-side upload.
         """
@@ -467,18 +480,15 @@ async def get_s3_storage_adapter() -> S3FileStorageAdapter:
 class S3FileStorage(S3FileStorageAdapter):
     """
     Alias for S3FileStorageAdapter with additional convenience methods for tests.
+
+    Note: Method `upload`, `download`, `exists` di sini sengaja dibuat sinkron
+    untuk keperluan test compatibility; mereka menimpa versi async dari parent
+    dan oleh karena itu memakai `# type: ignore[override]`.
     """
 
-    def create_bucket(self, bucket_name: str | None = None) -> None:
-        """
-        Stub method for test compatibility.
-        In a real implementation, this would create the bucket.
-        """
-        logger.warning("create_bucket called but not implemented in this adapter stub")
-        # In production, implement bucket creation using aioboto3
-        pass
-
-    def upload(self, key: str, content: bytes, metadata: dict | None = None) -> None:
+    def upload(  # type: ignore[override]
+        self, key: str, content: bytes, metadata: dict | None = None
+    ) -> None:
         """
         Simplified upload method for test compatibility.
         Maps to the async upload method (synchronous stub).
@@ -489,7 +499,7 @@ class S3FileStorage(S3FileStorageAdapter):
         # In real test, this would be implemented with async
         pass
 
-    def download(self, key: str) -> bytes:
+    def download(self, key: str) -> bytes:  # type: ignore[override]
         """
         Simplified download method for test compatibility.
         """
@@ -503,16 +513,12 @@ class S3FileStorage(S3FileStorageAdapter):
         """
         return {"size": 100, "etag": "dummy"}
 
-    def exists(self, key: str) -> bool:
+    def exists(self, key: str) -> bool:  # type: ignore[override]
         """
         Check if object exists.
         """
         return True  # Stub
 
-
-# Also add create_bucket method to original class for consistency (optional)
-if not hasattr(S3FileStorageAdapter, "create_bucket"):
-    S3FileStorageAdapter.create_bucket = lambda self, bucket_name=None: None
 
 # ============================================================================
 # EXPORTS

@@ -1477,14 +1477,24 @@ class BankCashService:
 
         # --- PUBLISH INITIATED EVENT ---
         if self._event_publisher:
+            # PENTING (fix): sebelumnya kode di sini memanggil
+            # BankTransferInitiatedEvent(..., occurred_at=...) - padahal
+            # constructor event ini TIDAK menerima occurred_at sama sekali
+            # (di-set otomatis di dalam __init__ event itu sendiri), dan
+            # beberapa parameter WAJIB (transfer_id, currency, initiated_by)
+            # malah tidak pernah disertakan sama sekali - selalu gagal
+            # TypeError sebelum sempat mengirim event apapun.
             event_init = BankTransferInitiatedEvent(
                 aggregate_id=transfer_id,
                 aggregate_version=1,
+                transfer_id=transfer_id,
                 from_account_id=from_account_id,
                 to_account_id=to_account_id,
                 amount=amount,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                currency=from_agg.currency,
+                initiated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event_init, f"Transfer {transfer_id} initiated", correlation_id)
 
@@ -1550,14 +1560,17 @@ class BankCashService:
 
             # --- PUBLISH COMPLETED EVENT ---
             if self._event_publisher:
+                # PENTING (fix): sama seperti event Initiated di atas -
+                # occurred_at bukan parameter yang valid, dan field wajib
+                # (transfer_id, completed_by) sebelumnya tidak disertakan.
                 event_complete = BankTransferCompletedEvent(
                     aggregate_id=transfer_id,
-                    aggregate_version=1,
-                    from_account_id=from_account_id,
-                    to_account_id=to_account_id,
-                    amount=amount,
-                    user_id=user_id,
-                    occurred_at=datetime.now(UTC),
+                    aggregate_version=2,
+                    transfer_id=transfer_id,
+                    completed_by=str(user_id),
+                    reference=reference_number,
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
                 )
                 await self._publish_event(event_complete, f"Transfer {transfer_id} completed", correlation_id)
 
@@ -1583,12 +1596,11 @@ class BankCashService:
                 event_fail = BankTransferFailedEvent(
                     aggregate_id=transfer_id,
                     aggregate_version=1,
-                    from_account_id=from_account_id,
-                    to_account_id=to_account_id,
-                    amount=amount,
+                    transfer_id=transfer_id,
                     reason=str(e),
-                    user_id=user_id,
-                    occurred_at=datetime.now(UTC),
+                    failed_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
                 )
                 await self._publish_event(event_fail, f"Transfer {transfer_id} failed", correlation_id)
             raise
@@ -2563,13 +2575,18 @@ class BankCashService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
+            # PENTING (fix): occurred_at bukan parameter valid di sini
+            # (event ini pakai class strict, bukan shim **kwargs seperti
+            # PettyCashFundCreatedEvent), dan field wajibnya
+            # petty_cash_id/replenished_by (bukan bank_account_id).
             event = PettyCashReplenishedEvent(
                 aggregate_id=fund_id,
                 aggregate_version=fund.version + 1,
+                petty_cash_id=fund_id,
                 amount=amount,
-                bank_account_id=bank_account_id,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                replenished_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Petty cash fund {fund_id} replenished", correlation_id)
 

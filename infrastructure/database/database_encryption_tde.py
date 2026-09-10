@@ -150,7 +150,9 @@ class DatabaseEncryptionTDE:
         Ensure pgcrypto extension is installed in the database.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Check if extension exists - gunakan text() untuk query statis
             result = await session.execute(
                 text("SELECT extname FROM pg_extension WHERE extname = 'pgcrypto'")
@@ -167,12 +169,15 @@ class DatabaseEncryptionTDE:
 
         # Use pgcrypto's encrypt function with the key
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            query = """
-            SELECT encode(pgp_sym_encrypt(:plaintext, :key, 'cipher-algo=aes256'), 'base64')
-            """
+        db_session = await session_factory.get_session()
+        async with db_session as session:
+            query = text(
+                "SELECT encode(pgp_sym_encrypt(:plaintext, :key, 'cipher-algo=aes256'), 'base64')"
+            )
             result = await session.execute(query, {"plaintext": plaintext, "key": key})
             encrypted = result.scalar()
+            if encrypted is None:
+                raise TDEError("Encryption returned None")
             return encrypted
 
     async def decrypt_column_value(self, ciphertext_b64: str) -> str:
@@ -181,10 +186,9 @@ class DatabaseEncryptionTDE:
         """
         key = await self._get_encryption_key()
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            query = """
-            SELECT pgp_sym_decrypt(decode(:ciphertext, 'base64'), :key)
-            """
+        db_session = await session_factory.get_session()
+        async with db_session as session:
+            query = text("SELECT pgp_sym_decrypt(decode(:ciphertext, 'base64'), :key)")
             result = await session.execute(query, {"ciphertext": ciphertext_b64, "key": key})
             decrypted = result.scalar()
             if decrypted is None:
@@ -201,17 +205,18 @@ class DatabaseEncryptionTDE:
             new_column = f"{column}_encrypted"
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Check if new column exists - safe concatenation (from config)
             check_query = (
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_name = '" + table + "' AND column_name = '" + new_column + "'"
             )
-            col_exists = await session.execute(check_query)
+            col_exists = await session.execute(text(check_query))
             if not col_exists.scalar():
                 # Add the encrypted column
                 alter_query = "ALTER TABLE " + table + " ADD COLUMN " + new_column + " TEXT"
-                await session.execute(alter_query)
+                await session.execute(text(alter_query))
                 logger.info(f"Added column {new_column} to {table}")
 
             # Migrate data - parameter binding for key
@@ -220,7 +225,9 @@ class DatabaseEncryptionTDE:
                 "SET " + new_column + " = encode(pgp_sym_encrypt(" + column + ", :key, 'cipher-algo=aes256'), 'base64') "
                 "WHERE " + column + " IS NOT NULL AND " + new_column + " IS NULL"
             )
-            await session.execute(update_query, {"key": await self._get_encryption_key()})
+            await session.execute(
+                text(update_query), {"key": await self._get_encryption_key()}
+            )
 
             logger.info(f"Migrated {table}.{column} to {new_column}")
 
@@ -268,7 +275,8 @@ class DatabaseEncryptionTDE:
 
         # Re-encrypt all encrypted columns
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             for col_config in self.config.get("encrypted_columns", []):
                 table = col_config["table"]
                 column = col_config["column"]
@@ -282,7 +290,9 @@ class DatabaseEncryptionTDE:
                     ":new_key, 'cipher-algo=aes256'), 'base64') "
                     "WHERE " + encrypted_col + " IS NOT NULL"
                 )
-                await session.execute(update_query, {"old_key": old_key, "new_key": new_key})
+                await session.execute(
+                    text(update_query), {"old_key": old_key, "new_key": new_key}
+                )
 
         self._encryption_key = new_key
         self._current_key_id = (

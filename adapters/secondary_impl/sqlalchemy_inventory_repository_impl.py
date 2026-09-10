@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.inventory.aggregate_root import InventoryItemAggregate, StockMovement, StockMovementType
-from domain.inventory.item_entity import ItemType, ValuationMethod
+from domain.inventory.item_entity import Item, ItemStatus, ItemType, UnitOfMeasure, ValuationMethod
 from domain.inventory.movement_entity import MovementEntity, MovementStatus, MovementType
 from domain.inventory.stock_opname_entity import DiscrepancyType, OpnameItem, OpnameStatus, StockOpname
 from domain.inventory.inter_warehouse_transfer_entity import (
@@ -124,78 +124,104 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     # ========================================================================
 
     def _to_domain_item(self, table: InventoryItemTable) -> InventoryItemAggregate:
-        item_type_map = {
-            "raw_material": ItemType.RAW_MATERIAL,
-            "work_in_process": ItemType.WORK_IN_PROCESS,
-            "finished_good": ItemType.FINISHED_GOOD,
-            "trading": ItemType.TRADING,
-        }
-        valuation_map = {
-            "FIFO": ValuationMethod.FIFO,
-            "LIFO": ValuationMethod.LIFO,
-            "AVERAGE": ValuationMethod.AVERAGE,
-            "STANDARD": ValuationMethod.STANDARD,
-        }
-        return InventoryItemAggregate(
+        """Konversi baris ORM InventoryItemTable -> InventoryAggregate.
+
+        CATATAN: versi sebelumnya memanggil InventoryAggregate(item_code=...,
+        item_name=..., reorder_point=Quantity(...), ...) - constructor asli
+        InventoryAggregate hanya menerima (id, legal_entity_id, version), dan
+        semua field lain di atas tidak pernah jadi bagian domain Item asli
+        (yang pakai Decimal polos, bukan value object Quantity/Money). Ini
+        akan selalu TypeError kalau benar-benar dieksekusi. Ditulis ulang
+        supaya membangun domain Item yang benar lalu membungkusnya ke
+        aggregate lewat _item (sama seperti yang dilakukan InventoryAggregate.create()).
+        """
+        try:
+            item_type = ItemType(table.item_type)
+        except ValueError:
+            item_type = ItemType.TRADING
+        try:
+            uom = UnitOfMeasure(table.unit_of_measure)
+        except ValueError:
+            uom = UnitOfMeasure.PCS
+
+        item = Item(
             id=table.id,
-            item_code=table.item_code,
-            item_name=table.item_name,
-            item_type=item_type_map.get(table.item_type, ItemType.TRADING),
-            unit_of_measure=table.unit_of_measure,
-            category=table.category,
-            brand=table.brand,
-            reorder_point=Quantity(value=table.reorder_point, uom=table.unit_of_measure),
-            reorder_quantity=Quantity(value=table.reorder_quantity, uom=table.unit_of_measure),
-            standard_cost=Money(amount=table.standard_cost, currency=table.currency_code or "IDR"),
-            selling_price=Money(amount=table.selling_price, currency=table.currency_code or "IDR"),
-            valuation_method=valuation_map.get(table.valuation_method, ValuationMethod.FIFO),
-            is_active=table.is_active,
-            current_stock=Quantity(value=table.current_stock, uom=table.unit_of_measure),
-            average_cost=Money(amount=table.average_cost, currency=table.currency_code or "IDR"),
-            last_cost=Money(amount=table.last_cost, currency=table.currency_code or "IDR"),
-            warehouse_id=table.warehouse_id,
-            min_stock=Quantity(value=table.min_stock, uom=table.unit_of_measure) if table.min_stock else None,
-            max_stock=Quantity(value=table.max_stock, uom=table.unit_of_measure) if table.max_stock else None,
+            legal_entity_id=table.legal_entity_id,
+            sku=table.item_code,
+            name=table.item_name,
             description=table.description,
-            tax_rate_purchase=table.tax_rate_purchase,
-            tax_rate_sales=table.tax_rate_sales,
+            item_type=item_type,
+            unit_of_measure=uom,
+            current_stock=table.current_stock or Decimal("0"),
+            current_stock_value=(table.current_stock or Decimal("0")) * (table.average_cost or Decimal("0")),
+            average_cost=table.average_cost or Decimal("0"),
+            last_cost=table.last_cost or Decimal("0"),
+            reorder_point=table.reorder_point or Decimal("0"),
+            safety_stock=table.safety_stock or Decimal("0"),
+            maximum_stock=table.maximum_stock,
+            minimum_stock=table.minimum_stock,
+            status=ItemStatus.ACTIVE if table.is_active else ItemStatus.INACTIVE,
+            standard_cost=table.standard_cost or Decimal("0"),
+            selling_price=table.selling_price or Decimal("0"),
+            category=table.category,
+            warehouse_code=None,
+            created_by=table.created_by,
             created_at=table.created_at,
             updated_at=table.updated_at,
-            created_by=table.created_by,
+            updated_by=table.updated_by,
+            brand=table.brand,
+            reorder_quantity=table.reorder_quantity or Decimal("0"),
+            valuation_method=table.valuation_method,
+            weight_gram=table.weight,
             version=table.version,
-            legal_entity_id=table.legal_entity_id,
         )
+        aggregate = InventoryItemAggregate(id=table.id, legal_entity_id=table.legal_entity_id, version=table.version)
+        aggregate._item = item
+        return aggregate
 
     async def _to_orm_item(self, aggregate: InventoryItemAggregate) -> InventoryItemTable:
+        """Konversi InventoryAggregate -> baris ORM InventoryItemTable.
+
+        CATATAN: versi sebelumnya menganggap semua field numerik aggregate
+        adalah value object (punya .value/.amount/.currency) - itu tidak
+        pernah cocok dengan domain Item aktual (semua field numeriknya
+        Decimal polos). Sudah ditulis ulang untuk mengambil semuanya dari
+        aggregate.item (domain Item asli) secara langsung.
+        """
+        item = aggregate.item
         return InventoryItemTable(
-            id=aggregate.id,
-            item_code=aggregate.item_code,
-            item_name=aggregate.item_name,
-            item_type=aggregate.item_type.value if hasattr(aggregate.item_type, "value") else str(aggregate.item_type),
-            unit_of_measure=aggregate.unit_of_measure,
-            category=aggregate.category,
-            brand=aggregate.brand,
-            reorder_point=aggregate.reorder_point.value if aggregate.reorder_point else 0,
-            reorder_quantity=aggregate.reorder_quantity.value if aggregate.reorder_quantity else 0,
-            standard_cost=aggregate.standard_cost.amount,
-            selling_price=aggregate.selling_price.amount,
-            valuation_method=aggregate.valuation_method.value if hasattr(aggregate.valuation_method, "value") else str(aggregate.valuation_method),
-            is_active=aggregate.is_active,
-            current_stock=aggregate.current_stock.value,
-            average_cost=aggregate.average_cost.amount,
-            last_cost=aggregate.last_cost.amount,
-            warehouse_id=aggregate.warehouse_id,
-            min_stock=aggregate.min_stock.value if aggregate.min_stock else None,
-            max_stock=aggregate.max_stock.value if aggregate.max_stock else None,
-            description=aggregate.description,
-            tax_rate_purchase=aggregate.tax_rate_purchase,
-            tax_rate_sales=aggregate.tax_rate_sales,
-            currency_code=aggregate.standard_cost.currency,
-            created_at=aggregate.created_at,
+            id=item.id,
+            item_code=item.sku,
+            sku=item.sku,
+            item_name=item.name,
+            item_type=item.item_type.value if hasattr(item.item_type, "value") else str(item.item_type),
+            unit_of_measure=item.unit_of_measure.value if hasattr(item.unit_of_measure, "value") else str(item.unit_of_measure),
+            category=item.category,
+            brand=getattr(item, "brand", None),
+            reorder_point=item.reorder_point or Decimal("0"),
+            reorder_quantity=getattr(item, "reorder_quantity", None) or Decimal("0"),
+            standard_cost=item.standard_cost or Decimal("0"),
+            selling_price=item.selling_price or Decimal("0"),
+            valuation_method=getattr(item, "valuation_method", None) or "FIFO",
+            is_active=item.is_active,
+            current_stock=item.current_stock or Decimal("0"),
+            average_cost=item.average_cost or Decimal("0"),
+            last_cost=item.last_cost or Decimal("0"),
+            warehouse_id=None,  # domain Item hanya menyimpan warehouse_code (string), bukan UUID FK
+            minimum_stock=getattr(item, "minimum_stock", None),
+            min_stock=getattr(item, "minimum_stock", None),
+            maximum_stock=getattr(item, "maximum_stock", None),
+            max_stock=getattr(item, "maximum_stock", None),
+            safety_stock=item.safety_stock or Decimal("0"),
+            description=item.description,
+            tax_rate_purchase=getattr(item, "tax_rate_purchase", None) or Decimal("11"),
+            tax_rate_sales=getattr(item, "tax_rate_sales", None) or Decimal("11"),
+            currency_code="IDR",
+            created_at=item.created_at,
             updated_at=datetime.utcnow(),
-            created_by=aggregate.created_by,
-            version=aggregate.version,
-            legal_entity_id=aggregate.legal_entity_id,
+            created_by=getattr(item, "created_by", None),
+            version=getattr(item, "version", 1),
+            legal_entity_id=item.legal_entity_id,
         )
 
     def _to_domain_movement(self, table: InventoryMovementTable) -> StockMovement:
@@ -433,14 +459,15 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
 
     async def add_item(self, item: InventoryItemAggregate) -> None:
         try:
-            exists = await self.exists_by_item_code(item.item_code, item.legal_entity_id)
+            item_code = item.item.sku
+            exists = await self.exists_by_item_code(item_code, item.legal_entity_id)
             if exists:
-                raise DuplicateItemCodeError(f"Item code {item.item_code} already exists")
+                raise DuplicateItemCodeError(f"Item code {item_code} already exists")
             table = await self._to_orm_item(item)
             self.session.add(table)
             await self.session.flush()
-            await self._log_audit("ADD", item.id, {"item_code": item.item_code})
-            logger.info("Item added: %s", item.item_code)
+            await self._log_audit("ADD", item.id, {"item_code": item_code})
+            logger.info("Item added: %s", item_code)
         except DuplicateItemCodeError:
             raise
         except IntegrityError as e:
@@ -486,8 +513,9 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             table.updated_at = datetime.utcnow()
             await self.session.merge(table)
             await self.session.flush()
-            await self._log_audit("UPDATE", item.id, {"item_code": item.item_code})
-            logger.info("Item updated: %s", item.item_code)
+            item_code = item.item.sku
+            await self._log_audit("UPDATE", item.id, {"item_code": item_code})
+            logger.info("Item updated: %s", item_code)
         except (ItemNotFoundError, OptimisticLockError):
             raise
         except Exception as e:

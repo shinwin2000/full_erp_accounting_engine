@@ -282,7 +282,8 @@ class TamperDetectionScanner:
             raise TamperDetectionError(f"Stream scan failed: {e}") from e
 
     async def _detect_gaps(self, events: list[dict], stream_name: str) -> list[dict[str, Any]]:
-        anomalies = []
+        # Anotasi eksplisit agar mypy tahu tipe elemen list
+        anomalies: list[dict[str, Any]] = []
         if not events:
             return anomalies
         expected_seq = events[0].get("sequence_number", 1)
@@ -316,7 +317,8 @@ class TamperDetectionScanner:
     async def _detect_timestamp_anomalies(
         self, events: list[dict], stream_name: str
     ) -> list[dict[str, Any]]:
-        anomalies = []
+        # Anotasi eksplisit agar mypy tahu tipe elemen list
+        anomalies: list[dict[str, Any]] = []
         if len(events) < 2:
             return anomalies
         last_timestamp = None

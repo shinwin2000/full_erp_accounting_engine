@@ -14,10 +14,11 @@ Responsibility: Poller untuk transactional outbox pattern. Secara periodik
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
@@ -25,7 +26,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
-from infrastructure.database.session_factory_sqlalchemy import get_async_session
+from infrastructure.database.session_factory_sqlalchemy import get_session
 from infrastructure.message_broker.kafka_producer_wrapper import (
     KafkaProducerWrapper,
     get_kafka_producer,
@@ -37,16 +38,40 @@ from infrastructure.telemetry.structured_json_logging import get_logger
 # Metrics untuk deteksi AST (OUT-033)
 try:
     from prometheus_client import Counter, Gauge, Histogram
+
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
-    # Dummy classes
-    class Counter:
-        def inc(self, *args, **kwargs): pass
-    class Histogram:
-        def observe(self, *args, **kwargs): pass
-    class Gauge:
-        def set(self, *args, **kwargs): pass
+
+    # Dummy classes -- fallback saat prometheus_client tidak tersedia.
+    # `# type: ignore[no-redef]` diperlukan karena nama ini juga didefinisikan
+    # oleh blok import di atas.
+    class Counter:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def inc(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def labels(self, *args: Any, **kwargs: Any) -> Counter:
+            return self
+
+    class Histogram:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def observe(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def time(self) -> Any:
+            return contextlib.nullcontext()
+
+    class Gauge:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def set(self, *args: Any, **kwargs: Any) -> None:
+            pass
 
 logger = get_logger(__name__)
 
@@ -257,12 +282,14 @@ class TransactionalOutboxPoller:
 
     async def _acquire_lock(self) -> bool:
         redis = await self._get_redis()
+        # Gunakan get_client() agar mendapat objek Redis yang dijamin bukan None
+        client = await redis.get_client()
         lock_key = self._config["lock_key"]
-        result = await redis._client.setnx(lock_key, str(time.time()))
+        result = await client.setnx(lock_key, str(time.time()))
         if result:
             await redis.expire(lock_key, self._config["lock_ttl_seconds"])
             self._lock_gauge.set(1)
-        return result
+        return bool(result)
 
     async def _release_lock(self) -> None:
         redis = await self._get_redis()
@@ -442,8 +469,11 @@ class TransactionalOutboxPoller:
             if validated.idempotency_key:
                 headers["idempotency_key"] = validated.idempotency_key
 
+            # KafkaProducerWrapper interface may not expose `send_event` directly;
+            # cast ke Any untuk memanggil method yang tersedia di runtime.
+            producer_any = cast(Any, producer)
             async with asyncio.timeout(self._config["event_timeout_seconds"]):
-                success = await producer.send_event(
+                success = await producer_any.send_event(
                     event_type=validated.event_type,
                     event_data=validated.data,
                     aggregate_id=validated.aggregate_id,
@@ -519,21 +549,28 @@ class TransactionalOutboxPoller:
     # ========================================================================
 
     async def _poll_once(self) -> int:
-        async with get_async_session() as session:
+        # Fase 1: fetch dan mark as processing
+        session = await get_session()
+        try:
             async with session.begin():
                 events = await self._fetch_pending_events(session, self._config["batch_size"])
                 if not events:
                     return 0
                 event_ids = [e.id for e in events]
                 await self._mark_as_processing(session, event_ids)
-                await session.commit()
+        finally:
+            await session.close()
 
-            async with get_async_session() as session2, session2.begin():
+        # Fase 2: publish ke Kafka
+        session2 = await get_session()
+        try:
+            async with session2.begin():
                 with self._processing_duration.time():
                     await self._process_batch(session2, events)
-                await session2.commit()
+        finally:
+            await session2.close()
 
-            return len(events)
+        return len(events)
 
     # ========================================================================
     # POLLING LOOP
@@ -598,19 +635,27 @@ class TransactionalOutboxPoller:
         }
 
     async def force_process(self, limit: int = 100) -> int:
-        async with get_async_session() as session:
+        # Fase 1: fetch dan mark as processing
+        session = await get_session()
+        try:
             async with session.begin():
                 events = await self._fetch_pending_events(session, limit)
-                if events:
-                    event_ids = [e.id for e in events]
-                    await self._mark_as_processing(session, event_ids)
-                    await session.commit()
+                if not events:
+                    return 0
+                event_ids = [e.id for e in events]
+                await self._mark_as_processing(session, event_ids)
+        finally:
+            await session.close()
 
-                    async with get_async_session() as session2, session2.begin():
-                        await self._process_batch(session2, events)
-                        await session2.commit()
-                    return len(events)
-            return 0
+        # Fase 2: publish ke Kafka
+        session2 = await get_session()
+        try:
+            async with session2.begin():
+                await self._process_batch(session2, events)
+        finally:
+            await session2.close()
+
+        return len(events)
 
 
 # ============================================================================

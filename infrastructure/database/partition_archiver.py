@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 from sqlalchemy import DDL
 
 # Internal dependencies
@@ -168,7 +168,9 @@ class PartitionArchiver:
         cutoff_date = datetime.now(UTC) - timedelta(days=archive_days)
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             query = """
             SELECT
                 inhrelid::regclass::text as partition_name,
@@ -199,7 +201,8 @@ class PartitionArchiver:
 
     async def _detach_partition(self, table_name: str, partition_name: str) -> None:
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             stmt = DDL("ALTER TABLE %(table)s DETACH PARTITION %(partition)s")
             await session.execute(stmt, {"table": table_name, "partition": partition_name})
             logger.info(f"Detached partition {partition_name} from {table_name}")
@@ -308,7 +311,8 @@ class PartitionArchiver:
 
     async def _drop_partition(self, partition_name: str) -> None:
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             await session.execute(DDL(f"DROP TABLE IF EXISTS {partition_name}"))
             logger.info(f"Dropped partition {partition_name}")
 
@@ -388,30 +392,32 @@ class PartitionArchiver:
             logger.info("Partition archiving is disabled")
             return {"enabled": False}
 
-        results = {}
+        # Anotasi eksplisit agar mypy tahu tipe nested-nya
+        results: dict[str, dict[str, Any]] = {}
         for table_config in self._archive_tables:
             if not table_config.get("enabled", True):
                 continue
 
             table_name = table_config["name"]
             partitions = await self._get_old_partitions(table_config)
-            results[table_name] = {
+            table_result: dict[str, Any] = {
                 "partitions_found": len(partitions),
                 "archived": [],
                 "failed": [],
             }
+            results[table_name] = table_result
 
             for partition in partitions:
                 if dry_run:
-                    results[table_name]["archived"].append(
+                    table_result["archived"].append(
                         {"partition": partition["name"], "dry_run": True}
                     )
                 else:
                     archive_result = await self.archive_partition(table_config, partition)
                     if archive_result["status"] == "archived":
-                        results[table_name]["archived"].append(archive_result)
+                        table_result["archived"].append(archive_result)
                     else:
-                        results[table_name]["failed"].append(archive_result)
+                        table_result["failed"].append(archive_result)
 
         return results
 
@@ -582,4 +588,3 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
-

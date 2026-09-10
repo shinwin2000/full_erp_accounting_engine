@@ -139,15 +139,19 @@ class ReadReplicaRouter:
         """Initialize replica engine and session factory."""
         try:
             dsn = self._build_replica_dsn()
-            self._replica_engine = create_async_engine(
+            # Gunakan variabel lokal agar mypy tahu `engine` pasti bukan None
+            engine = create_async_engine(
                 dsn, pool_size=10, max_overflow=5, pool_pre_ping=True, echo=False
             )
-            self._replica_session_factory = sessionmaker(
-                self._replica_engine, class_=AsyncSession, expire_on_commit=False
-            )
-            # Test connection
-            async with self._replica_engine.connect() as conn:
+            # Test koneksi dulu sebelum di-assign ke self
+            async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
+
+            # Setelah test berhasil, baru assign ke instance attributes
+            self._replica_engine = engine
+            self._replica_session_factory = sessionmaker(
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
             logger.info(
                 f"Read replica initialized: {self.config['replica_host']}:{self.config['replica_port']}"
             )
@@ -198,6 +202,9 @@ class ReadReplicaRouter:
         """
         if not self._initialized:
             await self.initialize()
+
+        # Setelah initialize(), _master_factory dijamin bukan None
+        assert self._master_factory is not None, "Master factory not initialized"
 
         # If replica is disabled or force_master, use master
         if not self._replica_enabled or force_master:
@@ -276,9 +283,15 @@ class ReadReplicaRouter:
         """
         result = {"master": False, "replica": False}
 
+        # Pastikan factory sudah diinisialisasi
+        if not self._initialized:
+            await self.initialize()
+        assert self._master_factory is not None, "Master factory not initialized"
+
         # Check master
         try:
-            async with await self._master_factory.get_session() as session:
+            master_session = await self._master_factory.get_session()
+            async with master_session as session:
                 await session.execute(text("SELECT 1"))
             result["master"] = True
         except Exception as e:

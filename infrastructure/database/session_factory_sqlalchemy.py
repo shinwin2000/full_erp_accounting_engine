@@ -201,6 +201,8 @@ class SQLAlchemySessionFactory:
         if not self._initialized:
             await self.initialize()
 
+        # Setelah initialize(), _engine dijamin bukan None
+        assert self._engine is not None, "Engine not initialized"
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("All database tables created")
@@ -210,6 +212,8 @@ class SQLAlchemySessionFactory:
         if not self._initialized:
             await self.initialize()
 
+        # Setelah initialize(), _engine dijamin bukan None
+        assert self._engine is not None, "Engine not initialized"
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
         logger.info("All database tables dropped")
@@ -221,6 +225,8 @@ class SQLAlchemySessionFactory:
                 await self.initialize()
             except Exception:
                 return False
+        # Setelah initialize(), _engine dijamin bukan None
+        assert self._engine is not None, "Engine not initialized"
         try:
             async with self._engine.connect() as conn:
                 # FIX: String query dibungkus dengan text() agar dieksekusi secara async murni

@@ -152,7 +152,11 @@ class EvidenceDocumentRetriever:
         archive_id = evidence_uri.split("/")[-1]
         job_status = await storage.get_job_status(archive_id)
         if job_status and job_status.get("status") == "Succeeded":
-            return await storage.download(evidence_uri)
+            download_result = await storage.download(evidence_uri)
+            # `download` dapat mengembalikan BinaryIO; baca menjadi bytes bila perlu
+            if isinstance(download_result, bytes):
+                return download_result
+            return download_result.read()
         elif job_status and job_status.get("status") == "InProgress":
             raise EvidenceRetrievalError(
                 f"Retrieval in progress for {evidence_uri}. "
@@ -260,17 +264,25 @@ class EvidenceDocumentRetriever:
                         "estimated_retrieval_seconds": 0,
                     }
                 elif job_status and job_status.get("status") == "InProgress":
+                    estimated_completion = job_status.get("estimated_completion")
+                    if estimated_completion is not None:
+                        if isinstance(estimated_completion, str):
+                            estimated_completion = datetime.fromisoformat(estimated_completion)
+                        # Pastikan timezone-aware
+                        if estimated_completion.tzinfo is None:
+                            estimated_completion = estimated_completion.replace(tzinfo=UTC)
+                        remaining_seconds = max(
+                            0,
+                            (estimated_completion - datetime.now(UTC)).total_seconds(),
+                        )
+                    else:
+                        remaining_seconds = 0
                     return {
                         "available": False,
                         "storage_tier": "cold",
                         "retrieval_in_progress": True,
                         "estimated_completion": job_status.get("estimated_completion"),
-                        "estimated_retrieval_seconds": max(
-                            0,
-                            (
-                                job_status.get("estimated_completion") - datetime.now(UTC)
-                            ).total_seconds(),
-                        ),
+                        "estimated_retrieval_seconds": remaining_seconds,
                     }
                 else:
                     return {

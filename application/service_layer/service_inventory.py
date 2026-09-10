@@ -474,6 +474,7 @@ class InventoryService:
         self, request: CreateItemRequest, user_id: UUID, correlation_id: str | None = None
     ) -> ItemResponse:
         self._check_authority(user_id, "create_item")
+        await self._uow.begin()
 
         existing = await self._inv_repo.get_item_by_sku(request.sku, request.legal_entity_id)
         if existing:
@@ -527,14 +528,21 @@ class InventoryService:
 
         if self._event_publisher:
             event = ItemCreated(
+                item_id=item.id,
                 aggregate_id=item.id,
                 legal_entity_id=item.legal_entity_id,
                 sku=item.sku,
                 name=item.name,
-                user_id=user_id,
+                item_type=item.item_type.value,
+                unit_cost=item.standard_cost,
+                created_by=str(user_id),
+                user_id=str(user_id),
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("create_item", {
             "item_id": str(item.id),
@@ -553,6 +561,7 @@ class InventoryService:
         correlation_id: str | None = None,
     ) -> ItemResponse:
         self._check_authority(user_id, "update_item")
+        await self._uow.begin()
 
         agg = await self._inv_repo.get_item_by_id(request.id)
         if not agg:
@@ -624,7 +633,10 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("update_item", {
             "item_id": str(item.id),
@@ -644,6 +656,7 @@ class InventoryService:
         correlation_id: str | None = None,
     ) -> bool:
         self._check_authority(user_id, "deactivate_item")
+        await self._uow.begin()
 
         agg = await self._inv_repo.get_item_by_id(item_id)
         if not agg:
@@ -671,7 +684,10 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("deactivate_item", {
             "item_id": str(item_id),
@@ -840,6 +856,7 @@ class InventoryService:
         self, request: StockMovementRequest, user_id: UUID, correlation_id: str | None = None
     ) -> StockMovementResponse:
         self._check_authority(user_id, "record_movement")
+        await self._uow.begin()
 
         item_agg = await self._inv_repo.get_item_by_id(request.item_id)
         if not item_agg:
@@ -927,6 +944,7 @@ class InventoryService:
 
         if self._event_publisher:
             event = StockMovementCreated(
+                movement_id=movement.id,
                 aggregate_id=movement.id,
                 item_id=request.item_id,
                 sku=item_agg.item.sku,
@@ -937,7 +955,10 @@ class InventoryService:
                 user_id=user_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
             if movement_type in (MovementType.ADJUSTMENT_IN, MovementType.ADJUSTMENT_OUT):
                 from domain.inventory.stock_adjustment_entity import StockAdjustmentEntity
@@ -962,7 +983,10 @@ class InventoryService:
                     user_id=str(user_id),
                     correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
+                try:
+                    await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
+                except Exception as e:
+                    logger.warning(f"Failed to publish event {type(adj_event).__name__}: {e}")
 
             if item_agg.item.reorder_point > 0 and new_stock <= item_agg.item.reorder_point:
                 alert_event = StockLevelAlert(
@@ -977,7 +1001,10 @@ class InventoryService:
                     occurred_at=datetime.utcnow(),
                     correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(alert_event, correlation_id=correlation_id)
+                try:
+                    await self._event_publisher.publish(alert_event, correlation_id=correlation_id)
+                except Exception as e:
+                    logger.warning(f"Failed to publish event {type(alert_event).__name__}: {e}")
 
         self._record_audit("record_movement", {
             "movement_id": str(movement.id),
@@ -1012,6 +1039,7 @@ class InventoryService:
         self, request: StockOpnameRequest, user_id: UUID, correlation_id: str | None = None
     ) -> StockOpnameResponse:
         self._check_authority(user_id, "create_stock_opname")
+        await self._uow.begin()
 
         item_agg = await self._inv_repo.get_item_by_id(request.item_id)
         if not item_agg:
@@ -1070,7 +1098,10 @@ class InventoryService:
                 user_id=user_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         if discrepancy == 0:
             await self.approve_stock_opname(opname.id, user_id, correlation_id)
@@ -1089,6 +1120,7 @@ class InventoryService:
         self, opname_id: UUID, approver_id: UUID, correlation_id: str | None = None
     ) -> StockOpnameResponse:
         self._check_authority(approver_id, "approve_stock_opname")
+        await self._uow.begin()
 
         opname = await self._inv_repo.get_opname_by_id(opname_id)
         if not opname:
@@ -1147,7 +1179,10 @@ class InventoryService:
                 user_id=approver_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("approve_stock_opname", {
             "opname_id": str(opname_id),
@@ -1164,6 +1199,7 @@ class InventoryService:
         self, request: TransferRequest, user_id: UUID, correlation_id: str | None = None
     ) -> TransferResponse:
         self._check_authority(user_id, "create_transfer")
+        await self._uow.begin()
 
         item_agg = await self._inv_repo.get_item_by_id(request.item_id)
         if not item_agg:
@@ -1239,7 +1275,10 @@ class InventoryService:
                 user_id=user_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("create_transfer", {
             "transfer_id": str(transfer.id),
@@ -1255,6 +1294,7 @@ class InventoryService:
         self, transfer_id: UUID, user_id: UUID, correlation_id: str | None = None
     ) -> TransferResponse:
         self._check_authority(user_id, "complete_transfer")
+        await self._uow.begin()
 
         transfer = await self._inv_repo.get_transfer_by_id(transfer_id)
         if not transfer:
@@ -1336,7 +1376,10 @@ class InventoryService:
                 user_id=user_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("complete_transfer", {
             "transfer_id": str(transfer_id),
@@ -1387,7 +1430,10 @@ class InventoryService:
                 user_id=user_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("calculate_cogs", {
             "period_start": request.period_start.isoformat(),
@@ -1432,7 +1478,10 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            try:
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+            except Exception as e:
+                logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
         self._record_audit("update_inventory_valuation", {
             "valuation_date": request.valuation_date.isoformat(),
@@ -1619,6 +1668,7 @@ class InventoryService:
     async def reverse_movement(
         self, movement_id: UUID, reversed_by: UUID, legal_entity_id: UUID, reason: str
     ) -> StockMovementResponse | None:
+        await self._uow.begin()
         movement = await self._inv_repo.get_movement_by_id(movement_id, legal_entity_id)
         if movement is None:
             return None

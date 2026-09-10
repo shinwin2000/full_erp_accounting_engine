@@ -30,8 +30,8 @@ try:
     GLACIER_AVAILABLE = True
 except ImportError:
     GLACIER_AVAILABLE = False
-    aioboto3 = None
-    ClientError = Exception
+    aioboto3 = None  # type: ignore[assignment]
+    ClientError = Exception  # type: ignore[assignment,misc]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config

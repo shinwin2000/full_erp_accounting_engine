@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import zlib
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import desc, func, insert, select, update
@@ -72,7 +72,10 @@ class OptimisticLockError(SnapshotStoreError):
 
 class SnapshotStoreAggregate:
     def __init__(self, session_factory: async_sessionmaker | None = None):
-        self._session_factory = session_factory or get_async_session_factory()
+        self._session_factory: async_sessionmaker[AsyncSession] = cast(
+            async_sessionmaker[AsyncSession],
+            session_factory or get_async_session_factory()
+        )
         self._compression_service = SnapshotCompressionService(level=DEFAULT_COMPRESSION_LEVEL)
         self._encryption = FieldEncryption() if ENCRYPTION_AVAILABLE else None
         self._cache: dict[str, dict] = {}  # in-memory cache
@@ -98,9 +101,10 @@ class SnapshotStoreAggregate:
         state_json = json.dumps(state, default=str)
         compressed = self._compression_service.compress(state_json.encode("utf-8"))
 
+        stored_data: bytes
         if encrypt and self._encryption:
-            encrypted = self._encryption.encrypt(compressed)
-            stored_data = encrypted
+            encrypted = self._encryption.encrypt(cast(str, compressed))
+            stored_data = cast(bytes, encrypted)
             is_encrypted = True
         else:
             stored_data = compressed

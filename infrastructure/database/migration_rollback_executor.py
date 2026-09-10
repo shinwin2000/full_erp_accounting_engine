@@ -104,7 +104,8 @@ class MigrationRollbackExecutor:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await process.communicate()
-        return process.returncode, stdout.decode(), stderr.decode()
+        returncode = process.returncode if process.returncode is not None else -1
+        return returncode, stdout.decode(), stderr.decode()
 
     async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
         """Delete file secara async di thread pool."""
@@ -250,7 +251,10 @@ class MigrationRollbackExecutor:
         """
         try:
             factory = await get_session_factory()
-            async with factory.get_session() as session:
+            # get_session() adalah coroutine, jadi await dulu untuk mendapatkan
+            # objek AsyncSession yang merupakan async context manager.
+            session = await factory.get_session()
+            async with session:
                 from sqlalchemy import inspect, text
 
                 inspector = inspect(session.bind)
@@ -551,5 +555,3 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
-
-

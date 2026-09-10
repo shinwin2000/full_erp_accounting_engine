@@ -5,4 +5,4 @@ Package: infrastructure.message_broker
 Kafka producer, consumer, dead letter handler.
 """
 
-__all__ = []
+__all__: list[str] = []

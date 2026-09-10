@@ -164,12 +164,18 @@ class HashChainBuilder:
 
             # Compute hash if not already present
             if "hash" not in event or not event["hash"]:
-                timestamp = event.get("timestamp")
-                if isinstance(timestamp, str):
+                # Normalisasi timestamp ke datetime
+                timestamp_raw = event.get("timestamp")
+                timestamp: datetime
+                if isinstance(timestamp_raw, datetime):
+                    timestamp = timestamp_raw
+                elif isinstance(timestamp_raw, str):
                     try:
-                        timestamp = datetime.fromisoformat(timestamp)
+                        timestamp = datetime.fromisoformat(timestamp_raw)
                     except ValueError:
                         timestamp = datetime.now(UTC)
+                else:
+                    timestamp = datetime.now(UTC)
 
                 event["hash"] = self.compute_event_hash(
                     event.get("data", {}), event.get("metadata", {}), timestamp, last_hash
@@ -204,7 +210,13 @@ class HashChainBuilder:
 
             # Check if previous_hash matches the computed last_hash
             if previous_hash != last_hash:
-                error_msg = f"Hash chain broken at sequence {sequence}: expected previous_hash {last_hash[:16]}..., got {previous_hash[:16]}..."
+                # Konversi ke string agar aman saat slicing
+                prev_str = str(previous_hash) if previous_hash is not None else "None"
+                error_msg = (
+                    f"Hash chain broken at sequence {sequence}: "
+                    f"expected previous_hash {last_hash[:16]}..., "
+                    f"got {prev_str[:16]}..."
+                )
                 logger.error(error_msg)
 
                 # Record verification failure
@@ -228,7 +240,13 @@ class HashChainBuilder:
             )
 
             if event_hash != recomputed:
-                error_msg = f"Hash mismatch at sequence {sequence}: stored {event_hash[:16]}..., computed {recomputed[:16]}..."
+                # Konversi ke string agar aman saat slicing
+                stored_str = str(event_hash) if event_hash is not None else "None"
+                error_msg = (
+                    f"Hash mismatch at sequence {sequence}: "
+                    f"stored {stored_str[:16]}..., "
+                    f"computed {recomputed[:16]}..."
+                )
                 logger.error(error_msg)
 
                 self._verification_history.append(
@@ -285,7 +303,8 @@ class HashChainBuilder:
             if event.get("hash") != recomputed:
                 return sequence
 
-            last_hash = event.get("hash")
+            # Fallback ke GENESIS_HASH jika event tidak punya hash
+            last_hash = event.get("hash") or GENESIS_HASH
 
         return None
 

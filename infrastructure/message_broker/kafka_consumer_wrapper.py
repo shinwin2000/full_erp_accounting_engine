@@ -27,9 +27,9 @@ try:
     AIOKAFKA_AVAILABLE = True
 except ImportError:
     AIOKAFKA_AVAILABLE = False
-    AIOKafkaConsumer = None
-    ConsumerRecord = None
-    KafkaError = Exception
+    AIOKafkaConsumer = None  # type: ignore[assignment,misc]
+    ConsumerRecord = None  # type: ignore[assignment,misc]
+    KafkaError = Exception  # type: ignore[assignment,misc]
 
 # Fallback to kafka-python (sync)
 if not AIOKAFKA_AVAILABLE:
@@ -41,9 +41,9 @@ if not AIOKAFKA_AVAILABLE:
         KAFKA_PYTHON_AVAILABLE = True
     except ImportError:
         KAFKA_PYTHON_AVAILABLE = False
-        SyncKafkaConsumer = None
-        SyncConsumerRecord = None
-        SyncKafkaError = Exception
+        SyncKafkaConsumer = None  # type: ignore[assignment,misc]
+        SyncConsumerRecord = None  # type: ignore[assignment,misc]
+        SyncKafkaError = Exception  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +129,10 @@ class KafkaConsumerWrapper:
         self.value_deserializer = value_deserializer or (
             lambda v: json.loads(v.decode("utf-8")) if v else None
         )
-        self._consumer = None
-        self._subscribed_topics = []
+        # _consumer dapat berupa AIOKafkaConsumer atau SyncKafkaConsumer,
+        # jadi gunakan `Any | None` untuk fleksibilitas.
+        self._consumer: Any | None = None
+        self._subscribed_topics: list[str] = []
         self._running = False
         self._poll_task: asyncio.Task | None = None
 
@@ -167,7 +169,7 @@ class KafkaConsumerWrapper:
         """Start consumer using kafka-python (sync, wrapped in thread)."""
 
         # kafka-python consumer creation is synchronous; run in thread
-        def _create():
+        def _create() -> Any:
             return SyncKafkaConsumer(
                 bootstrap_servers=self.bootstrap_servers,
                 group_id=self.group_id,
@@ -189,6 +191,8 @@ class KafkaConsumerWrapper:
         """Subscribe to topics."""
         self._subscribed_topics = topics
         if AIOKAFKA_AVAILABLE:
+            # Setelah branching ini, kita tahu _consumer tidak None
+            assert self._consumer is not None
             self._consumer.subscribe(topics)
         else:
             # kafka-python subscription must be done after creation
@@ -198,7 +202,7 @@ class KafkaConsumerWrapper:
             if self._consumer:
                 await self.close()
 
-            def _create_with_topics():
+            def _create_with_topics() -> Any:
                 return SyncKafkaConsumer(
                     *topics,
                     bootstrap_servers=self.bootstrap_servers,
@@ -228,7 +232,9 @@ class KafkaConsumerWrapper:
         if AIOKAFKA_AVAILABLE:
             # aiokafka's getmany returns dict of topic-partition -> list of records
             max_records = max_records or self.max_poll_records
-            messages = await self._consumer.getmany(timeout_ms=timeout_ms, max_records=max_records)
+            # Assign ke local agar narrowing berlaku di nested call
+            consumer = self._consumer
+            messages = await consumer.getmany(timeout_ms=timeout_ms, max_records=max_records)
             result = []
             for _tp, records in messages.items():
                 for record in records:
@@ -237,9 +243,11 @@ class KafkaConsumerWrapper:
         else:
             # kafka-python poll is synchronous, run in thread
             max_records = max_records or self.max_poll_records
+            # Assign ke local untuk narrowing di nested function
+            consumer = self._consumer
 
-            def _poll():
-                records_dict = self._consumer.poll(timeout_ms=timeout_ms, max_records=max_records)
+            def _poll() -> list[ConsumerMessage]:
+                records_dict = consumer.poll(timeout_ms=timeout_ms, max_records=max_records)
                 msgs = []
                 for _tp, recs in records_dict.items():
                     for rec in recs:
@@ -295,7 +303,7 @@ class KafkaConsumerWrapper:
 
 if not AIOKAFKA_AVAILABLE and not KAFKA_PYTHON_AVAILABLE:
 
-    class KafkaConsumerWrapper:
+    class KafkaConsumerWrapper:  # type: ignore[no-redef]
         def __init__(self, *args, **kwargs):
             logger.error("No Kafka library installed. Kafka consumer will not work.")
 

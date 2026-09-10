@@ -14,7 +14,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 # Try to import aiokafka
 try:
@@ -24,9 +24,9 @@ try:
     KAFKA_AVAILABLE = True
 except ImportError:
     KAFKA_AVAILABLE = False
-    AIOKafkaProducer = None
-    KafkaError = Exception
-    KafkaConnectionError = Exception
+    AIOKafkaProducer = None  # type: ignore[assignment,misc]
+    KafkaError = Exception  # type: ignore[assignment,misc]
+    KafkaConnectionError = Exception  # type: ignore[assignment,misc]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -107,7 +107,8 @@ class KafkaProducerWrapper:
         self._connected = False
         self._running = False
         self._startup_lock = asyncio.Lock()
-        self._stats = {
+        # Anotasi eksplisit karena value bisa int, float, str, atau None
+        self._stats: dict[str, Any] = {
             "messages_sent": 0,
             "messages_failed": 0,
             "last_send_time": None,
@@ -211,7 +212,9 @@ class KafkaProducerWrapper:
         task = asyncio.create_task(coro)
         self._callback_tasks.append(task)
         # Tambahkan callback untuk menghapus task setelah selesai
-        task.add_done_callback(lambda t: self._callback_tasks.remove(t) if t in self._callback_tasks else None)
+        task.add_done_callback(
+            lambda t: self._callback_tasks.remove(t) if t in self._callback_tasks else None
+        )
         return task
 
     # ========================================================================
@@ -372,7 +375,8 @@ class KafkaProducerWrapper:
                 )
             )
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        final_results = []
+        # Anotasi eksplisit karena hasil gather bisa berisi ProducedMessage | BaseException | None
+        final_results: list[ProducedMessage] = []
         for r in results:
             if isinstance(r, Exception):
                 final_results.append(
@@ -389,8 +393,13 @@ class KafkaProducerWrapper:
                         error=str(r),
                     )
                 )
+            elif r is None:
+                # Skip None (seharusnya tidak terjadi karena send() selalu
+                # mengembalikan ProducedMessage atau raise)
+                continue
             else:
-                final_results.append(r)
+                # r adalah ProducedMessage
+                final_results.append(cast(ProducedMessage, r))
 
         if callback:
             self._safe_create_callback_task(self._invoke_batch_callback(callback, final_results))

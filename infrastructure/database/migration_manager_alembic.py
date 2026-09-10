@@ -380,7 +380,9 @@ class AlembicMigrationManager:
         Ensure all tables are created (for development).
         """
         factory = await get_session_factory()
-        async with factory.get_session() as session:
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await factory.get_session()
+        async with db_session as session:
             # Check if tables exist
             inspector = inspect(session.bind)
             existing_tables = await inspector.get_table_names()
@@ -399,7 +401,8 @@ class AlembicMigrationManager:
         logger.info("Loading seed data...")
         try:
             factory = await get_session_factory()
-            async with factory.get_session() as session:
+            db_session = await factory.get_session()
+            async with db_session as session:
                 # Check if seed already loaded
                 result = await session.execute(
                     text("SELECT COUNT(*) FROM account WHERE standard = 'PSAK'")

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
 from infrastructure.file_storage.file_integrity_hasher import FileIntegrityHasher
@@ -145,7 +145,7 @@ class ReportArchiverPermanent:
             report_type, report_id, str(legal_entity_id), period
         )
 
-        archive_metadata = {
+        archive_metadata: dict[str, Any] = {
             "report_type": report_type,
             "report_id": report_id,
             "report_name": report_name,
@@ -161,6 +161,11 @@ class ReportArchiverPermanent:
         if metadata:
             archive_metadata.update(metadata)
 
+        # Konversi semua value ke string untuk memenuhi signature `upload()`
+        metadata_for_upload: dict[str, str] = {
+            k: str(v) for k, v in archive_metadata.items()
+        }
+
         def _write_temp_file(content: bytes) -> Path:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(content)
@@ -174,14 +179,14 @@ class ReportArchiverPermanent:
                 file_content=io.BytesIO(report_content),
                 file_name=f"{archive_key}",
                 content_type="application/pdf",
-                metadata=archive_metadata,
+                metadata=metadata_for_upload,
             )
 
             cold_storage = await self._get_cold_storage()
             cold_uri = await cold_storage.upload(
                 file_content=io.BytesIO(report_content),
                 file_name=f"{archive_key}",
-                metadata=archive_metadata,
+                metadata=metadata_for_upload,
             )
 
             archive_id = str(uuid4())
@@ -234,14 +239,17 @@ class ReportArchiverPermanent:
     async def restore_report(self, archive_id: str, target_path: Path | None = None) -> bytes:
         archive_info = self._archive_index.get(archive_id)
         if not archive_info:
-            archive_info = await self._load_archive_metadata(archive_id)
-            if not archive_info:
+            loaded = await self._load_archive_metadata(archive_id)
+            if loaded is None:
                 raise ReportNotFoundError(f"Archive {archive_id} not found")
+            archive_info = loaded
 
         cold_storage = await self._get_cold_storage()
         try:
             cold_uri = archive_info["cold_uri"]
-            content = await cold_storage.download(cold_uri)
+            content_io = await cold_storage.download(cold_uri)
+            # `download` mengembalikan BinaryIO yang selalu punya `.read()`
+            content: bytes = content_io.read()
 
             stored_hash = archive_info["content_hash"]
             if not await self._verify_hash(content, stored_hash):
@@ -276,12 +284,13 @@ class ReportArchiverPermanent:
             logger.error(f"Failed to restore report: {e}")
             raise RestoreFailedError(f"Restore failed: {e}") from e
 
-    async def get_archive_info(self, archive_id: str) -> dict[str, Any]:
+    async def get_archive_info(self, archive_id: str) -> dict[str, Any] | None:
         info = self._archive_index.get(archive_id)
         if not info:
-            info = await self._load_archive_metadata(archive_id)
-            if info:
-                self._archive_index[archive_id] = info
+            loaded = await self._load_archive_metadata(archive_id)
+            if loaded is not None:
+                self._archive_index[archive_id] = loaded
+                info = loaded
         return info
 
     async def list_archives(
@@ -405,7 +414,7 @@ class ReportArchiverPermanent:
 
     async def get_stats(self) -> dict[str, Any]:
         total_archives = len(self._archive_index)
-        by_type = {}
+        by_type: dict[str, int] = {}
         for info in self._archive_index.values():
             report_type = info.get("report_type", "unknown")
             by_type[report_type] = by_type.get(report_type, 0) + 1

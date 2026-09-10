@@ -20,6 +20,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import text
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -117,14 +119,16 @@ class DatabaseMetricsCollector:
     async def collect_connection_metrics(self) -> None:
         """Collect connection statistics."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             # Total connections by state
-            query = """
+            query = text("""
             SELECT state, datname, count(*)
             FROM pg_stat_activity
             WHERE datname IS NOT NULL
             GROUP BY state, datname
-            """
+            """)
             result = await session.execute(query)
             for row in result:
                 state, dbname, count = row
@@ -135,7 +139,9 @@ class DatabaseMetricsCollector:
                 db_connections.labels(state=state, database=dbname).set(count)
 
             # Total connections (all states)
-            query_total = "SELECT count(*) FROM pg_stat_activity WHERE datname IS NOT NULL"
+            query_total = text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname IS NOT NULL"
+            )
             result_total = await session.execute(query_total)
             total = result_total.scalar() or 0
             # Also track as gauge without label
@@ -144,13 +150,14 @@ class DatabaseMetricsCollector:
     async def collect_transaction_metrics(self) -> None:
         """Collect transaction statistics."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             # Get transaction counters
-            query = """
+            query = text("""
             SELECT datname, xact_commit, xact_rollback
             FROM pg_stat_database
             WHERE datname IS NOT NULL
-            """
+            """)
             result = await session.execute(query)
             for row in result:
                 dbname, commits, rollbacks = row
@@ -163,12 +170,13 @@ class DatabaseMetricsCollector:
     async def collect_lock_metrics(self) -> None:
         """Collect lock statistics."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            query = """
+        db_session = await session_factory.get_session()
+        async with db_session as session:
+            query = text("""
             SELECT locktype, mode, count(*)
             FROM pg_locks
             GROUP BY locktype, mode
-            """
+            """)
             result = await session.execute(query)
             for row in result:
                 locktype, mode, count = row
@@ -177,9 +185,10 @@ class DatabaseMetricsCollector:
     async def collect_table_size_metrics(self) -> None:
         """Collect table and index sizes."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             # Table sizes
-            query = """
+            query = text("""
             SELECT
                 schemaname,
                 tablename,
@@ -188,14 +197,14 @@ class DatabaseMetricsCollector:
             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY total_size DESC
             LIMIT 100
-            """
+            """)
             result = await session.execute(query)
             for row in result:
                 schema, table, size = row
                 db_table_size_bytes.labels(table_name=table, schema=schema).set(size)
 
             # Index sizes
-            query_idx = """
+            query_idx = text("""
             SELECT
                 schemaname,
                 tablename,
@@ -205,7 +214,7 @@ class DatabaseMetricsCollector:
             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY index_size DESC
             LIMIT 100
-            """
+            """)
             result_idx = await session.execute(query_idx)
             for row in result_idx:
                 schema, table, idx_name, size = row
@@ -214,8 +223,9 @@ class DatabaseMetricsCollector:
     async def collect_cache_hit_ratio(self) -> None:
         """Collect cache hit ratio."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            query = """
+        db_session = await session_factory.get_session()
+        async with db_session as session:
+            query = text("""
             SELECT
                 datname,
                 CASE
@@ -224,7 +234,7 @@ class DatabaseMetricsCollector:
                 END as hit_ratio
             FROM pg_statio_user_tables
             JOIN pg_database ON pg_database.oid = pg_statio_user_tables.datid
-            """
+            """)
             result = await session.execute(query)
             for row in result:
                 dbname, ratio = row
@@ -233,10 +243,11 @@ class DatabaseMetricsCollector:
     async def collect_slow_query_metrics(self) -> None:
         """Collect slow query statistics (requires pg_stat_statements)."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             # Check if pg_stat_statements is available
             try:
-                query = """
+                query = text("""
                 SELECT
                     query,
                     calls,
@@ -246,7 +257,7 @@ class DatabaseMetricsCollector:
                 FROM pg_stat_statements
                 ORDER BY mean_time DESC
                 LIMIT 20
-                """
+                """)
                 result = await session.execute(query)
                 # Could export as histogram, but for now just log
                 for row in result:

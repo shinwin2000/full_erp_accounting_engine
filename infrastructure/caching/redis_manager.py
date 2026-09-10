@@ -17,6 +17,7 @@ Alert disederhanakan dengan logging.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import hashlib
 import json
 import logging
@@ -339,7 +340,7 @@ class RedisManager:
             logger.error(f"Redis SREM error for key {key}: {e}")
             raise RedisOperationError(f"SREM failed: {e}") from e
 
-    async def smembers(self, key: str) -> set[Any]:
+    async def smembers(self, key: str) -> builtins.set[Any]:
         client = await self.get_client()
         try:
             return await client.smembers(key)

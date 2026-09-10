@@ -24,7 +24,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 import yaml
 
 # Internal dependencies
@@ -198,7 +198,7 @@ class UniqueRule(ValidationRule):
 
     def __init__(self, field: str, message: str | None = None):
         super().__init__("unique", field, message or f"Field '{field}' must be unique")
-        self._seen_values = set()
+        self._seen_values: set[Any] = set()
 
     def validate(self, record: dict[str, Any]) -> list[str]:
         value = record.get(self.field)

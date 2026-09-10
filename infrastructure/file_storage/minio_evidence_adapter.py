@@ -32,8 +32,8 @@ try:
     MINIO_AVAILABLE = True
 except ImportError:
     MINIO_AVAILABLE = False
-    Minio = None
-    S3Error = Exception
+    Minio = None  # type: ignore[assignment,misc]
+    S3Error = Exception  # type: ignore[assignment,misc]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -103,7 +103,7 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
         self._presigned_expiration = self.config.get(
             "presigned_url_expiration", DEFAULT_MINIO_CONFIG["presigned_url_expiration"]
         )
-        self._client = None
+        self._client: Any = None
         self._hasher = FileIntegrityHasher()
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
@@ -117,8 +117,8 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
             logger.warning(f"Failed to load MinIO config, using defaults: {e}")
             return DEFAULT_MINIO_CONFIG.copy()
 
-    async def _get_client(self) -> Minio | None:
-        """Get or create MinIO client."""
+    async def _get_client(self) -> Any:
+        """Get or create MinIO client. Always returns a non-None client or raises."""
         if not MINIO_AVAILABLE:
             logger.error("MinIO client not available. Install with: pip install minio")
             raise FileStorageError("MinIO adapter not available (minio missing)")
@@ -142,6 +142,8 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
                 logger.error(f"Failed to initialize MinIO client: {e}")
                 raise FileStorageError(f"MinIO client initialization failed: {e}") from e
 
+        # Setelah blok di atas, _client dijamin bukan None
+        assert self._client is not None
         return self._client
 
     def _generate_key(self, transaction_type: str, transaction_id: str, file_name: str) -> str:
@@ -436,7 +438,7 @@ class MinioEvidenceAdapter(BaseFileStorageAdapter):
         file_name: str,
         content_type: str = "application/octet-stream",
         expiration_seconds: int = 3600,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Generate presigned URL for client-side upload."""
         client = await self._get_client()
         key = f"uploads/{datetime.now().strftime('%Y/%m/%d')}/{uuid4()}_{file_name}"

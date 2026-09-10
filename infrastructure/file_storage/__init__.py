@@ -5,4 +5,4 @@ Package: infrastructure.file_storage
 MinIO, S3, object storage.
 """
 
-__all__ = []
+__all__: list[str] = []

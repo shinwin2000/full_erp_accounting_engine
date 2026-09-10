@@ -46,6 +46,16 @@ COMPRESSION_THRESHOLD = 256  # Minimum size to consider compression (bytes)
 LZ4_MAGIC = b"\x04\x22\x4d\x18"  # LZ4 frame magic
 ZLIB_MAGIC = b"\x78\x9c"  # zlib default header
 
+# Background task registry (untuk mencegah garbage collection pada fire-and-forget tasks)
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _track_task(task: asyncio.Task[Any]) -> None:
+    """Simpan reference ke task agar tidak di-GC, hapus setelah selesai."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 # ============================================================================
 # EXCEPTIONS
 # ============================================================================
@@ -212,15 +222,16 @@ class CompressionLZ4:
                 computed_hash = hashlib.sha256(decompressed).digest()
                 if computed_hash != stored_hash:
                     logger.error("Hash mismatch during decompression")
-                    # trigger_alert is async, fire-and-forget
-                    asyncio.create_task(
+                    # trigger_alert is async, fire-and-forget dengan tracking task
+                    task = asyncio.create_task(
                         trigger_alert(
                             title="Cache Decompression Hash Mismatch",
                             message="Hash verification failed during decompression",
                             severity="warning",
                             source="CompressionLZ4",
                         )
-                    )  # type: ignore
+                    )
+                    _track_task(task)
                     raise DecompressionError("Hash mismatch after decompression")
 
             self._stats["decompression_count"] += 1

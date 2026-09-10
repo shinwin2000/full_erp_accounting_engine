@@ -148,14 +148,13 @@ class TransactionStatus(str, Enum):
     DRAFT = "draft"
     PENDING = "pending"
     POSTED = "posted"
-    # PENTING (fix): sebelumnya enum ini tidak punya COMPLETED / REJECTED,
-    # padahal domain/bank_cash/bank_transaction_entity.py:TransactionStatus
-    # (yang benar-benar dipakai service_bank_cash.py.record_transaction())
+    # PENTING (fix, diterapkan ulang - jangan dihapus lagi): sebelumnya
+    # enum ini tidak punya COMPLETED / REJECTED, padahal
+    # domain/bank_cash/bank_transaction_entity.py:TransactionStatus (yang
+    # benar-benar dipakai service_bank_cash.py.record_transaction())
     # menyetel status jadi 'completed' begitu transaksi selesai dibuat.
-    # Karena enum ini dipakai sebagai tipe field `status` di
-    # BankTransactionResponseSchema, respons apapun dengan status
-    # 'completed' selalu gagal validasi Pydantic -> 422/500 padahal data
-    # sudah tersimpan benar di database.
+    # Tanpa ini, respons apapun dengan status 'completed' selalu gagal
+    # validasi Pydantic.
     COMPLETED = "completed"
     REJECTED = "rejected"
     CLEARED = "cleared"
@@ -1719,6 +1718,30 @@ async def record_cash_transaction(
 # ----------------------------------------------------------------------------
 # PETTY CASH FUND (KAS KECIL)
 # ----------------------------------------------------------------------------
+
+# PENTING (fix): route GET "/petty-cash" (untuk menampilkan daftar dana
+# petty cash) sebelumnya TIDAK ADA SAMA SEKALI - hanya POST (create) yang
+# terdaftar di path ini. Akibatnya setiap kali aplikasi desktop mencoba
+# me-refresh/menampilkan daftar petty cash, selalu gagal 405 Method Not
+# Allowed (path-nya ada, tapi tidak menerima GET).
+@router.get(
+    "/petty-cash",
+    response_model=list[PettyCashResponseSchema],
+    summary="List petty cash funds",
+    operation_id="list_petty_cash_funds",
+)
+async def list_petty_cash_funds(
+    _permission: None = Depends(require_permission("cash:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[PettyCashResponseSchema]:
+    try:
+        funds = await service.get_petty_cash_funds(legal_entity_id)
+        return [PettyCashResponseSchema.model_validate(f) for f in funds]
+    except Exception as e:
+        logger.exception(f"Failed to list petty cash funds: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.post(
     "/petty-cash",

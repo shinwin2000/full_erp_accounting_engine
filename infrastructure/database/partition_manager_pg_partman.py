@@ -177,7 +177,9 @@ class PartitionManagerPgPartman:
         Check if pg_partman extension is installed.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await session_factory.get_session()
+        async with db_session as session:
             # Menggunakan text() untuk query statis
             result = await session.execute(
                 text("SELECT extname FROM pg_extension WHERE extname = 'pg_partman'")
@@ -198,13 +200,14 @@ class PartitionManagerPgPartman:
         partition_type = table_config.get("partition_type", "range")
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Check if table already partitioned
-            check_query = """
+            check_query = text("""
                 SELECT EXISTS (
                     SELECT 1 FROM pg_class WHERE relname = :table_name AND relkind = 'p'
                 )
-                """
+                """)
             result = await session.execute(check_query, {"table_name": table_name})
             is_partitioned = result.scalar()
 
@@ -224,7 +227,7 @@ class PartitionManagerPgPartman:
                     "p_premake := " + str(table_config.get("precreate_days", 90) // 30) + ""
                     ")"
                 )
-                await session.execute(create_sql)  # nosec
+                await session.execute(text(create_sql))  # nosec
                 logger.info(f"Created parent table {table_name} using pg_partman")
             else:
                 logger.warning(f"Manual partitioning for {table_name} not fully implemented")
@@ -238,15 +241,16 @@ class PartitionManagerPgPartman:
         partition_name = self._get_partition_name(table_name, partition_date)
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Check if partition already exists
-            check_query = """
+            check_query = text("""
                 SELECT EXISTS (
                     SELECT 1 FROM pg_inherits
                     WHERE inhparent = :parent::regclass
                     AND inhrelid = :partition::regclass
                 )
-                """
+                """)
             result = await session.execute(
                 check_query, {"parent": table_name, "partition": partition_name}
             )
@@ -259,7 +263,7 @@ class PartitionManagerPgPartman:
                 "CREATE TABLE IF NOT EXISTS " + partition_name + " PARTITION OF " + table_name + " "
                 "FOR VALUES FROM ('" + start.isoformat() + "') TO ('" + end.isoformat() + "')"
             )
-            await session.execute(create_sql)  # nosec
+            await session.execute(text(create_sql))  # nosec
             logger.info(f"Created partition {partition_name} for {table_name}")
 
     async def create_future_partitions(self, table_config: dict) -> int:
@@ -300,13 +304,14 @@ class PartitionManagerPgPartman:
         cutoff_date = datetime.now(UTC) - timedelta(days=retention_days)
 
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Find partitions older than cutoff - menggunakan parameter binding
-            find_sql = """
+            find_sql = text("""
                 SELECT inhrelid::regclass::text as partition_name
                 FROM pg_inherits
                 WHERE inhparent = :parent::regclass
-                """
+                """)
             result = await session.execute(find_sql, {"parent": table_name})
             partitions = result.scalars().all()
 
@@ -335,7 +340,8 @@ class PartitionManagerPgPartman:
         """
         table_name = table_config["name"]
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        db_session = await session_factory.get_session()
+        async with db_session as session, session.begin():
             # Menggunakan DDL dengan placeholder untuk keamanan
             stmt = DDL("ALTER TABLE %(table)s DETACH PARTITION %(partition)s")
             await session.execute(stmt, {"table": table_name, "partition": partition_name})
@@ -424,8 +430,9 @@ class PartitionManagerPgPartman:
         Get information about partitions of a table.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            query = """
+        db_session = await session_factory.get_session()
+        async with db_session as session:
+            query = text("""
             SELECT
                 inhrelid::regclass::text as partition_name,
                 pg_get_expr(c.relpartbound, inhrelid) as partition_range
@@ -433,7 +440,7 @@ class PartitionManagerPgPartman:
             JOIN pg_class c ON inhrelid = c.oid
             WHERE inhparent = :parent::regclass
             ORDER BY partition_name
-            """
+            """)
             result = await session.execute(query, {"parent": table_name})
             partitions = []
             for row in result:

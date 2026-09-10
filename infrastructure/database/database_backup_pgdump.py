@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config

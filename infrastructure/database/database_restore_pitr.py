@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config

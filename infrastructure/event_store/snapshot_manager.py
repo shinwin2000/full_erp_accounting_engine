@@ -106,7 +106,8 @@ class SnapshotManager:
                     FROM snapshot
                     WHERE aggregate_id = $1 AND aggregate_type = $2
                 """
-                params = [aggregate_id, aggregate_type]
+                # Anotasi eksplisit karena params bisa berisi str dan int
+                params: list[Any] = [aggregate_id, aggregate_type]
                 if max_version is not None:
                     query += " AND version <= $3"
                     params.append(max_version)

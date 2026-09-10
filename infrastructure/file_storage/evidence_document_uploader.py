@@ -11,13 +11,14 @@ import io
 import mimetypes
 import os
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 # Internal dependencies
 from infrastructure.file_storage.abstract_port import FileStoragePort
 from infrastructure.file_storage.file_integrity_hasher import FileIntegrityHasher
 from infrastructure.file_storage.minio_evidence_adapter import (
+    MinioEvidenceAdapter,
     get_minio_evidence_adapter,
 )
 from infrastructure.telemetry.alert_manager_trigger import trigger_alert
@@ -148,7 +149,7 @@ class EvidenceDocumentUploader:
             logger.warning(f"Duplicate evidence detected for {transaction_type}/{transaction_id}")
             raise EvidenceUploadError("Duplicate evidence file detected")
 
-        evidence_metadata = {
+        evidence_metadata: dict[str, Any] = {
             "transaction_type": transaction_type,
             "transaction_id": str(transaction_id),
             "uploaded_by": str(uploaded_by),
@@ -163,14 +164,22 @@ class EvidenceDocumentUploader:
         if metadata:
             evidence_metadata.update(metadata)
 
+        # Konversi semua value ke string untuk memenuhi signature MinioEvidenceAdapter
+        metadata_for_upload: dict[str, str] = {
+            k: str(v) for k, v in evidence_metadata.items()
+        }
+
         storage = await self._get_storage()
+        # FileStoragePort generic tidak mendefinisikan upload_evidence;
+        # adapter MinIO menyediakannya, jadi kita cast ke MinioEvidenceAdapter.
+        storage_minio = cast(MinioEvidenceAdapter, storage)
         try:
-            file_uri = await storage.upload_evidence(
+            file_uri = await storage_minio.upload_evidence(
                 file_content=io.BytesIO(file_content),
                 file_name=file_name,
                 transaction_type=transaction_type,
                 transaction_id=str(transaction_id),
-                metadata=evidence_metadata,
+                metadata=metadata_for_upload,
             )
         except Exception as e:
             logger.error(f"Failed to upload evidence: {e}")

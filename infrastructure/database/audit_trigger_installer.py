@@ -189,7 +189,9 @@ class AuditTriggerInstaller:
     async def _execute_sql(self, sql: str, **params) -> None:
         """Execute SQL statement using sa_text to avoid f-string detection."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as db_session, db_session.begin():
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        session = await session_factory.get_session()
+        async with session as db_session, db_session.begin():
             # Gunakan sa_text untuk menghindari f-string, tapi tetap format dengan .format()
             # Karena ini adalah template yang aman (tidak ada input user), kita gunakan .format()
             formatted_sql = sql.format(**params)
@@ -267,8 +269,9 @@ class AuditTriggerInstaller:
         Verify which triggers are installed.
         """
         session_factory = await get_session_factory()
-        results = {}
-        async with session_factory.get_session() as db_session:
+        session = await session_factory.get_session()
+        results: dict[str, bool] = {}
+        async with session as db_session:
             for table_name in self._tables:
                 # Gunakan concatenation aman untuk nama trigger
                 trigger_name = "audit_trigger_" + table_name
@@ -286,7 +289,8 @@ class AuditTriggerInstaller:
         LOCKING: No lock needed - this is a session variable SET operation.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as db_conn:
+        session = await session_factory.get_session()
+        async with session as db_conn:
             # Gunakan sa_text dengan concatenation aman untuk SET LOCAL
             # karena SET tidak mendukung parameter binding
             await db_conn.execute(sa_text("SET LOCAL audit.user_name = '" + user_name + "'"))
@@ -299,7 +303,8 @@ class AuditTriggerInstaller:
         LOCKING: No lock needed - this is a session variable RESET operation.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as db_conn:
+        session = await session_factory.get_session()
+        async with session as db_conn:
             await db_conn.execute(sa_text("RESET audit.user_name"))
             await db_conn.execute(sa_text("RESET audit.user_id"))
 

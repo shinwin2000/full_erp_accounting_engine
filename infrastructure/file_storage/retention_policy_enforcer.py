@@ -209,7 +209,8 @@ class RetentionPolicyEnforcer:
         storage = await self._get_hot_storage()
         try:
             files = await storage.list_files(prefix=prefix, limit=10000)
-            results = {
+            # Anotasi eksplisit agar mypy tahu tipe nested-nya
+            results: dict[str, Any] = {
                 "total_files_scanned": len(files),
                 "actions": {
                     "kept": 0,

@@ -376,7 +376,9 @@ class SeedDataLoader:
                     logger.info(f"Would load {seed_file}: {len(data.get('data', []))} records")
             return self._stats
 
-        async with factory.get_session() as session, session.begin():
+        # get_session() adalah coroutine; await dulu untuk mendapatkan AsyncSession
+        db_session = await factory.get_session()
+        async with db_session as session, session.begin():
             try:
                 # Load in order: legal entities -> accounts -> roles -> permissions -> users
                 # Legal entities
@@ -448,7 +450,8 @@ class SeedDataLoader:
         table_name = file_path.stem  # e.g., "legal_entities"
 
         factory = await get_session_factory()
-        async with factory.get_session() as session, session.begin():
+        db_session = await factory.get_session()
+        async with db_session as session, session.begin():
             try:
                 if table_name == "legal_entities":
                     await self._load_legal_entities(session, data.get("data", []))

@@ -17,6 +17,7 @@ Audit: Hasil health check dicatat secara periodik. Gagal probe memicu alert.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -123,7 +124,7 @@ class DatabaseHealthProbe:
                 latency_ms = (time.time() - start_time) * 1000
                 return {
                     "status": HEALTH_STATUS_HEALTHY,
-                    "latency_ms": round(latency_ms, 2),
+                    "latency_ms": builtins.round(latency_ms, 2),
                     "message": "Database reachable",
                 }
         except TimeoutError:
@@ -148,7 +149,8 @@ class DatabaseHealthProbe:
             ("SELECT version()", "version"),
         ]
 
-        results = []
+        # Anotasi eksplisit untuk menghindari inferensi mypy yang salah
+        results: list[dict[str, Any]] = []
         overall_status = HEALTH_STATUS_HEALTHY
 
         for query, name in queries:
@@ -166,7 +168,11 @@ class DatabaseHealthProbe:
                         overall_status = HEALTH_STATUS_DEGRADED
 
                     results.append(
-                        {"query": name, "time_ms": round(query_time_ms, 2), "status": status}
+                        {
+                            "query": name,
+                            "time_ms": builtins.round(query_time_ms, 2),
+                            "status": status,
+                        }
                     )
             except Exception as e:
                 results.append({"query": name, "error": str(e), "status": HEALTH_STATUS_UNHEALTHY})
@@ -210,7 +216,7 @@ class DatabaseHealthProbe:
 
                 return {
                     "is_replica": True,
-                    "lag_seconds": round(lag_seconds, 2),
+                    "lag_seconds": builtins.round(lag_seconds, 2),
                     "status": status,
                     "threshold_seconds": self._replication_lag_threshold,
                 }
@@ -247,7 +253,11 @@ class DatabaseHealthProbe:
             else:
                 status = HEALTH_STATUS_HEALTHY
 
-            return {"status": status, "pool": pool_status, "usage_ratio": round(usage_ratio, 2)}
+            return {
+                "status": status,
+                "pool": pool_status,
+                "usage_ratio": builtins.round(usage_ratio, 2),
+            }
         except Exception as e:
             return {"status": HEALTH_STATUS_DEGRADED, "error": str(e)}
 
@@ -274,7 +284,7 @@ class DatabaseHealthProbe:
         if connectivity["status"] == HEALTH_STATUS_UNHEALTHY:
             # If can't connect, skip other checks
             overall_status = HEALTH_STATUS_UNHEALTHY
-            result = {
+            result: dict[str, Any] = {
                 "status": overall_status,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "connectivity": connectivity,
@@ -303,12 +313,15 @@ class DatabaseHealthProbe:
         else:
             overall_status = HEALTH_STATUS_HEALTHY
 
-        duration_ms = (time.time() - start_time) * 1000
+        # Anotasi eksplisit `float` dan hitung dulu ke variabel terpisah,
+        # agar mypy tidak menginferensi target type dari konteks dictionary.
+        duration_ms: float = (time.time() - start_time) * 1000
+        duration_ms_rounded: float = builtins.round(duration_ms, 2)
 
-        result = {
+        final_result: dict[str, Any] = {
             "status": overall_status,
             "timestamp": datetime.now(UTC).isoformat(),
-            "duration_ms": round(duration_ms, 2),
+            "duration_ms": duration_ms_rounded,
             "connectivity": connectivity,
             "performance": performance,
             "replication": replication,
@@ -316,25 +329,25 @@ class DatabaseHealthProbe:
             "isolation": isolation,
         }
 
-        self._last_check = result
+        self._last_check = final_result
 
         # Alert if unhealthy
         if overall_status == HEALTH_STATUS_UNHEALTHY and self.config.get("alert_on_failure", True):
             await trigger_alert(
                 title="Database Health Check Failed",
-                message=f"Database health check failed: {result}",
+                message=f"Database health check failed: {final_result}",
                 severity="critical",
                 source="DatabaseHealthProbe",
             )
         elif overall_status == HEALTH_STATUS_DEGRADED and self.config.get("alert_on_failure", True):
             await trigger_alert(
                 title="Database Health Check Degraded",
-                message=f"Database health check degraded: {result}",
+                message=f"Database health check degraded: {final_result}",
                 severity="warning",
                 source="DatabaseHealthProbe",
             )
 
-        return result
+        return final_result
 
     async def start_periodic_checks(self) -> None:
         """

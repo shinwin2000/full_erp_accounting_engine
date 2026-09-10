@@ -64,6 +64,8 @@ class AppendOnlyStore:
         try:
             if self._session_factory is None:
                 self._session_factory = await get_async_session_factory()
+            # Setelah blok if di atas, _session_factory dijamin bukan None
+            assert self._session_factory is not None
             async with self._session_factory() as session:
                 stmt = select(func.count()).select_from(EventStoreTable).limit(1)
                 result = await session.execute(stmt)
@@ -105,11 +107,13 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         event_id = uuid4()
         timestamp = datetime.now(UTC)
         metadata = metadata or {}
         last_hash = await self._get_last_hash_for_stream(stream_name)
-        event_record = {
+        event_record: dict[str, Any] = {
             "id": str(event_id),
             "stream_name": stream_name,
             "event_type": event_type,
@@ -148,6 +152,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         event_ids = []
         try:
             async with self._session_factory() as session, session.begin():
@@ -156,7 +162,7 @@ class AppendOnlyStore:
                     timestamp = datetime.now(UTC)
                     metadata = metadata or {}
                     last_hash = await self._get_last_hash_for_stream(stream_name, session)
-                    event_record = {
+                    event_record: dict[str, Any] = {
                         "id": str(event_id),
                         "stream_name": stream_name,
                         "event_type": event_type,
@@ -194,6 +200,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         cached = self._cache.get(stream_name, [])
         if cached and from_sequence <= len(cached):
             return [e for e in cached if e.get("sequence_number", 0) >= from_sequence][:limit]
@@ -235,6 +243,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         cached = self._cache.get(stream_name, [])
         if cached:
             return cached[-1]
@@ -275,6 +285,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         try:
             async with self._session_factory() as session, session.begin():
                 if stream_name:
@@ -345,6 +357,7 @@ class AppendOnlyStore:
             return self._last_hashes[stream_name]
         close_session = False
         if session is None:
+            assert self._session_factory is not None, "Session factory not initialized"
             session = self._session_factory()
             close_session = True
         try:
@@ -375,6 +388,7 @@ class AppendOnlyStore:
 
         close_session = False
         if session is None:
+            assert self._session_factory is not None, "Session factory not initialized"
             session = self._session_factory()
             close_session = True
         try:
@@ -409,6 +423,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         try:
             async with self._session_factory() as session, session.begin():
                 count_stmt = (
@@ -459,6 +475,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         try:
             async with self._session_factory() as session, session.begin():
                 conditions = []
@@ -498,6 +516,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         try:
             async with self._session_factory() as session, session.begin():
                 stmt = select(EventStoreTable.stream_name).distinct().limit(limit)
@@ -513,6 +533,8 @@ class AppendOnlyStore:
 
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
+        assert self._session_factory is not None, "Session factory not initialized"
+
         try:
             async with self._session_factory() as session, session.begin():
                 stmt = select(EventStoreTable).order_by(EventStoreTable.timestamp).limit(limit)
