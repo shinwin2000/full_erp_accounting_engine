@@ -24,8 +24,30 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
+from domain.shared_value_objects.npwp_vo import validate_npwp_string
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_npwp_checksum(v: str | None) -> str | None:
+    """Validasi NPWP penuh (15 digit + check digit modulo 11), bukan cuma
+    panjang & digit. Sebelumnya schema ini hanya cek isdigit(), jadi NPWP
+    yang lolos panjang tapi salah check digit (mis. '123456789123456')
+    tetap tersimpan ke database — lalu baru "hilang" (jadi None) secara
+    diam-diam saat dibaca lewat repository DDD (lihat _safe_npwp di
+    sqlalchemy_legal_entity_repository_impl.py). Validasi di titik masuk
+    ini supaya data invalid ditolak sejak awal, bukan diterima lalu
+    dibuang belakangan tanpa sepengetahuan user."""
+    if v is None:
+        return v
+    if not v.isdigit():
+        raise ValueError("NPWP must contain only digits")
+    if not validate_npwp_string(v):
+        raise ValueError(
+            f"NPWP '{v}' tidak valid (check digit salah). "
+            "Pastikan NPWP diketik dengan benar (15 digit sesuai kartu NPWP)."
+        )
+    return v
 
 # ============================================================================
 # IDEMPOTENCY MANAGER
@@ -183,9 +205,7 @@ class LegalEntityCreateSchema(BaseModel):
     @field_validator("npwp")
     @classmethod
     def validate_npwp(cls, v: str | None) -> str | None:
-        if v and not v.isdigit():
-            raise ValueError("NPWP must contain only digits")
-        return v
+        return _validate_npwp_checksum(v)
 
 
 class LegalEntityUpdateSchema(BaseModel):
@@ -218,9 +238,7 @@ class LegalEntityUpdateSchema(BaseModel):
     @field_validator("npwp")
     @classmethod
     def validate_npwp(cls, v: str | None) -> str | None:
-        if v and not v.isdigit():
-            raise ValueError("NPWP must contain only digits")
-        return v
+        return _validate_npwp_checksum(v)
 
 
 class LegalEntityResponseSchema(BaseModel):

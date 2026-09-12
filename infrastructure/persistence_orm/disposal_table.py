@@ -28,7 +28,11 @@ if TYPE_CHECKING:
 
 
 class DisposalTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "disposal"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "disposal"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("disposal_date IS NOT NULL", name="ck_disposal_date"),
         CheckConstraint("disposal_proceeds >= 0", name="ck_disposal_proceeds_nonneg"),

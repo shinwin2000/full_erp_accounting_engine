@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -93,6 +94,20 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     requested_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # FIX: kolom di bawah ini sebelumnya TIDAK ADA sama sekali padahal
+    # sudah lama dipakai PurchaseOrderResponseSchema di
+    # fastapi_purchase_sales_router.py -- ditambahkan lewat migrasi
+    # fix_po_so_schema.py.
+    invoiced_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
+    order_type: Mapped[str] = mapped_column(String(20), nullable=False, default="standard")
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # =========================================================================
     # RELATIONSHIPS
@@ -230,12 +245,19 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
                 "approved_at": self.approved_at.isoformat()
             })
 
-    def reject(self) -> None:
+    def reject(self, rejected_by: uuid.UUID | None = None, reason: str | None = None, record_event: bool = True) -> None:
         if self.status != "submitted":
             raise ValueError(f"Cannot reject PO with status {self.status}")
-        self.status = "draft"
+        self.status = "rejected"
+        self.rejected_by = rejected_by
+        self.rejected_at = datetime.utcnow()
+        self.rejection_reason = reason
         self.increment_version()
-        self._record_event("Rejected", {"new_status": "draft"})
+        if record_event:
+            self._record_event("Rejected", {
+                "rejected_by": str(rejected_by) if rejected_by else None,
+                "reason": reason,
+            })
 
     def record_receipt(self, amount: Decimal, record_event: bool = True) -> None:
         if amount <= 0:
@@ -259,48 +281,54 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
                 "new_status": self.status
             })
 
-    def cancel(self, record_event: bool = True) -> None:
+    def cancel(self, cancelled_by: uuid.UUID | None = None, record_event: bool = True) -> None:
         if self.status in ("cancelled", "closed"):
             raise ValueError(f"Cannot cancel PO with status {self.status}")
+        previous_status = self.status
         self.status = "cancelled"
+        self.cancelled_by = cancelled_by
+        self.cancelled_at = datetime.utcnow()
         self.increment_version()
         if record_event:
-            self._record_event("Cancelled", {"previous_status": self.status})
+            self._record_event("Cancelled", {"previous_status": previous_status})
 
     def close(self, record_event: bool = True) -> None:
         if self.status != "fully_received":
             raise ValueError(f"Cannot close PO with status {self.status}")
         self.status = "closed"
+        self.closed_at = datetime.utcnow()
         self.increment_version()
         if record_event:
             self._record_event("Closed", {"previous_status": "fully_received"})
 
 
-class PurchaseOrderLineTable(Base, TimestampMixin):
+class PurchaseOrderLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "purchase_order_line"
     __table_args__ = (
-        UniqueConstraint("po_id", "line_number", name="uq_po_line_number"),
+        UniqueConstraint("purchase_order_id", "line_number", name="uq_po_line_number"),
         CheckConstraint("quantity > 0", name="ck_po_line_qty_positive"),
         CheckConstraint("unit_price >= 0", name="ck_po_line_unit_price_nonneg"),
-        Index("idx_po_line_po", "po_id"),
-        Index("idx_po_line_product", "product_id"),
+        Index("idx_po_line_po", "purchase_order_id"),
+        Index("idx_po_line_item", "item_id"),
         {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    po_id: Mapped[uuid.UUID] = mapped_column(
+    purchase_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("purchase_order.id", ondelete="CASCADE"),
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    product_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    item_code: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    item_name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
-    total_price: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
-    unit_of_measure: Mapped[str] = mapped_column(String(10), nullable=False)
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    expected_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     received_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -310,7 +338,7 @@ class PurchaseOrderLineTable(Base, TimestampMixin):
     purchase_order: Mapped[PurchaseOrderTable] = relationship(
         "PurchaseOrderTable",
         back_populates="lines",
-        foreign_keys=[po_id],
+        foreign_keys=[purchase_order_id],
     )
 
 

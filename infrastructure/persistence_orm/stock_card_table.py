@@ -19,6 +19,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -47,7 +48,11 @@ class StockCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     Menyimpan history mutasi stok per item per gudang.
     """
 
-    __tablename__ = "stock_card"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "stock_card"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "movement_id", name="uq_stock_card_movement_id"
@@ -145,7 +150,7 @@ class StockCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # METHODS
     # ========================================================================
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         """Convert to dictionary for serialization."""
         return {
             "id": str(self.id),

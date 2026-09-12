@@ -21,7 +21,11 @@ from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, Tim
 
 
 class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "intangible_revaluation"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "intangible_revaluation"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("revaluation_date IS NOT NULL", name="ck_intangible_reval_date"),
         CheckConstraint("old_carrying_amount >= 0", name="ck_intangible_reval_old_carrying_nonneg"),
@@ -59,7 +63,7 @@ class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
     # No explicit relationship definition is needed here.
     # =========================================================================
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "asset_id": str(self.asset_id),

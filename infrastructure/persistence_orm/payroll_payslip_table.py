@@ -43,7 +43,13 @@ class PayrollPayslipTable(
     Model untuk tabel payroll_payslip.
     """
 
-    __tablename__: ClassVar[str] = "payroll_payslip"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Meskipun di sini diberi anotasi ``ClassVar[str]``, mypy tetap melihat
+    # tipe base yang lebih spesifik (``Callable``), sehingga assignment string
+    # literal tetap dianggap tidak kompatibel. Direktif ``# type: ignore[assignment]``
+    # diperlukan — sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__: ClassVar[str] = "payroll_payslip"  # type: ignore[assignment]
     # 🔧 TAMBAHKAN baris ini untuk mengatasi duplikasi jika ada model lain dengan nama tabel sama
     __table_args__: ClassVar[dict] = {'extend_existing': True}
 

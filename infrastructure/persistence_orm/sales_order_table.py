@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -111,6 +112,18 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
+    # FIX: kolom di bawah ini sebelumnya tidak ada padahal sudah dipakai
+    # SalesOrderResponseSchema di fastapi_purchase_sales_router.py --
+    # ditambahkan lewat migrasi fix_po_so_schema.py.
+    order_type: Mapped[str] = mapped_column(String(20), nullable=False, default="standard")
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
@@ -187,10 +200,13 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         self.approved_at = datetime.utcnow()
         self.increment_version()
 
-    def reject(self) -> None:
+    def reject(self, rejected_by: uuid.UUID | None = None, reason: str | None = None) -> None:
         if self.status != "submitted":
             raise ValueError(f"Cannot reject SO with status {self.status}")
-        self.status = "draft"
+        self.status = "rejected"
+        self.rejected_by = rejected_by
+        self.rejected_at = datetime.utcnow()
+        self.rejection_reason = reason
         self.increment_version()
 
     def record_shipment(self, amount: Decimal) -> None:
@@ -218,16 +234,19 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         self.paid_amount += amount
         self.increment_version()
 
-    def cancel(self) -> None:
+    def cancel(self, cancelled_by: uuid.UUID | None = None) -> None:
         if self.status in ("cancelled", "closed"):
             raise ValueError(f"Cannot cancel SO with status {self.status}")
         self.status = "cancelled"
+        self.cancelled_by = cancelled_by
+        self.cancelled_at = datetime.utcnow()
         self.increment_version()
 
     def close(self) -> None:
         if self.status != "fully_shipped":
             raise ValueError(f"Cannot close SO with status {self.status}")
         self.status = "closed"
+        self.closed_at = datetime.utcnow()
         self.increment_version()
 
 

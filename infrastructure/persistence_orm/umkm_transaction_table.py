@@ -25,7 +25,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class UMKMTransactionTable(Base):
-    __tablename__ = "umkm_transaction"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "umkm_transaction"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "transaction_type IN ('revenue', 'expense', 'asset', 'liability')",
@@ -85,7 +89,7 @@ class UMKMTransactionTable(Base):
             raise ValueError("Transaction already cancelled")
         self.status = "cancelled"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "profile_id": str(self.profile_id),

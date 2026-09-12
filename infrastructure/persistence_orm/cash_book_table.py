@@ -37,7 +37,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class CashBookTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "cash_book"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "cash_book"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("legal_entity_id", "currency_code", name="uq_cash_book_legal_entity_currency"),
         CheckConstraint("currency_code IS NOT NULL", name="ck_cash_book_currency"),
@@ -63,7 +67,7 @@ class CashBookTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         self.last_updated = datetime.utcnow()
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),

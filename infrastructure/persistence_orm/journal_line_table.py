@@ -39,7 +39,11 @@ if TYPE_CHECKING:
 
 
 class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "journal_line"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "journal_line"  # type: ignore[assignment]
     __table_args__ = (
         # PERBAIKAN: hapus prefix "public." untuk menghindari schema mismatch
         ForeignKeyConstraint(
@@ -129,7 +133,7 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     def get_absolute_amount(self) -> Decimal:
         return self.amount
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "journal_id": str(self.journal_id),

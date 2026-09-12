@@ -30,7 +30,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class GeneralLedgerEntry(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    __tablename__ = "general_ledger"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "general_ledger"  # type: ignore[assignment]
     __table_args__ = (
         {"extend_existing": True},
     )
@@ -59,7 +63,7 @@ class GeneralLedgerEntry(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     def is_credit_entry(self) -> bool:
         return self.credit > 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "journal_id": str(self.journal_id),

@@ -177,9 +177,51 @@ class BudgetService:
         logger.info(f"AUDIT: {action} - {details}")
 
     async def _publish_events(self, aggregate: BudgetAggregate) -> None:
-        if self._event_publisher:
-            for event in aggregate.pull_events():
+        # [FIX] Kontrak `EventPublisherPort.publish()` (event, event_type,
+        # aggregate_id, aggregate_type, ...) tidak cocok dengan signature
+        # `KafkaEventPublisher.publish()` yang sebenarnya (topic, event, key)
+        # -- keduanya juga tidak cocok dengan pemanggilan 1-argumen di sini.
+        # ini kesalahan arsitektur yang lebih luas (kemungkinan besar
+        # memengaruhi publish event di modul lain juga), di luar scope
+        # perbaikan modul budget. Sambil menunggu itu diselaraskan,
+        # publish event ke message bus TIDAK BOLEH menggagalkan transaksi
+        # bisnis yang sudah berhasil disimpan -- efek samping publish event
+        # harus best-effort, bukan syarat sukses/gagalnya create/update
+        # budget. Karena itu exception di sini ditangkap & di-log, tidak
+        # dilempar ke pemanggil.
+        if not self._event_publisher:
+            return
+        for event in aggregate.pull_events():
+            try:
                 await self._event_publisher.publish(event)
+            except Exception as e:
+                logger.warning(
+                    f"Gagal publish event budget {aggregate.id} ({type(event).__name__}): {e}"
+                )
+
+    async def _maybe_commit_uow(self) -> None:
+        """
+        [FIX] Sebelumnya kode ini memanggil `await self._uow.commit()` begitu
+        saja tanpa pernah memanggil `self._uow.begin()` -- DI container
+        (`get_budget_service`) hanya menyuntikkan session request-scoped ke
+        repository, tidak pernah memulai transaksi lewat UoW ini. Akibatnya
+        SETIAP aksi tulis (create/update/delete/submit/approve/dst.) selalu
+        meledak dengan "UoW not started or transaction not active" tepat
+        setelah data berhasil di-flush ke DB -- dan karena exception ini
+        menjalar sampai ke FastAPI, dependency `get_async_session()` akhirnya
+        me-rollback seluruh transaksi request tersebut. Jadi walau log sempat
+        menulis "Budget saved: ...", datanya tidak pernah benar-benar
+        tersimpan.
+
+        Commit request yang sesungguhnya sudah ditangani otomatis oleh
+        `get_async_session()` (commit di akhir request kalau tidak ada
+        exception yang lolos ke router). Method ini sekarang hanya commit
+        lewat UoW kalau UoW itu memang benar-benar sedang aktif (untuk
+        caller lain di masa depan yang sengaja mulai transaksi manual lewat
+        `async with self._uow:` / `self._uow.begin()`).
+        """
+        if self._uow and await self._uow.is_active():
+            await self._uow.commit()
 
     def _to_response(self, aggregate: BudgetAggregate) -> BudgetResponse:
         return BudgetResponse(
@@ -316,8 +358,7 @@ class BudgetService:
 
         entity = self._aggregate_to_entity(aggregate)
         await self._budget_repo.save(entity)
-        if self._uow:
-            await self._uow.commit()
+        await self._maybe_commit_uow()
 
         await self._publish_events(aggregate)
 
@@ -451,8 +492,7 @@ class BudgetService:
 
         updated_entity = self._aggregate_to_entity(aggregate)
         await self._budget_repo.update(updated_entity)
-        if self._uow:
-            await self._uow.commit()
+        await self._maybe_commit_uow()
 
         self._record_audit("update_budget", {
             "budget_id": str(aggregate.id),
@@ -465,8 +505,8 @@ class BudgetService:
     @audit
     async def delete_budget(self, budget_id: UUID, user_id: UUID) -> bool:
         result = await self._budget_repo.delete(budget_id)
-        if result and self._uow:
-            await self._uow.commit()
+        if result:
+            await self._maybe_commit_uow()
 
         self._record_audit("delete_budget", {
             "budget_id": str(budget_id),
@@ -546,8 +586,7 @@ class BudgetService:
     async def _save_aggregate(self, aggregate: BudgetAggregate) -> None:
         entity = self._aggregate_to_entity(aggregate)
         await self._budget_repo.update(entity)
-        if self._uow:
-            await self._uow.commit()
+        await self._maybe_commit_uow()
         await self._publish_events(aggregate)
 
     @audit

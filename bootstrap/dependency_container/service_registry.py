@@ -469,7 +469,15 @@ class ServiceRegistrar:
                     event_publisher = await container.resolve_async(EventPublisherPort)
                 except Exception:
                     event_publisher = None
-                return PurchaseSalesService(event_publisher=event_publisher)
+                # FIX lanjutan: PurchaseSalesService sekarang butuh repository
+                # nyata (SQLAlchemyPurchaseSalesRepository) supaya Purchase
+                # Order & Sales Order benar-benar tersimpan ke database --
+                # sebelumnya cuma dict in-memory yang hilang tiap restart.
+                from adapters.secondary_impl.sqlalchemy_purchase_sales_repository_impl import (
+                    SQLAlchemyPurchaseSalesRepository,
+                )
+                repository = SQLAlchemyPurchaseSalesRepository()
+                return PurchaseSalesService(event_publisher=event_publisher, repository=repository)
 
             container.register_singleton(PurchaseSalesService, factory=_create_purchase_sales_service)
             logger.info("PurchaseSalesService registered")

@@ -47,7 +47,11 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
     Model untuk mencatat transaksi mencurigakan (STR).
     """
 
-    __tablename__ = "aml_suspicious_transaction"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "aml_suspicious_transaction"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "detection_type IN ('automated_rule', 'manual_report', 'external_alert')",
@@ -215,7 +219,7 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
         self.filed_by = filed_by
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "transaction_id": str(self.transaction_id),

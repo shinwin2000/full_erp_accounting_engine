@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 # OpenTelemetry imports (with fallback if not installed)
 try:
@@ -45,10 +46,13 @@ try:
 except ImportError:
     OPENTELEMETRY_AVAILABLE = False
 
-    # Create dummy classes
-    class trace:
+    # Dummy class untuk fallback saat OpenTelemetry tidak tersedia.
+    # ``# type: ignore[no-redef]`` diperlukan karena mypy melihat dua definisi
+    # ``trace`` (import di blok try + class di blok except) dan menganggap yang
+    # kedua sebagai redefinisi — padahal secara runtime hanya satu yang aktif.
+    class trace:  # type: ignore[no-redef]
         @staticmethod
-        def get_tracer(name):
+        def get_tracer(name: str) -> Any:
             return None
 
         class TracerProvider:
@@ -65,7 +69,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
     "service_name": "erp-accounting-engine",
     "service_version": "1.0.0",
@@ -101,8 +105,8 @@ class OpenTelemetrySetup:
     - Resource attributes untuk service identification
     """
 
-    def __init__(self, config_path: str = "config_files/telemetry_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = "config_files/telemetry_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
         self._initialized = False
         self._tracer_provider: TracerProvider | None = None
         self._meter_provider: MeterProvider | None = None
@@ -113,7 +117,7 @@ class OpenTelemetrySetup:
             config = load_yaml_config(config_path)
             telemetry_config = config.get("opentelemetry", {})
             # Merge with defaults
-            result = DEFAULT_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_CONFIG.copy()
             result.update(telemetry_config)
             return result
         except Exception as e:
@@ -131,7 +135,7 @@ class OpenTelemetrySetup:
             }
         )
 
-    def _create_span_processor(self):
+    def _create_span_processor(self) -> BatchSpanProcessor | None:
         """
         Create span exporter based on configuration.
         """
@@ -140,6 +144,7 @@ class OpenTelemetrySetup:
             return None
 
         exporter_type = self.config.get("exporter", "jaeger")
+        exporter: Any
 
         if exporter_type == "console":
             exporter = ConsoleSpanExporter()
@@ -257,7 +262,12 @@ class OpenTelemetrySetup:
         except Exception as e:
             logger.error(f"Failed to setup OpenTelemetry logging: {e}")
 
-    def setup_instrumentation(self, app=None, db_engine=None, redis_client=None) -> None:
+    def setup_instrumentation(
+        self,
+        app: Any = None,
+        db_engine: Any = None,
+        redis_client: Any = None,
+    ) -> None:
         """
         Setup auto-instrumentation for libraries.
         """
@@ -294,7 +304,7 @@ class OpenTelemetrySetup:
         except Exception as e:
             logger.error(f"Failed to setup instrumentation: {e}")
 
-    def get_tracer(self, name: str = "erp-accounting-engine") -> trace.Tracer | None:
+    def get_tracer(self, name: str = "erp-accounting-engine") -> Any:
         """
         Get a tracer for manual instrumentation.
         """
@@ -303,7 +313,12 @@ class OpenTelemetrySetup:
 
         return trace.get_tracer(name)
 
-    def setup_all(self, app=None, db_engine=None, redis_client=None) -> None:
+    def setup_all(
+        self,
+        app: Any = None,
+        db_engine: Any = None,
+        redis_client: Any = None,
+    ) -> None:
         """
         Setup all OpenTelemetry components.
         """
@@ -353,13 +368,13 @@ def get_opentelemetry_setup() -> OpenTelemetrySetup:
     return _otel_setup
 
 
-def get_tracer(name: str = "erp-accounting-engine"):
+def get_tracer(name: str = "erp-accounting-engine") -> Any:
     """Get tracer for manual instrumentation."""
     setup = get_opentelemetry_setup()
     return setup.get_tracer(name)
 
 
-def get_trace_id(span) -> str | None:
+def get_trace_id(span: Any) -> str | None:
     """Extract trace ID from span for logging."""
     if span and span.get_span_context().trace_id:
         return format(span.get_span_context().trace_id, "032x")
@@ -376,7 +391,7 @@ def setup_opentelemetry(
     endpoint: str = "localhost:4317",
     exporter_type: str = "otlp",
     sampling_ratio: float = 0.1,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Quick setup for OpenTelemetry tracing with OTLP exporter.
@@ -428,8 +443,12 @@ setup_telemetry = setup_opentelemetry
 # DECORATOR
 # ============================================================================
 
+_F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
 
-def traced(span_name: str, attributes: dict[str, Any] | None = None):
+
+def traced(
+    span_name: str, attributes: dict[str, Any] | None = None
+) -> Callable[[_F], _F]:
     """
     Decorator untuk menandai fungsi dengan span tracing.
 
@@ -439,8 +458,8 @@ def traced(span_name: str, attributes: dict[str, Any] | None = None):
             ...
     """
 
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: _F) -> _F:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             tracer = get_tracer()
             if tracer is None:
                 return await func(*args, **kwargs)
@@ -451,7 +470,7 @@ def traced(span_name: str, attributes: dict[str, Any] | None = None):
                         span.set_attribute(key, value)
                 return await func(*args, **kwargs)
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 

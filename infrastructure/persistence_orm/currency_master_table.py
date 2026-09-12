@@ -26,7 +26,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class CurrencyMasterTable(Base):
-    __tablename__ = "currency_master"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "currency_master"  # type: ignore[assignment]
     __table_args__ = ({"extend_existing": True},)
 
     # CATATAN: id (UUID primary key) diwarisi otomatis dari Base
@@ -47,7 +51,7 @@ class CurrencyMasterTable(Base):
         DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "code": self.code,

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -43,7 +44,11 @@ class OutboxStatus:
 
 
 class OutboxTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "outbox"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "outbox"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("event_type IS NOT NULL AND event_type != ''", name="ck_outbox_event_type"),
         CheckConstraint("aggregate_type IS NOT NULL", name="ck_outbox_aggregate_type"),
@@ -185,7 +190,7 @@ class OutboxTable(Base, TimestampMixin, SoftDeleteMixin):
         self.next_retry_at = None
         self.status = "pending"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "event_id": str(self.event_id),

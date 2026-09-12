@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, CheckConstraint, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -32,7 +32,11 @@ if TYPE_CHECKING:
 class UomTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """Master satuan (Unit of Measure), mis. PCS, KG, BOX, dsb."""
 
-    __tablename__ = "uom"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "uom"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("uom_code", "legal_entity_id", name="uq_uom_code_legal_entity"),
         CheckConstraint("uom_code IS NOT NULL AND uom_code != ''", name="ck_uom_code"),
@@ -62,7 +66,7 @@ class UomTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityM
         back_populates="base_uom",
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "uom_code": self.uom_code,

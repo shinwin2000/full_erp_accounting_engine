@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
 
 class ReportScheduleTable(Base):
-    __tablename__ = "report_schedule"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "report_schedule"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_report_schedule_definition", "definition_id"),
         Index("idx_report_schedule_next_run", "next_run_at"),
@@ -51,7 +55,7 @@ class ReportScheduleTable(Base):
         self.last_run_at = last_run_at
         self.next_run_at = next_run_at
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "definition_id": str(self.definition_id),

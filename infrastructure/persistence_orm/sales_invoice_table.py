@@ -45,7 +45,11 @@ if TYPE_CHECKING:
 
 
 class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "sales_invoice"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "sales_invoice"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "invoice_number", "legal_entity_id", name="uq_sales_invoice_number_legal_entity"
@@ -191,7 +195,7 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         self.status = "cancelled"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "invoice_number": self.invoice_number,

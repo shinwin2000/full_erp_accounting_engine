@@ -53,7 +53,11 @@ if TYPE_CHECKING:
 class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """Model untuk tabel goodwill."""
 
-    __tablename__ = "goodwill"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "goodwill"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("goodwill_code", "legal_entity_id", name="uq_goodwill_code_legal_entity"),
         CheckConstraint(
@@ -205,7 +209,7 @@ class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         self.approved_at = datetime.utcnow()
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "goodwill_code": self.goodwill_code,

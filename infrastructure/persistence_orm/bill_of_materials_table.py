@@ -46,7 +46,12 @@ class BillOfMaterialsTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     """
     Model untuk tabel master Bill of Materials (Header).
     """
-    __tablename__ = "bill_of_materials"
+
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "bill_of_materials"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("bom_code", "legal_entity_id", name="uq_bom_code_legal_entity"),
         CheckConstraint("bom_code IS NOT NULL", name="ck_bom_code"),
@@ -109,7 +114,7 @@ class BillOfMaterialsTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         self.status = "obsolete"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "bom_code": self.bom_code,

@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 class StockOpnameLineTable(Base, TimestampMixin):
-    __tablename__ = "stock_opname_line"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "stock_opname_line"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("system_quantity >= 0", name="ck_sol_system_qty_nonneg"),
         CheckConstraint("physical_quantity >= 0", name="ck_sol_physical_qty_nonneg"),
@@ -83,7 +87,7 @@ class StockOpnameLineTable(Base, TimestampMixin):
     # =========================================================================
     # METHODS
     # =========================================================================
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "stock_opname_id": str(self.stock_opname_id),

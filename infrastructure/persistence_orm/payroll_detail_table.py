@@ -15,7 +15,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class SalaryStructureTable(Base):
-    __tablename__ = "salary_structure"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "salary_structure"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -32,7 +36,11 @@ class SalaryStructureTable(Base):
 
 
 class PayrollDetailTable(Base):
-    __tablename__ = "payroll_detail"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "payroll_detail"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -49,7 +57,11 @@ class PayrollDetailTable(Base):
 
 
 class PayrollAdjustmentTable(Base):
-    __tablename__ = "payroll_adjustment"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "payroll_adjustment"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -63,3 +75,4 @@ class PayrollAdjustmentTable(Base):
     created_at = Column(DateTime, server_default="now()")
     updated_at = Column(DateTime, server_default="now()")
     created_by = Column(SQLUUID(as_uuid=True), nullable=True)
+    

@@ -406,7 +406,9 @@ _reg(ModuleConfig(
     key="legal_entities", label="Entitas Legal", category="Master Data", icon="🏢",
     base_path="/legal-entities/legal-entities", list_path="/",
     columns=[("legal_name", "Nama Legal"), ("trade_name", "Nama Dagang"),
-             ("entity_type", "Tipe"), ("npwp", "NPWP"), ("city", "Kota")],
+             ("entity_type", "Tipe"), ("registration_number", "No. Registrasi (NIB)"),
+             ("npwp", "NPWP"), ("is_taxable", "PKP"), ("city", "Kota"),
+             ("province", "Provinsi"), ("status", "Status")],
     form_fields=[
         FieldSpec("legal_name", "Nama Legal (min. 3 karakter)", required=True),
         FieldSpec("trade_name", "Nama Dagang"),

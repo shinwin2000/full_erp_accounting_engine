@@ -50,7 +50,11 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     Satu budget = satu header + banyak lines.
     """
 
-    __tablename__ = "budget"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "budget"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "budget_code", "legal_entity_id", name="uq_budget_code_legal_entity"
@@ -162,7 +166,7 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
             and (self.expiry_date is None or self.expiry_date >= today)
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "budget_code": self.budget_code,
@@ -205,7 +209,11 @@ class BudgetLineTable(Base, TimestampMixin, VersionMixin):
     Model untuk tabel budget line (detail per akun).
     """
 
-    __tablename__ = "budget_line"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "budget_line"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("amount >= 0", name="ck_budget_line_amount_nonneg"),
         CheckConstraint(
@@ -240,7 +248,7 @@ class BudgetLineTable(Base, TimestampMixin, VersionMixin):
     # Relationship
     budget: Mapped[BudgetTable] = relationship("BudgetTable", back_populates="lines")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "budget_id": str(self.budget_id),

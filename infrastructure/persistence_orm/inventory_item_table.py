@@ -77,7 +77,11 @@ if TYPE_CHECKING:
 class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """Model untuk tabel inventory_item (Master Item)."""
 
-    __tablename__ = "inventory_item"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_item"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "item_code", "legal_entity_id", name="uq_inventory_item_code_legal_entity"

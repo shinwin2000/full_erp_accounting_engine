@@ -21,7 +21,11 @@ from infrastructure.persistence_orm.base_model import Base
 class AggregateSnapshotTable(Base):
     """ORM model for table: aggregate_snapshot."""
 
-    __tablename__ = "aggregate_snapshot"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "aggregate_snapshot"  # type: ignore[assignment]
 
     # id diwarisi dari Base (UUID primary key)
 
@@ -36,3 +40,4 @@ class AggregateSnapshotTable(Base):
     def __repr__(self) -> str:
         pk = getattr(self, "id", "?")
         return f"<AggregateSnapshotTable id={pk}>"
+    

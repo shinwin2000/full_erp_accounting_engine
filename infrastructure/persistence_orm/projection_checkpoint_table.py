@@ -20,7 +20,11 @@ from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
 
 class ProjectionCheckpointTable(Base, TimestampMixin):
-    __tablename__ = "projection_checkpoint"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "projection_checkpoint"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("projection_name", "legal_entity_id", name="uq_projection_checkpoint_name_legal_entity"),
         CheckConstraint("projection_name IS NOT NULL AND projection_name != ''", name="ck_projection_checkpoint_name"),
@@ -56,7 +60,7 @@ class ProjectionCheckpointTable(Base, TimestampMixin):
         self.is_rebuilding = False
         self.rebuild_completed_at = datetime.utcnow()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "projection_name": self.projection_name,

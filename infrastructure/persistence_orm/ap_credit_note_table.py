@@ -47,7 +47,11 @@ if TYPE_CHECKING:
 
 
 class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "ap_credit_note"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "ap_credit_note"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "credit_note_number", "legal_entity_id", name="uq_ap_credit_note_number_legal_entity"
@@ -135,7 +139,7 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         self.status = "cancelled"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "credit_note_number": self.credit_note_number,

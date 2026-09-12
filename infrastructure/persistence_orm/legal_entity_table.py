@@ -46,7 +46,11 @@ if TYPE_CHECKING:
 
 
 class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    __tablename__ = "legal_entity"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "legal_entity"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "legal_name IS NOT NULL AND legal_name != ''", name="ck_legal_entity_legal_name"
@@ -231,7 +235,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         self.is_active = False
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_name": self.legal_name,

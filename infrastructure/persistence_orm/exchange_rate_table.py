@@ -45,7 +45,11 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     Model untuk tabel exchange rate (nilai tukar mata uang).
     """
 
-    __tablename__ = "exchange_rate"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "exchange_rate"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "from_currency", "to_currency", "rate_date", "legal_entity_id",
@@ -159,7 +163,7 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         rate_to_use = self.inverse_rate if inverse else self.rate
         return (amount * rate_to_use).quantize(Decimal("0.01"))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "from_currency": self.from_currency,

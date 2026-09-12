@@ -50,7 +50,11 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
     Menyimpan komponen BOM.
     """
 
-    __tablename__ = "bill_of_materials_line"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "bill_of_materials_line"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("bom_id", "line_number", name="uq_bom_line_number"),
         CheckConstraint("line_number > 0", name="ck_bom_line_number_positive"),
@@ -98,7 +102,7 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
         self.total_cost = (base_cost + scrap_adjustment).quantize(Decimal("0.01"))
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "bom_id": str(self.bom_id),

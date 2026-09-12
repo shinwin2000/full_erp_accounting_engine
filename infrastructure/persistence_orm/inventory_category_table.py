@@ -10,7 +10,7 @@ Responsibility: Model SQLAlchemy untuk tabel master Kategori Barang (hierarkis:
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -31,7 +31,11 @@ if TYPE_CHECKING:
 class InventoryCategoryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """Master kategori/sub-kategori barang."""
 
-    __tablename__ = "inventory_category"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_category"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "category_code", "legal_entity_id", name="uq_inventory_category_code_legal_entity"
@@ -67,7 +71,7 @@ class InventoryCategoryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         back_populates="category_ref",
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "category_code": self.category_code,

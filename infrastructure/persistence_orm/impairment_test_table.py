@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
 
 class ImpairmentTestTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "impairment_test"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "impairment_test"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("test_date IS NOT NULL", name="ck_impairment_test_date"),
         CheckConstraint("carrying_amount >= 0", name="ck_impairment_carrying_nonneg"),
@@ -52,7 +56,7 @@ class ImpairmentTestTable(Base, TimestampMixin, SoftDeleteMixin):
         back_populates="impairment_tests",
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "asset_id": str(self.asset_id),

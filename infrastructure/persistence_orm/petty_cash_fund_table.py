@@ -31,7 +31,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class PettyCashFundTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "petty_cash_fund"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "petty_cash_fund"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("fund_name", "legal_entity_id", name="uq_petty_cash_name_legal_entity"),
         CheckConstraint("fund_name IS NOT NULL", name="ck_petty_cash_name"),
@@ -82,7 +86,7 @@ class PettyCashFundTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.status = "closed"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "fund_name": self.fund_name,

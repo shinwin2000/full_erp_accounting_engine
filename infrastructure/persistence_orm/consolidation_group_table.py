@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 
 class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "consolidation_group"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "consolidation_group"  # type: ignore[assignment]
     __table_args__ = (
         # Partial unique index: nama grup hanya wajib unik di antara yang
         # masih aktif & belum di-soft-delete. Grup yang dinonaktifkan lewat
@@ -59,7 +63,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # =========================================================================
-    # RELATIONSHIPS � menggunakan string reference
+    # RELATIONSHIPS — menggunakan string reference
     # =========================================================================
     members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
         "ConsolidationGroupMemberTable",
@@ -76,7 +80,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     def deactivate(self) -> None:
         self.is_active = False
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "group_code": self.group_code,

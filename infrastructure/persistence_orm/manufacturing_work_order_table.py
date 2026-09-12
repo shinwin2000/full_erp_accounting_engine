@@ -36,7 +36,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class ManufacturingWorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "manufacturing_work_order"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "manufacturing_work_order"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("wo_number", "legal_entity_id", name="uq_wo_number_legal_entity"),
         CheckConstraint("wo_number IS NOT NULL AND wo_number != ''", name="ck_wo_number"),
@@ -116,7 +120,7 @@ class ManufacturingWorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, Version
         self.status = "cancelled"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "wo_number": self.wo_number,

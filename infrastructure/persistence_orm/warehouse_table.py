@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -40,7 +40,11 @@ if TYPE_CHECKING:
 
 
 class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "warehouse"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "warehouse"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("warehouse_code", "legal_entity_id", name="uq_warehouse_code_entity"),
         UniqueConstraint("name", "legal_entity_id", name="uq_warehouse_name_entity"),
@@ -195,7 +199,7 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         self.used_capacity = used_capacity
         self.increment_version()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),

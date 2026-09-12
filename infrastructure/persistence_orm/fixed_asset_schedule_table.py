@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 class FixedAssetScheduleTable(Base, TimestampMixin):
-    __tablename__ = "fixed_asset_schedule"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "fixed_asset_schedule"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_fas_asset", "asset_id"),
         Index("idx_fas_period", "period"),
@@ -67,7 +71,7 @@ class FixedAssetScheduleTable(Base, TimestampMixin):
         self.posted_to_gl = "failed"
         self.version = getattr(self, 'version', 0) + 1
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "asset_id": str(self.asset_id),

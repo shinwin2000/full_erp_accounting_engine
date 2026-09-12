@@ -16,7 +16,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class SagaInstanceTable(Base):
-    __tablename__ = "saga_instance"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "saga_instance"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     saga_type = Column(String(100), nullable=False)
@@ -38,7 +42,11 @@ class SagaInstanceTable(Base):
 
 
 class SagaStepLogTable(Base):
-    __tablename__ = "saga_step_log"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "saga_step_log"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     saga_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -53,7 +61,11 @@ class SagaStepLogTable(Base):
 
 
 class SagaLockTable(Base):
-    __tablename__ = "saga_lock"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "saga_lock"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     saga_type = Column(String(100), nullable=False)
@@ -65,7 +77,11 @@ class SagaLockTable(Base):
 
 
 class SagaEventTable(Base):
-    __tablename__ = "saga_event"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "saga_event"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     saga_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -74,3 +90,4 @@ class SagaEventTable(Base):
     event_version = Column(Integer, server_default="1")
     created_at = Column(DateTime, server_default="now()")
     processed_at = Column(DateTime, nullable=True)
+    

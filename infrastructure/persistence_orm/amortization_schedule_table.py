@@ -11,6 +11,7 @@ import enum
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -27,8 +28,16 @@ class AmortizationStatus(str, enum.Enum):
 
 
 class AmortizationScheduleTable(Base, TimestampMixin):
-    __tablename__ = "amortization_schedule"
-    __table_args__ = (
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "amortization_schedule"  # type: ignore[assignment]
+    # Anotasi eksplisit ``tuple[Any, ...]`` karena tuple ini bercampur
+    # ``CheckConstraint``, ``Index``, dan ``dict`` (argumen terakhir SQLAlchemy
+    # declarative) — tanpa anotasi, mypy tidak bisa menginferensi tipe elemen
+    # dari literal tuple campuran seperti ini.
+    __table_args__: tuple[Any, ...] = (
         CheckConstraint("planned_amount >= 0", name="ck_amort_planned_nonneg"),
         CheckConstraint("actual_amount IS NULL OR actual_amount >= 0", name="ck_amort_actual_nonneg"),
         Index("ix_amort_asset_period", "asset_id", "period_date", unique=True),

@@ -26,7 +26,11 @@ class RoutingTable(Base, TimestampMixin, VersionMixin):
     ORM table untuk manufacturing routing.
     """
 
-    __tablename__ = "routing"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "routing"  # type: ignore[assignment]
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
@@ -50,3 +54,4 @@ class RoutingTable(Base, TimestampMixin, VersionMixin):
 
     def __repr__(self) -> str:
         return f"<RoutingTable(id={self.id}, routing_code={self.routing_code})>"
+    

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date as date_
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 
 class InventorySerialNumberTable(Base, TimestampMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "inventory_serial_number"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_serial_number"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("item_id", "serial_number", name="uq_inventory_serial_item_number"),
         CheckConstraint("serial_number IS NOT NULL AND serial_number != ''", name="ck_inventory_serial_number"),
@@ -62,7 +66,7 @@ class InventorySerialNumberTable(Base, TimestampMixin, VersionMixin, LegalEntity
     item: Mapped[InventoryItemTable] = relationship("InventoryItemTable", back_populates="serial_numbers")
     warehouse: Mapped[WarehouseTable | None] = relationship("WarehouseTable")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "item_id": str(self.item_id),

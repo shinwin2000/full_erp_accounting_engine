@@ -44,7 +44,11 @@ if TYPE_CHECKING:
 
 
 class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "fixed_asset"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "fixed_asset"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("asset_code", "legal_entity_id", name="uq_fixed_asset_code_legal_entity"),
         CheckConstraint("asset_code IS NOT NULL AND asset_code != ''", name="ck_fixed_asset_code"),

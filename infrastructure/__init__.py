@@ -5,4 +5,4 @@ Package: infrastructure
 Implementasi konkret database, cache, event store, security, telemetry.
 """
 
-__all__ = []
+__all__: list[str] = []

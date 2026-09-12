@@ -36,7 +36,11 @@ if TYPE_CHECKING:
 
 
 class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "ledger_entry"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "ledger_entry"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "journal_id", "account_code", "line_number",
@@ -138,7 +142,7 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
             created_by=journal.posted_by,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "journal_id": str(self.journal_id),

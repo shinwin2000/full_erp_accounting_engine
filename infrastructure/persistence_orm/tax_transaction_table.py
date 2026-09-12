@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -37,7 +38,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class TaxTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "tax_transaction"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "tax_transaction"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "transaction_number", "legal_entity_id", name="uq_tax_transaction_number_legal_entity"
@@ -187,7 +192,7 @@ class TaxTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, L
         self.status = "cancelled"
         self.increment_version()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "transaction_number": self.transaction_number,

@@ -9,7 +9,7 @@ Responsibility: Model SQLAlchemy untuk tabel inventory_image — menyimpan
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 class InventoryImageTable(Base, TimestampMixin, LegalEntityMixin):
-    __tablename__ = "inventory_image"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_image"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_inventory_image_item", "item_id"),
         {"extend_existing": True},
@@ -43,7 +47,7 @@ class InventoryImageTable(Base, TimestampMixin, LegalEntityMixin):
 
     item: Mapped[InventoryItemTable] = relationship("InventoryItemTable", back_populates="images")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "item_id": str(self.item_id),

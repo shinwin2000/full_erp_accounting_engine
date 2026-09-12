@@ -47,7 +47,11 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     Model untuk AML risk score (skor risiko pelanggan).
     """
 
-    __tablename__ = "aml_risk_score"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "aml_risk_score"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "customer_id", "legal_entity_id", name="uq_aml_risk_customer_legal"
@@ -185,7 +189,7 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         self.sanction_list_details = details
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),

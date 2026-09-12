@@ -38,7 +38,11 @@ if TYPE_CHECKING:
 
 
 class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "inventory_movement"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_movement"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "movement_number", "legal_entity_id", name="uq_inventory_movement_number_legal_entity"

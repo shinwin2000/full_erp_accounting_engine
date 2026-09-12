@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
 
 class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "consolidation_group_member"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "consolidation_group_member"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("group_id", "entity_id", name="uq_group_entity"),
         {"extend_existing": True},
@@ -56,7 +60,7 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
         foreign_keys=[group_id],
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "group_id": str(self.group_id),

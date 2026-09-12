@@ -26,7 +26,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class UMKMProfileTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "umkm_profile"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "umkm_profile"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "business_type IN ('sole_proprietor', 'partnership', 'individual')",
@@ -53,7 +57,7 @@ class UMKMProfileTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "business_name": self.business_name,

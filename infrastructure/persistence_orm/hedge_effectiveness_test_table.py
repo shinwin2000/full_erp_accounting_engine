@@ -31,7 +31,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class HedgeEffectivenessTestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "hedge_effectiveness_test"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "hedge_effectiveness_test"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_hedge_test_instrument", "hedge_instrument_id"),
         Index("idx_hedge_test_date", "test_date"),
@@ -53,7 +57,7 @@ class HedgeEffectivenessTestTable(Base, TimestampMixin, SoftDeleteMixin, Version
     def is_effective(self) -> bool:
         return self.result == "effective"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "hedge_instrument_id": str(self.hedge_instrument_id),

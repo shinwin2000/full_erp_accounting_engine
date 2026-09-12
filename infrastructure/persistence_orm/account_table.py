@@ -81,7 +81,11 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     Model untuk tabel account (Chart of Accounts) — master data inti ERP.
     """
 
-    __tablename__ = "account"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "account"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("account_code", "legal_entity_id", name="uq_account_code_legal_entity"),
         CheckConstraint("account_code IS NOT NULL AND account_code != ''", name="ck_account_code"),

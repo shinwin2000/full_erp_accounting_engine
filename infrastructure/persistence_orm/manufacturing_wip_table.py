@@ -15,7 +15,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class WorkInProcessTable(Base):
-    __tablename__ = "work_in_process"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "work_in_process"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -35,3 +39,4 @@ class WorkInProcessTable(Base):
     status = Column(String(20), nullable=False, server_default="in_progress")
     created_at = Column(DateTime, server_default="now()")
     updated_at = Column(DateTime, server_default="now()")
+    

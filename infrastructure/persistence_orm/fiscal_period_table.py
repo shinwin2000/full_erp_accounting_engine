@@ -46,7 +46,11 @@ class FiscalPeriodTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     Model untuk tabel fiscal_period.
     """
 
-    __tablename__ = "fiscal_period"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "fiscal_period"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "legal_entity_id", "fiscal_year", "period_number", name="uq_fiscal_period_year_period"

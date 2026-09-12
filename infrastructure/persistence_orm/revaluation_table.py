@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 
 
 class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "revaluation"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "revaluation"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("revaluation_date IS NOT NULL", name="ck_revaluation_date"),
         CheckConstraint("old_acquisition_cost >= 0", name="ck_revaluation_old_cost_nonneg"),
@@ -57,7 +61,7 @@ class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # =========================================================================
-    # RELATIONSHIPS � menggunakan backref agar FixedAssetTable otomatis mendapat 'revaluations'
+    # RELATIONSHIPS — menggunakan backref agar FixedAssetTable otomatis mendapat 'revaluations'
     # =========================================================================
     asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
@@ -68,7 +72,7 @@ class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
     # =========================================================================
     # SERIALIZATION
     # =========================================================================
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "asset_id": str(self.asset_id),

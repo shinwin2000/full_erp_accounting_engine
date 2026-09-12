@@ -47,7 +47,11 @@ class BudgetActualTable(Base, TimestampMixin, LegalEntityMixin):
     Tabel realisasi budget (actual) dari transaksi aktual.
     """
 
-    __tablename__ = "budget_actual"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "budget_actual"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("amount >= 0", name="ck_budget_actual_nonneg"),
         CheckConstraint(
@@ -132,7 +136,7 @@ class BudgetActualTable(Base, TimestampMixin, LegalEntityMixin):
         if reason:
             self.description = f"{self.description or ''} [REVERSED: {reason}]"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "budget_id": str(self.budget_id),

@@ -7,6 +7,7 @@ Responsibility: REST API endpoint untuk manajemen anggaran (budget).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -15,7 +16,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -111,6 +112,23 @@ class BudgetResponseSchema(BaseModel):
     # version_number tetap ada untuk internal, tapi bukan field conflict
     version_number: int = 1
     lines: list[dict[str, Any]] = []
+
+    @field_validator("lines", mode="before")
+    @classmethod
+    def _coerce_lines(cls, v: Any) -> Any:
+        # [FIX] `service_budget.py` mengembalikan `lines` berisi objek
+        # dataclass `BudgetLineResponse`, bukan dict. `**result.__dict__`
+        # tidak lewat jalur `from_attributes` pydantic (itu cuma berlaku
+        # untuk `model_validate`), jadi validasi field `list[dict]` gagal
+        # untuk SEMUA endpoint yang mengembalikan BudgetResponseSchema
+        # dengan baris terisi (create/update/get/list/submit/approve/dst).
+        # Konversi di sini supaya satu tempat ini menutup semua jalur.
+        if not v:
+            return v
+        return [
+            dataclasses.asdict(item) if dataclasses.is_dataclass(item) else item
+            for item in v
+        ]
 
 
 # ============================================================================

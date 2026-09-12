@@ -21,7 +21,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class ReportOutputTable(Base):
-    __tablename__ = "report_output"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "report_output"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_report_output_definition", "definition_id"),
         Index("idx_report_output_generated_at", "generated_at"),
@@ -46,7 +50,7 @@ class ReportOutputTable(Base):
     def mark_completed(self) -> None:
         self.status = "completed"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "definition_id": str(self.definition_id),

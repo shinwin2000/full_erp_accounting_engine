@@ -20,11 +20,14 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.budget_table import BudgetLineTable, BudgetTable
+from infrastructure.telemetry import get_logger
 from ports.primary.budget_repository_port import (
     BudgetEntity,
     BudgetLineEntity,
     BudgetRepositoryPort,
 )
+
+logger = get_logger(__name__)
 
 
 class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
@@ -163,7 +166,6 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             session.add(line_orm)
         await session.flush()
         await self._log_audit("SAVE", budget.id, {"budget_code": budget.budget_code})
-        from infrastructure.telemetry import logger
         logger.info(f"Budget saved: {budget.budget_code}")
 
     async def update(self, budget: BudgetEntity) -> None:
@@ -215,7 +217,6 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
             await session.flush()
             await self._log_audit("UPDATE", budget.id, {"budget_code": budget.budget_code})
-            from infrastructure.telemetry import logger
             logger.info(f"Budget updated: {budget.budget_code}")
 
     async def get_by_id(self, budget_id: UUID) -> BudgetEntity | None:
@@ -327,7 +328,6 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             header.deleted_at = datetime.utcnow()
             await session.flush()
             await self._log_audit("DELETE", budget_id, {})
-            from infrastructure.telemetry import logger
             logger.info(f"Budget {budget_id} soft deleted")
             return True
 

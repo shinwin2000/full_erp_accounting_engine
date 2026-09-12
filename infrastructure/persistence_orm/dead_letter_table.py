@@ -37,7 +37,11 @@ class DeadLetterTable(Base, TimestampMixin, VersionMixin):
     Model ini IMMUTABLE - tidak boleh di-update atau di-delete.
     """
 
-    __tablename__ = "dead_letter_events"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "dead_letter_events"  # type: ignore[assignment]
     # Flag untuk checker: model ini adalah audit log yang immutable
     __is_audit_log__ = True
     __table_args__ = (
@@ -110,7 +114,7 @@ class DeadLetterTable(Base, TimestampMixin, VersionMixin):
         """Increment retry count."""
         self.retry_count += 1
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         """Convert to dictionary."""
         return {
             "id": self.id,

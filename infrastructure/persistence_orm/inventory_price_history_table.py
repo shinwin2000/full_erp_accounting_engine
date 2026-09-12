@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -28,7 +28,11 @@ class InventoryPriceHistoryTable(Base, LegalEntityMixin):
 
     __is_audit_log__ = True
 
-    __tablename__ = "inventory_price_history"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_price_history"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "price_type IN ('cost_price', 'standard_cost', 'average_cost', 'last_cost', "
@@ -55,7 +59,7 @@ class InventoryPriceHistoryTable(Base, LegalEntityMixin):
 
     item: Mapped[InventoryItemTable] = relationship("InventoryItemTable", back_populates="price_history")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "item_id": str(self.item_id),

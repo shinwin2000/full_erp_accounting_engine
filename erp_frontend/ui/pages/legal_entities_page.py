@@ -25,8 +25,12 @@ COLUMNS = [
     ("legal_name", "Nama Legal"),
     ("trade_name", "Nama Dagang"),
     ("entity_type", "Tipe"),
+    ("registration_number", "No. Registrasi (NIB)"),
     ("npwp", "NPWP"),
+    ("is_taxable", "PKP"),
     ("city", "Kota"),
+    ("province", "Provinsi"),
+    ("status", "Status"),
 ]
 
 # ---------------------------------------------------------------------------

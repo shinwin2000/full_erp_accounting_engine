@@ -30,7 +30,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class SnapshotStoreTable(Base):
-    __tablename__ = "snapshot_store"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "snapshot_store"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("status IN ('active', 'archived', 'deleted')", name="ck_snapshot_status"),
         Index("idx_snapshot_aggregate", "aggregate_id", "aggregate_type", "snapshot_version"),
@@ -60,7 +64,7 @@ class SnapshotStoreTable(Base):
         self.status = "deleted"
         self.deleted_at = datetime.utcnow()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "aggregate_id": str(self.aggregate_id),

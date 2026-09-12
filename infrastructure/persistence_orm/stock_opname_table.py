@@ -53,7 +53,11 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     Menyimpan data stock opname per periode/lokasi.
     """
 
-    __tablename__ = "stock_opname"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "stock_opname"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("opname_number", "legal_entity_id", name="uq_stock_opname_number_entity"),
         CheckConstraint(
@@ -174,7 +178,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             self.extra_metadata["cancellation_reason"] = reason
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),

@@ -57,7 +57,11 @@ class AmortizationMethod(str, enum.Enum):
 
 
 class IntangibleAssetTable(Base, TimestampMixin):
-    __tablename__ = "intangible_asset"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "intangible_asset"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("useful_life_years > 0", name="ck_intangible_useful_life"),
         CheckConstraint("acquisition_cost >= 0", name="ck_intangible_acquisition_cost"),
@@ -134,7 +138,7 @@ class IntangibleAssetTable(Base, TimestampMixin):
         self.disposed_date = disposal_date
         self.disposal_amount = amount
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "asset_code": self.asset_code,

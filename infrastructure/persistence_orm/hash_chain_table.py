@@ -33,7 +33,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class HashChainTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    __tablename__ = "hash_chain"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "hash_chain"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("stream_name", name="uq_hash_chain_stream"),
         CheckConstraint("stream_name IS NOT NULL AND stream_name != ''", name="ck_hc_stream_name"),
@@ -74,7 +78,7 @@ class HashChainTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         self.status = "repairing"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "stream_name": self.stream_name,

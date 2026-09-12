@@ -42,7 +42,11 @@ if TYPE_CHECKING:
 class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
     """Tabel untuk impairment goodwill (PSAK 48 / IFRS 36)."""
 
-    __tablename__ = "goodwill_impairment"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "goodwill_impairment"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("impairment_loss >= 0", name="ck_goodwill_imp_loss_nonneg"),
         CheckConstraint("recoverable_amount >= 0", name="ck_goodwill_recoverable_nonneg"),
@@ -123,7 +127,7 @@ class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
         self.approved_by = approved_by
         self.approved_at = datetime.utcnow()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "goodwill_id": str(self.goodwill_id),

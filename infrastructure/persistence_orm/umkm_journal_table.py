@@ -15,7 +15,11 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class UmkmJournalTable(Base):
-    __tablename__ = "umkm_journal"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "umkm_journal"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -42,3 +46,4 @@ class UmkmJournalTable(Base):
     created_by = Column(SQLUUID(as_uuid=True), nullable=True)
     updated_by = Column(SQLUUID(as_uuid=True), nullable=True)
     version = Column(Integer, server_default="1")
+    

@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 class LegalEntityBranchTable(Base):
-    __tablename__ = "legal_entity_branch"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "legal_entity_branch"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_leb_parent", "legal_entity_id"),
         Index("idx_leb_code", "branch_code"),
@@ -62,7 +66,7 @@ class LegalEntityBranchTable(Base):
         back_populates="branches",
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),

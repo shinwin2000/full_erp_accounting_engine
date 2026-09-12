@@ -390,7 +390,20 @@ class PurchaseSalesService:
     Mempublikasikan event untuk setiap perubahan status.
     """
 
-    def __init__(self, event_publisher: EventPublisherPort | None = None):
+    def __init__(
+        self,
+        event_publisher: EventPublisherPort | None = None,
+        repository: Any = None,
+    ):
+        # FIX: `repository` sekarang berisi SQLAlchemyPurchaseSalesRepository
+        # (lihat bootstrap/dependency_container/service_registry.py) untuk
+        # Purchase Order & Sales Order -- keduanya sudah tersambung ke
+        # database sungguhan (tabel purchase_order/purchase_order_line dan
+        # sales_order/sales_order_line). Sisanya (GRN, Delivery Note,
+        # Purchase/Sales Invoice, Credit/Debit Note) MASIH in-memory dan
+        # akan hilang saat restart -- belum sempat dikerjakan, lihat TODO
+        # di masing-masing method-nya.
+        self._repository = repository
         self._purchase_orders: dict[UUID, PurchaseOrder] = {}
         self._sales_orders: dict[UUID, SalesOrder] = {}
         self._goods_receipts: dict[UUID, GoodsReceipt] = {}
@@ -450,52 +463,50 @@ class PurchaseSalesService:
     # ========================================================================
 
     @audit
+    @audit
     async def create_purchase_order(
         self,
+        *,
         po_number: str,
+        po_date: date,
         supplier_id: UUID,
-        supplier_name: str,
         lines: list[dict[str, Any]],
-        order_date: date | None = None,
         expected_delivery_date: date | None = None,
-        currency: str = "IDR",
+        delivery_term_days: int = 30,
+        payment_term_days: int = 30,
+        incoterm: str = "EXW",
+        order_type: str = "standard",
+        reference_number: str | None = None,
         notes: str | None = None,
         created_by: UUID | None = None,
         legal_entity_id: UUID | None = None,
-        correlation_id: str | None = None,
-    ) -> PurchaseOrder:
+    ) -> Any:
+        """FIX: sebelumnya method ini punya signature yang SAMA SEKALI TIDAK
+        COCOK dengan cara fastapi_purchase_sales_router.py memanggilnya
+        (parameter po_date/delivery_term_days/incoterm/order_type/dst tidak
+        pernah diterima) -- jadi endpoint create PO akan selalu gagal
+        dengan TypeError, terlepas dari isu database. Sekarang persis
+        mengikuti kontrak router, dan datanya BENAR-BENAR disimpan ke
+        database lewat SQLAlchemyPurchaseSalesRepository (bukan lagi
+        in-memory dict)."""
         self._check_authority(created_by, "create_purchase_order")
         logger.info(f"Creating purchase order: {po_number}")
 
-        po_lines = []
-        for line in lines:
-            po_lines.append(
-                PurchaseOrderLine(
-                    product_id=UUID(line["product_id"]),
-                    product_code=line.get("product_code", ""),
-                    product_name=line.get("product_name", ""),
-                    quantity=Decimal(str(line["quantity"])),
-                    unit_price=Decimal(str(line["unit_price"])),
-                    discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
-                    tax_rate=Decimal(str(line.get("tax_rate", 11))),
-                )
-            )
-
-        po = PurchaseOrder(
+        po = await self._repository.create_purchase_order(
             po_number=po_number,
+            po_date=po_date,
             supplier_id=supplier_id,
-            supplier_name=supplier_name,
-            order_date=order_date or date.today(),
+            lines=lines,
             expected_delivery_date=expected_delivery_date,
-            currency=currency,
-            lines=po_lines,
+            delivery_term_days=delivery_term_days,
+            payment_term_days=payment_term_days,
+            incoterm=incoterm,
+            order_type=order_type,
+            reference_number=reference_number,
             notes=notes,
             created_by=created_by,
             legal_entity_id=legal_entity_id,
         )
-        po.calculate_total()
-
-        self._purchase_orders[po.id] = po
         self._stats["po_created"] += 1
 
         if self._event_publisher:
@@ -505,7 +516,7 @@ class PurchaseSalesService:
                 purchase_order=po,
                 created_by=str(created_by) if created_by else "system",
                 user_id=str(created_by) if created_by else None,
-                correlation_id=correlation_id,
+                correlation_id=None,
             )
             await self._publish_event(event, f"PO {po.po_number}")
 
@@ -517,29 +528,32 @@ class PurchaseSalesService:
 
         return po
 
-    async def get_purchase_order(self, po_id: UUID) -> PurchaseOrder | None:
-        return self._purchase_orders.get(po_id)
+    async def get_purchase_order_by_id(self, po_id: UUID, legal_entity_id: UUID) -> Any:
+        return await self._repository.get_purchase_order_by_id(po_id, legal_entity_id)
+
+    async def get_purchase_order_by_number(self, po_number: str, legal_entity_id: UUID) -> Any:
+        return await self._repository.get_purchase_order_by_number(po_number, legal_entity_id)
 
     async def list_purchase_orders(
         self,
+        *,
+        legal_entity_id: UUID,
         supplier_id: UUID | None = None,
         status: str | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
-        legal_entity_id: UUID | None = None,
-    ) -> list[PurchaseOrder]:
-        result = list(self._purchase_orders.values())
-        if supplier_id:
-            result = [po for po in result if po.supplier_id == supplier_id]
-        if status:
-            result = [po for po in result if po.status.value == status]
-        if start_date:
-            result = [po for po in result if po.order_date >= start_date]
-        if end_date:
-            result = [po for po in result if po.order_date <= end_date]
-        if legal_entity_id:
-            result = [po for po in result if po.legal_entity_id == legal_entity_id]
-        return result
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Any:
+        return await self._repository.list_purchase_orders(
+            legal_entity_id=legal_entity_id,
+            supplier_id=supplier_id,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
+        )
 
     @audit
     async def update_purchase_order(
@@ -550,6 +564,11 @@ class PurchaseSalesService:
         status: str | None = None,
         user_id: UUID | None = None,
     ) -> PurchaseOrder | None:
+        # TODO: belum dipindah ke database (masih baca dict in-memory yang
+        # sekarang selalu kosong sejak create_purchase_order() dipindah ke
+        # DB) -- akan selalu melempar PurchaseOrderNotFoundError. Belum
+        # termasuk cakupan perbaikan kali ini; lihat catatan di respons
+        # untuk PurchaseSalesService.
         self._check_authority(user_id, "update_purchase_order")
         po = self._purchase_orders.get(po_id)
         if not po:
@@ -570,39 +589,27 @@ class PurchaseSalesService:
         return po
 
     @audit
-    async def submit_purchase_order(self, po_id: UUID, submitted_by: UUID) -> bool:
+    async def submit_purchase_order(self, po_id: UUID, submitted_by: UUID, legal_entity_id: UUID) -> Any:
         self._check_authority(submitted_by, "submit_purchase_order")
-        po = self._purchase_orders.get(po_id)
-        if not po:
-            return False
-        if po.status == OrderStatus.DRAFT:
-            po.status = OrderStatus.SUBMITTED
-            po.updated_at = datetime.now(UTC)
-            self._purchase_orders[po_id] = po
-
+        po = await self._repository.submit_purchase_order(po_id, submitted_by, legal_entity_id)
+        if po:
             self._record_audit("submit_purchase_order", {
                 "po_id": str(po_id),
                 "submitted_by": str(submitted_by),
             })
-            return True
-        return False
+        return po
 
     @audit
     async def approve_purchase_order(
         self,
         po_id: UUID,
         approved_by: UUID | None = None,
-        correlation_id: str | None = None,
-    ) -> bool:
+        legal_entity_id: UUID | None = None,
+        notes: str | None = None,
+    ) -> Any:
         self._check_authority(approved_by, "approve_purchase_order")
-        po = self._purchase_orders.get(po_id)
-        if not po:
-            return False
-        if po.status == OrderStatus.SUBMITTED:
-            po.status = OrderStatus.APPROVED
-            po.updated_at = datetime.now(UTC)
-            self._purchase_orders[po_id] = po
-
+        po = await self._repository.approve_purchase_order(po_id, approved_by, legal_entity_id, notes)
+        if po:
             if self._event_publisher:
                 event = PurchaseOrderApprovedEvent(
                     aggregate_id=po.id,
@@ -610,16 +617,31 @@ class PurchaseSalesService:
                     purchase_order=po,
                     approved_by=str(approved_by) if approved_by else "system",
                     user_id=str(approved_by) if approved_by else None,
-                    correlation_id=correlation_id,
+                    correlation_id=None,
                 )
                 await self._publish_event(event, f"PO {po.po_number}")
-
             self._record_audit("approve_purchase_order", {
                 "po_id": str(po_id),
                 "approved_by": str(approved_by) if approved_by else None,
             })
-            return True
-        return False
+        return po
+
+    @audit
+    async def reject_purchase_order(
+        self, po_id: UUID, rejected_by: UUID, legal_entity_id: UUID, reason: str
+    ) -> Any:
+        """FIX: method ini sebelumnya TIDAK ADA sama sekali (router sudah
+        lama memanggilnya) -- setiap klik "Reject" di UI akan crash dengan
+        AttributeError. Sekarang ada dan tersambung ke database."""
+        self._check_authority(rejected_by, "reject_purchase_order")
+        po = await self._repository.reject_purchase_order(po_id, rejected_by, legal_entity_id, reason)
+        if po:
+            self._record_audit("reject_purchase_order", {
+                "po_id": str(po_id),
+                "rejected_by": str(rejected_by),
+                "reason": reason,
+            })
+        return po
 
     # ========================================================================
     # Goods Receipt
@@ -1110,52 +1132,45 @@ class PurchaseSalesService:
     # ========================================================================
 
     @audit
+    @audit
     async def create_sales_order(
         self,
+        *,
         so_number: str,
+        so_date: date,
         customer_id: UUID,
-        customer_name: str,
         lines: list[dict[str, Any]],
-        order_date: date | None = None,
-        requested_delivery_date: date | None = None,
-        currency: str = "IDR",
+        expected_ship_date: date | None = None,
+        shipping_term_days: int = 7,
+        payment_term_days: int = 30,
+        incoterm: str = "EXW",
+        order_type: str = "standard",
+        reference_number: str | None = None,
         notes: str | None = None,
         created_by: UUID | None = None,
         legal_entity_id: UUID | None = None,
-        correlation_id: str | None = None,
-    ) -> SalesOrder:
+    ) -> Any:
+        """FIX: mirror dari create_purchase_order -- signature lama tidak
+        cocok dengan router, dan sekarang tersambung ke database sungguhan
+        via SQLAlchemyPurchaseSalesRepository."""
         self._check_authority(created_by, "create_sales_order")
         logger.info(f"Creating sales order: {so_number}")
 
-        so_lines = []
-        for line in lines:
-            so_lines.append(
-                SalesOrderLine(
-                    product_id=UUID(line["product_id"]),
-                    product_code=line.get("product_code", ""),
-                    product_name=line.get("product_name", ""),
-                    quantity=Decimal(str(line["quantity"])),
-                    unit_price=Decimal(str(line["unit_price"])),
-                    discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
-                    tax_rate=Decimal(str(line.get("tax_rate", 11))),
-                )
-            )
-
-        so = SalesOrder(
+        so = await self._repository.create_sales_order(
             so_number=so_number,
+            so_date=so_date,
             customer_id=customer_id,
-            customer_name=customer_name,
-            order_date=order_date or date.today(),
-            requested_delivery_date=requested_delivery_date,
-            currency=currency,
-            lines=so_lines,
+            lines=lines,
+            expected_ship_date=expected_ship_date,
+            shipping_term_days=shipping_term_days,
+            payment_term_days=payment_term_days,
+            incoterm=incoterm,
+            order_type=order_type,
+            reference_number=reference_number,
             notes=notes,
             created_by=created_by,
             legal_entity_id=legal_entity_id,
         )
-        so.calculate_total()
-
-        self._sales_orders[so.id] = so
         self._stats["so_created"] += 1
 
         if self._event_publisher:
@@ -1165,7 +1180,7 @@ class PurchaseSalesService:
                 sales_order=so,
                 created_by=str(created_by) if created_by else "system",
                 user_id=str(created_by) if created_by else None,
-                correlation_id=correlation_id,
+                correlation_id=None,
             )
             await self._publish_event(event, f"SO {so.so_number}")
 
@@ -1177,29 +1192,32 @@ class PurchaseSalesService:
 
         return so
 
-    async def get_sales_order(self, so_id: UUID) -> SalesOrder | None:
-        return self._sales_orders.get(so_id)
+    async def get_sales_order_by_id(self, so_id: UUID, legal_entity_id: UUID) -> Any:
+        return await self._repository.get_sales_order_by_id(so_id, legal_entity_id)
+
+    async def get_sales_order_by_number(self, so_number: str, legal_entity_id: UUID) -> Any:
+        return await self._repository.get_sales_order_by_number(so_number, legal_entity_id)
 
     async def list_sales_orders(
         self,
+        *,
+        legal_entity_id: UUID,
         customer_id: UUID | None = None,
         status: str | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
-        legal_entity_id: UUID | None = None,
-    ) -> list[SalesOrder]:
-        result = list(self._sales_orders.values())
-        if customer_id:
-            result = [so for so in result if so.customer_id == customer_id]
-        if status:
-            result = [so for so in result if so.status.value == status]
-        if start_date:
-            result = [so for so in result if so.order_date >= start_date]
-        if end_date:
-            result = [so for so in result if so.order_date <= end_date]
-        if legal_entity_id:
-            result = [so for so in result if so.legal_entity_id == legal_entity_id]
-        return result
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Any:
+        return await self._repository.list_sales_orders(
+            legal_entity_id=legal_entity_id,
+            customer_id=customer_id,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
+        )
 
     @audit
     async def update_sales_order(
@@ -1210,6 +1228,8 @@ class PurchaseSalesService:
         status: str | None = None,
         user_id: UUID | None = None,
     ) -> SalesOrder | None:
+        # TODO: sama seperti update_purchase_order() -- belum dipindah ke
+        # database, akan selalu 404. Lihat catatan di respons.
         self._check_authority(user_id, "update_sales_order")
         so = self._sales_orders.get(so_id)
         if not so:
@@ -1230,39 +1250,27 @@ class PurchaseSalesService:
         return so
 
     @audit
-    async def submit_sales_order(self, so_id: UUID, submitted_by: UUID) -> bool:
+    async def submit_sales_order(self, so_id: UUID, submitted_by: UUID, legal_entity_id: UUID) -> Any:
         self._check_authority(submitted_by, "submit_sales_order")
-        so = self._sales_orders.get(so_id)
-        if not so:
-            return False
-        if so.status == OrderStatus.DRAFT:
-            so.status = OrderStatus.SUBMITTED
-            so.updated_at = datetime.now(UTC)
-            self._sales_orders[so_id] = so
-
+        so = await self._repository.submit_sales_order(so_id, submitted_by, legal_entity_id)
+        if so:
             self._record_audit("submit_sales_order", {
                 "so_id": str(so_id),
                 "submitted_by": str(submitted_by),
             })
-            return True
-        return False
+        return so
 
     @audit
     async def approve_sales_order(
         self,
         so_id: UUID,
         approved_by: UUID | None = None,
-        correlation_id: str | None = None,
-    ) -> bool:
+        legal_entity_id: UUID | None = None,
+        notes: str | None = None,
+    ) -> Any:
         self._check_authority(approved_by, "approve_sales_order")
-        so = self._sales_orders.get(so_id)
-        if not so:
-            return False
-        if so.status == OrderStatus.SUBMITTED:
-            so.status = OrderStatus.APPROVED
-            so.updated_at = datetime.now(UTC)
-            self._sales_orders[so_id] = so
-
+        so = await self._repository.approve_sales_order(so_id, approved_by, legal_entity_id, notes)
+        if so:
             if self._event_publisher:
                 event = SalesOrderApprovedEvent(
                     aggregate_id=so.id,
@@ -1270,16 +1278,30 @@ class PurchaseSalesService:
                     sales_order=so,
                     approved_by=str(approved_by) if approved_by else "system",
                     user_id=str(approved_by) if approved_by else None,
-                    correlation_id=correlation_id,
+                    correlation_id=None,
                 )
                 await self._publish_event(event, f"SO {so.so_number}")
-
             self._record_audit("approve_sales_order", {
                 "so_id": str(so_id),
                 "approved_by": str(approved_by) if approved_by else None,
             })
-            return True
-        return False
+        return so
+
+    @audit
+    async def reject_sales_order(
+        self, so_id: UUID, rejected_by: UUID, legal_entity_id: UUID, reason: str
+    ) -> Any:
+        """FIX: method ini sebelumnya juga TIDAK ADA -- mirror dari
+        reject_purchase_order()."""
+        self._check_authority(rejected_by, "reject_sales_order")
+        so = await self._repository.reject_sales_order(so_id, rejected_by, legal_entity_id, reason)
+        if so:
+            self._record_audit("reject_sales_order", {
+                "so_id": str(so_id),
+                "rejected_by": str(rejected_by),
+                "reason": reason,
+            })
+        return so
 
     # ========================================================================
     # Delivery Note

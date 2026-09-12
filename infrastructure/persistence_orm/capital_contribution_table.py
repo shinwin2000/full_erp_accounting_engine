@@ -20,7 +20,11 @@ from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, Tim
 
 
 class CapitalContributionTable(Base, TimestampMixin, SoftDeleteMixin):
-    __tablename__ = "capital_contribution"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "capital_contribution"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("contribution_number", name="uq_capital_contribution_number"),
         {"extend_existing": True},
@@ -45,7 +49,7 @@ class CapitalContributionTable(Base, TimestampMixin, SoftDeleteMixin):
         index=True,
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "contribution_number": self.contribution_number,

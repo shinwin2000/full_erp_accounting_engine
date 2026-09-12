@@ -30,7 +30,11 @@ from infrastructure.persistence_orm.base_model import Base
 class FairValueHierarchyTable(Base):
     """ORM model for table: fair_value_hierarchy."""
 
-    __tablename__ = "fair_value_hierarchy"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "fair_value_hierarchy"  # type: ignore[assignment]
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     financial_instrument_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
@@ -48,3 +52,4 @@ class FairValueHierarchyTable(Base):
     def __repr__(self) -> str:
         pk = getattr(self, "id", "?")
         return f"<FairValueHierarchyTable id={pk}>"
+    

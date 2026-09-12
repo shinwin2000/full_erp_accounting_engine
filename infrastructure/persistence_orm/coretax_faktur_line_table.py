@@ -33,7 +33,11 @@ if TYPE_CHECKING:
 
 
 class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "coretax_faktur_line"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "coretax_faktur_line"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("line_number >= 1", name="ck_cfl_line_number"),
         CheckConstraint("quantity >= 0", name="ck_cfl_quantity_nonneg"),
@@ -95,7 +99,7 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         self.tax_amount = (self.amount * tax_rate / 100).quantize(Decimal("0.01"))
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "faktur_id": str(self.faktur_id),

@@ -40,7 +40,11 @@ if TYPE_CHECKING:
 
 
 class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    __tablename__ = "journal_header"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "journal_header"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint(
             "voucher_number", "legal_entity_id",

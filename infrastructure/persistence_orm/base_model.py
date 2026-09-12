@@ -93,7 +93,10 @@ class Base(DeclarativeBase):
 
     def to_dict(self, exclude: set | None = None) -> dict[str, Any]:
         exclude = exclude or set()
-        result = {}
+        # Anotasi eksplisit agar mypy tahu tipe key dan value dari dict kosong
+        # (tanpa anotasi, mypy menganggap ini perlu info tipe eksplisit karena
+        # literal `{}` tidak cukup untuk menginferensi).
+        result: dict[str, Any] = {}
         for column in self.__table__.columns:
             if column.name in exclude:
                 continue

@@ -20,7 +20,11 @@ from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
 
 class ManufacturingCostCardTable(Base, TimestampMixin):
-    __tablename__ = "manufacturing_cost_card"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "manufacturing_cost_card"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_mfg_cost_card_product", "product_id"),
         Index("idx_mfg_cost_card_period", "period"),
@@ -45,7 +49,7 @@ class ManufacturingCostCardTable(Base, TimestampMixin):
             return Decimal(0)
         return self.total_cost / self.quantity_produced
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "cost_card_id": str(self.cost_card_id),

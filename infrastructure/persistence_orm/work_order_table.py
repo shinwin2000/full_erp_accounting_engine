@@ -35,7 +35,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class WorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "work_order"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "work_order"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("work_order_number", "legal_entity_id", name="uq_work_order_number_legal_entity"),
         CheckConstraint("work_order_number IS NOT NULL", name="ck_work_order_number"),
@@ -135,7 +139,7 @@ class WorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             raise ValueError(f"Cannot cancel work order with status {self.status}")
         self.status = "cancelled"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "work_order_number": self.work_order_number,

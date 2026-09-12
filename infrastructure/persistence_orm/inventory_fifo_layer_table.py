@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 
 class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "inventory_fifo_layer"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_fifo_layer"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_inventory_fifo_layer_quantity_positive"),
         CheckConstraint("remaining_quantity >= 0", name="ck_inventory_fifo_layer_remaining_nonneg"),
@@ -104,10 +108,12 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
     # ========================================================================
     def consume(self, quantity: Decimal) -> Decimal:
         if quantity <= 0:
-            return 0
+            # ``Decimal("0")`` bukan ``0`` (int) — return type fungsi ini
+            # adalah ``Decimal``, jadi literal int akan memicu mypy error.
+            return Decimal("0")
         if quantity >= self.remaining_quantity:
             consumed = self.remaining_quantity
-            self.remaining_quantity = 0
+            self.remaining_quantity = Decimal("0")
         else:
             consumed = quantity
             self.remaining_quantity -= quantity
@@ -117,7 +123,7 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
     def is_fully_consumed(self) -> bool:
         return self.remaining_quantity <= 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "item_id": str(self.item_id),

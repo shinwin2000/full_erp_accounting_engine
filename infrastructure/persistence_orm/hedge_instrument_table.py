@@ -30,7 +30,11 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class HedgeInstrumentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "hedge_instrument"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "hedge_instrument"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_hedge_instrument_code", "instrument_code", "legal_entity_id", unique=True),
         Index("idx_hedge_instrument_status", "status"),
@@ -72,7 +76,7 @@ class HedgeInstrumentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         self.status = "inactive"
         self.increment_version()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "instrument_code": self.instrument_code,

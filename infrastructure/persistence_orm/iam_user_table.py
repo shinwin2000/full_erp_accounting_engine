@@ -201,6 +201,14 @@ iam_user_legal_entity_table = iam_user_legal_entity
 
 # ============================================================================
 # 2. ORM CLASSES
+# ----------------------------------------------------------------------------
+# Catatan tipe: ``Base.to_dict`` memiliki signature
+# ``def to_dict(self, exclude: set[Any] | None = ...) -> dict[str, Any]``.
+# Setiap subclass di bawah mendeklarasikan ``def to_dict(self) -> dict[str, Any]``
+# tanpa parameter ``exclude`` — override yang disengaja (representasi tetap,
+# tanpa filter field). Direktif ``# type: ignore[override]`` dipakai untuk
+# menandai override ini, konsisten dengan pola di semua ORM table lain di
+# codebase.
 # ============================================================================
 
 class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin):
@@ -258,7 +266,7 @@ class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin):
     def is_admin(self) -> bool:
         return self.is_superuser or any(getattr(role, "role_code", "") == "admin" for role in (self.roles or []))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "username": self.username,
@@ -291,7 +299,7 @@ class IAMRoleTable(Base, TimestampMixin, SoftDeleteMixin):
         lazy="selectin",
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "name": self.name,
@@ -314,7 +322,7 @@ class IAMPermissionTable(Base, TimestampMixin):
         lazy="selectin",
     )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "name": self.name,
@@ -358,7 +366,7 @@ class IAMSessionTable(Base, TimestampMixin):
         return (self.is_active and not self.is_revoked and
                 self.refresh_token is not None and not self.is_expired)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "session_token": self.session_token,
@@ -373,7 +381,7 @@ class IAMSessionTable(Base, TimestampMixin):
 class LoginAttemptTable(Base, TimestampMixin):
     __table__ = iam_login_attempt_table
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "username": self.username,

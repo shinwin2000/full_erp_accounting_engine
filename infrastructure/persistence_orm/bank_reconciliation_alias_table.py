@@ -16,7 +16,13 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class BankReconciliationAliasTable(Base):
-    __tablename__: ClassVar[str] = "bank_reconciliation"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Meskipun di sini diberi anotasi ``ClassVar[str]``, mypy tetap melihat
+    # tipe base yang lebih spesifik (``Callable``), sehingga assignment string
+    # literal tetap dianggap tidak kompatibel. Direktif ``# type: ignore[assignment]``
+    # diperlukan — sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__: ClassVar[str] = "bank_reconciliation"  # type: ignore[assignment]
     __table_args__: ClassVar[dict] = {'extend_existing': True}
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -36,3 +42,4 @@ class BankReconciliationAliasTable(Base):
 
     def __repr__(self) -> str:
         return f"<BankReconciliationAliasTable id={getattr(self, 'id', '?')}>"
+    
