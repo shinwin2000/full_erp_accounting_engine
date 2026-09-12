@@ -15,7 +15,10 @@ langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
+from core.api_client import api_client
+from core.workers import run_task
 from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
+from ui.pages.budget_form_dialog import BudgetFormDialog
 from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------
@@ -77,3 +80,24 @@ class BudgetsPage(GenericListPage):
 
     def __init__(self, parent=None):
         super().__init__(CONFIG, parent)
+
+    def _create_new(self) -> None:
+        # [FIX] Form generik (FieldSpec) tidak bisa merepresentasikan `lines`
+        # (baris anggaran) yang wajib diisi minimal 1 oleh backend
+        # (POST /budget/budget/ selalu 422 "Field required: lines" tanpa ini).
+        # Pakai dialog khusus dengan editor baris anggaran, bukan FormDialog
+        # generik seperti modul lain.
+        dlg = BudgetFormDialog(parent=self)
+        if not dlg.exec():
+            return
+        payload = dlg.result_payload()
+        create_path = self.config.base_path + self.config.list_path
+        self.status_label.setText("Menyimpan...")
+        self._set_write_buttons_enabled(False)
+        run_task(
+            api_client.post,
+            on_success=lambda _r: self._after_write("Data berhasil ditambahkan."),
+            on_error=self._on_write_error,
+            path=create_path,
+            json_body=payload,
+        )

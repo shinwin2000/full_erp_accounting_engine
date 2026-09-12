@@ -80,11 +80,11 @@ class MigrationRollbackExecutor:
     - History rollback
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._migration_manager: AlembicMigrationManager | None = None
         self._backup_dir = ROLLBACK_BACKUP_DIR
         self._backup_dir.mkdir(parents=True, exist_ok=True)
-        self._rollback_history: list[dict] = []
+        self._rollback_history: list[dict[str, Any]] = []
 
     async def _get_manager(self) -> AlembicMigrationManager:
         if self._migration_manager is None:
@@ -95,7 +95,9 @@ class MigrationRollbackExecutor:
     # PERBAIKAN: helper async untuk subprocess dan file operations
     # ========================================================================
 
-    async def _run_subprocess(self, cmd: list[str], env: dict | None = None) -> tuple[int, str, str]:
+    async def _run_subprocess(
+        self, cmd: list[str], env: dict[str, str] | None = None
+    ) -> tuple[int, str, str]:
         """Run subprocess secara async menggunakan asyncio.create_subprocess_exec."""
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -109,11 +111,13 @@ class MigrationRollbackExecutor:
 
     async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
         """Delete file secara async di thread pool."""
-        def _delete_sync():
+
+        def _delete_sync() -> None:
             if ignore_missing:
                 file_path.unlink(missing_ok=True)
             else:
                 file_path.unlink()
+
         await asyncio.to_thread(_delete_sync)
 
     # ========================================================================
@@ -165,7 +169,7 @@ class MigrationRollbackExecutor:
                 "--no-privileges",
             ]
 
-            env = None
+            env: dict[str, str] | None = None
             if password:
                 env = {"PGPASSWORD": password}
 
@@ -222,7 +226,7 @@ class MigrationRollbackExecutor:
                 str(backup_path),
             ]
 
-            env = None
+            env: dict[str, str] | None = None
             if password:
                 env = {"PGPASSWORD": password}
 
@@ -299,7 +303,10 @@ class MigrationRollbackExecutor:
         Returns:
             Rollback result dictionary
         """
-        result = {
+        # Anotasi ``dict[str, Any]`` agar mypy tidak menginferensi tipe
+        # value sebagai union sempit — sehingga ``result["error"]`` bisa
+        # dipakai sebagai ``str`` di call site (logger.error, trigger_alert).
+        result: dict[str, Any] = {
             "success": False,
             "revision": revision,
             "dry_run": dry_run,
@@ -329,7 +336,7 @@ class MigrationRollbackExecutor:
                     logger.error(result["error"])
                     return result
 
-        backup_path = None
+        backup_path: Path | None = None
         if create_backup and not dry_run:
             try:
                 backup_path = await self._create_backup(f"rollback_to_{revision}")
@@ -427,7 +434,7 @@ class MigrationRollbackExecutor:
         """Rollback all migrations (to base state)."""
         return await self.rollback("base", dry_run)
 
-    async def get_rollback_history(self, limit: int = 20) -> list[dict]:
+    async def get_rollback_history(self, limit: int = 20) -> list[dict[str, Any]]:
         """Get history of rollback operations."""
         return self._rollback_history[-limit:]
 
@@ -435,13 +442,15 @@ class MigrationRollbackExecutor:
     # PERBAIKAN: list_backups menggunakan aiofiles untuk stat
     # ========================================================================
 
-    async def list_backups(self) -> list[dict]:
+    async def list_backups(self) -> list[dict[str, Any]]:
         """List all rollback backups."""
-        backups = []
+        backups: list[dict[str, Any]] = []
         for backup_file in self._backup_dir.glob("pre_rollback_*.sql"):
+
             # stat blocking -> jalankan di thread
-            def _get_stats(p: Path):
-                return p.stat().st_size, p.stat().st_ctime
+            def _get_stats(p: Path) -> tuple[int, float]:
+                st = p.stat()
+                return st.st_size, st.st_ctime
 
             size, ctime = await asyncio.to_thread(_get_stats, backup_file)
             backups.append(
@@ -488,7 +497,7 @@ async def get_rollback_executor() -> MigrationRollbackExecutor:
 # ============================================================================
 
 
-def cli():
+def cli() -> None:
     """CLI entry point for migration rollback."""
     import argparse
 
@@ -505,7 +514,7 @@ def cli():
 
     args = parser.parse_args()
 
-    async def main():
+    async def main() -> None:
         executor = await get_rollback_executor()
 
         if args.command == "rollback":
@@ -555,3 +564,4 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
+    

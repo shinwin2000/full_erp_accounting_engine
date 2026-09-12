@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -33,12 +33,15 @@ class BackgroundTaskMonitor:
     Menyimpan metadata task dan menyediakan cancellation.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._cancellation_flags: dict[str, bool] = {}
 
     def register_task(
-        self, task: asyncio.Task, name: str | None = None, metadata: dict[str, Any] | None = None
+        self,
+        task: asyncio.Task[Any],
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Mendaftarkan task ke monitor.
@@ -55,7 +58,7 @@ class BackgroundTaskMonitor:
             "task": task,
             "name": name or task.get_name(),
             "status": "running",
-            "created_at": datetime.now(timezone.UTC),
+            "created_at": datetime.now(UTC),
             "metadata": metadata or {},
         }
         self._cancellation_flags[task_id] = False
@@ -74,7 +77,7 @@ class BackgroundTaskMonitor:
 
     async def get_active_tasks(self) -> list[dict[str, Any]]:
         """Mengembalikan daftar task yang sedang berjalan (tidak selesai)."""
-        active = []
+        active: list[dict[str, Any]] = []
         for task_id, info in self._tasks.items():
             task = info["task"]
             if not task.done():
@@ -153,7 +156,11 @@ async def revoke_task(task_id: str) -> bool:
     return await monitor.revoke_task(task_id)
 
 
-def register_task(task: asyncio.Task, name: str | None = None, metadata: dict[str, Any] | None = None) -> str:
+def register_task(
+    task: asyncio.Task[Any],
+    name: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
     """
     Helper untuk mendaftarkan task dari kode lain (misalnya saat membuat background process).
     """

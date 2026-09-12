@@ -28,7 +28,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -59,13 +59,26 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.sales_order_table import SalesOrderTable
 
 
+# ---------------------------------------------------------------------------
+# Catatan tipe:
+# ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+# (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+# Subclass menimpanya dengan string literal — assignment yang secara tipe
+# tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+# Direktif ``# type: ignore[assignment]`` ditambahkan pada setiap baris
+# ``__tablename__``. Demikian pula, ``to_dict`` di subclass memiliki
+# signature lebih sempit daripada ``Base.to_dict`` — direktif
+# ``# type: ignore[override]`` dipakai untuk menandai override yang disengaja.
+# ---------------------------------------------------------------------------
+
+
 # ============================================================================
 # 1. CUSTOMER - Data Utama
 # ============================================================================
 
 
 class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "customer"
+    __tablename__ = "customer"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("customer_code", "legal_entity_id", name="uq_customer_code_legal_entity"),
         UniqueConstraint("tax_id", name="uq_customer_tax_id"),
@@ -276,7 +289,7 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             return (self.used_credit + invoice_amount) <= self.credit_limit
         return True
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_code": self.customer_code,
@@ -320,7 +333,7 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 class CustomerAddressTable(Base, TimestampMixin, SoftDeleteMixin):
     """Alamat billing / shipping / warehouse / lainnya, banyak per customer."""
 
-    __tablename__ = "customer_addresses"
+    __tablename__ = "customer_addresses"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
             "address_type IN ('billing', 'shipping', 'warehouse', 'other')",
@@ -350,7 +363,7 @@ class CustomerAddressTable(Base, TimestampMixin, SoftDeleteMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="addresses")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),
@@ -376,7 +389,7 @@ class CustomerAddressTable(Base, TimestampMixin, SoftDeleteMixin):
 class CustomerContactTable(Base, TimestampMixin, SoftDeleteMixin):
     """Contact person / PIC. Satu customer bisa punya banyak PIC."""
 
-    __tablename__ = "customer_contacts"
+    __tablename__ = "customer_contacts"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_customer_contact_customer_id", "customer_id"),
         {"extend_existing": True},
@@ -397,7 +410,7 @@ class CustomerContactTable(Base, TimestampMixin, SoftDeleteMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="contacts")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),
@@ -419,7 +432,7 @@ class CustomerContactTable(Base, TimestampMixin, SoftDeleteMixin):
 class CustomerAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
     """Dokumen pendukung: NPWP, SIUP, KTP, kontrak, foto, dll."""
 
-    __tablename__ = "customer_attachments"
+    __tablename__ = "customer_attachments"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_customer_attachment_customer_id", "customer_id"),
         {"extend_existing": True},
@@ -440,7 +453,7 @@ class CustomerAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="attachments")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),
@@ -463,7 +476,7 @@ class CustomerAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
 class CustomerNoteTable(Base, TimestampMixin):
     """Catatan internal berhistori (bukan satu field bebas yang tertimpa)."""
 
-    __tablename__ = "customer_notes"
+    __tablename__ = "customer_notes"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_customer_note_customer_id", "customer_id"),
         {"extend_existing": True},
@@ -479,7 +492,7 @@ class CustomerNoteTable(Base, TimestampMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="notes")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),
@@ -497,7 +510,7 @@ class CustomerNoteTable(Base, TimestampMixin):
 class CustomerTagTable(Base, TimestampMixin):
     """Tag/label bebas: Retail, Distributor, VIP, Export, dst."""
 
-    __tablename__ = "customer_tags"
+    __tablename__ = "customer_tags"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("customer_id", "tag", name="uq_customer_tag"),
         Index("idx_customer_tag_customer_id", "customer_id"),
@@ -513,7 +526,7 @@ class CustomerTagTable(Base, TimestampMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="tags")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {"id": str(self.id), "customer_id": str(self.customer_id), "tag": self.tag}
 
 
@@ -527,7 +540,7 @@ class CustomerCreditHistoryTable(Base, TimestampMixin):
 
     __is_audit_log__ = True
 
-    __tablename__ = "customer_credit_history"
+    __tablename__ = "customer_credit_history"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_customer_credit_history_customer_id", "customer_id"),
         {"extend_existing": True},
@@ -545,7 +558,7 @@ class CustomerCreditHistoryTable(Base, TimestampMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="credit_history")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),
@@ -567,7 +580,7 @@ class CustomerBalanceHistoryTable(Base, TimestampMixin):
 
     __is_audit_log__ = True
 
-    __tablename__ = "customer_balance_history"
+    __tablename__ = "customer_balance_history"  # type: ignore[assignment]
     __table_args__ = (
         Index("idx_customer_balance_history_customer_id", "customer_id"),
         {"extend_existing": True},
@@ -587,7 +600,7 @@ class CustomerBalanceHistoryTable(Base, TimestampMixin):
 
     customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="balance_history")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "customer_id": str(self.customer_id),

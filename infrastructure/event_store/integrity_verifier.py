@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 class IntegrityVerifier:
-    def __init__(self, event_store=None):
-        self._event_store = event_store
+    def __init__(self, event_store: Any = None) -> None:
+        self._event_store: Any = event_store
         self._hash_builder = HashChainBuilder()
 
-    async def _get_event_store(self):
+    async def _get_event_store(self) -> Any:
         if self._event_store is None:
             # Impor lokal di dalam fungsi
             from infrastructure.event_store.append_only_store import get_event_store
@@ -47,10 +47,10 @@ class IntegrityVerifier:
                 "event_count": 0,
                 "errors": [],
             }
-        errors = []
+        errors: list[str] = []
         last_sequence = 0
-        last_hash = None
-        last_timestamp = None
+        last_hash: str | None = None
+        last_timestamp: datetime | None = None
         for i, event in enumerate(events):
             seq = event.get("sequence_number", i + 1)
             if seq != last_sequence + 1 and last_sequence != 0:
@@ -106,14 +106,16 @@ class IntegrityVerifier:
         event_store = await self._get_event_store()
         streams = await event_store.list_streams()
         total = len(streams)
-        results = {}
+        results: dict[str, dict[str, Any]] = {}
         semaphore = asyncio.Semaphore(max_concurrent)
-        async def verify_one(stream_name: str, idx: int):
+
+        async def verify_one(stream_name: str, idx: int) -> tuple[str, dict[str, Any]]:
             async with semaphore:
                 if on_progress:
                     on_progress(stream_name, idx + 1, total)
                 result = await self.verify_stream_integrity(stream_name)
                 return stream_name, result
+
         tasks = [verify_one(stream, i) for i, stream in enumerate(streams)]
         verified = await asyncio.gather(*tasks)
         for stream_name, result in verified:
@@ -121,7 +123,7 @@ class IntegrityVerifier:
         total_events = sum(r["event_count"] for r in results.values())
         valid_streams = sum(1 for r in results.values() if r["is_valid"])
         invalid_streams = total - valid_streams
-        all_errors = []
+        all_errors: list[str] = []
         for stream_name, result in results.items():
             if not result["is_valid"]:
                 all_errors.extend([f"{stream_name}: {e}" for e in result["errors"]])
@@ -140,7 +142,9 @@ class IntegrityVerifier:
                 message=f"{invalid_streams} streams failed integrity check",
                 severity="critical",
                 source="IntegrityVerifier",
-                details={"invalid_streams": [s for s, r in results.items() if not r["is_valid"]]},
+                metadata={
+                    "invalid_streams": [s for s, r in results.items() if not r["is_valid"]]
+                },
             )
             logger.error(f"Integrity check failed: {invalid_streams} invalid streams")
         logger.info(f"Integrity check completed: {valid_streams}/{total} streams valid")
@@ -149,7 +153,7 @@ class IntegrityVerifier:
     async def verify_hash_chain(self, stream_name: str) -> bool:
         event_store = await self._get_event_store()
         events = await event_store.read_stream(stream_name, limit=1_000_000)
-        chain_events = []
+        chain_events: list[dict[str, Any]] = []
         for ev in events:
             chain_events.append(
                 {
@@ -169,7 +173,7 @@ class IntegrityVerifier:
     async def verify_no_missing_events(self, stream_name: str) -> dict[str, Any]:
         event_store = await self._get_event_store()
         events = await event_store.read_stream(stream_name, limit=1_000_000)
-        gaps = []
+        gaps: list[dict[str, int]] = []
         last_seq = 0
         for event in events:
             seq = event.get("sequence_number", 0)
@@ -192,7 +196,7 @@ class IntegrityVerifier:
         }
         summary = await self.verify_all_streams()
         report["summary"] = summary
-        streams_detail = {}
+        streams_detail: dict[str, dict[str, Any]] = {}
         for stream_name, result in summary.get("stream_details", {}).items():
             streams_detail[stream_name] = {
                 "is_valid": result["is_valid"],
@@ -200,8 +204,10 @@ class IntegrityVerifier:
                 "error_count": len(result.get("errors", [])),
             }
         report["streams"] = streams_detail
+
         def _dump_json() -> str:
             return json.dumps(report, indent=2, default=str)
+
         report_json = await asyncio.to_thread(_dump_json)
         if output_path:
             async with aiofiles.open(output_path, "w") as f:
@@ -230,10 +236,12 @@ class IntegrityVerifier:
 
 _integrity_verifier: IntegrityVerifier | None = None
 
+
 async def get_integrity_verifier() -> IntegrityVerifier:
     global _integrity_verifier
     if _integrity_verifier is None:
         _integrity_verifier = IntegrityVerifier()
     return _integrity_verifier
+
 
 __all__ = ["IntegrityVerifier", "get_integrity_verifier"]

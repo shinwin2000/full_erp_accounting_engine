@@ -32,10 +32,10 @@ class AppendOnlyEventStore:
     AppendOnlyStore yang diambil secara lazy.
     """
 
-    def __init__(self):
-        self._store = None
+    def __init__(self) -> None:
+        self._store: Any = None
 
-    async def _get_store(self):
+    async def _get_store(self) -> Any:
         if self._store is None:
             # Impor lokal di dalam fungsi untuk menghindari circular import
             # Gunakan singleton atau buat instance baru
@@ -44,7 +44,7 @@ class AppendOnlyEventStore:
             self._store = store
         return self._store
 
-    async def _get_event_store(self):
+    async def _get_event_store(self) -> Any:
         # Impor lokal
         from infrastructure.event_store.append_only_store import get_event_store
         return await get_event_store()
@@ -74,7 +74,10 @@ class AppendOnlyEventStore:
             from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 
             session_factory = await get_session_factory()
-            async with session_factory.get_session() as session, session.begin():
+            # ``get_session()`` adalah async method yang mengembalikan AsyncSession;
+            # panggil sebagai context manager setelah di-await.
+            session = await session_factory.get_session()
+            async with session.begin():
                 # 1. Lock the row with SELECT FOR UPDATE
                 lock_query = """
                     SELECT id FROM event_store
@@ -83,7 +86,9 @@ class AppendOnlyEventStore:
                 """
                 locked_row = await session.fetchrow(lock_query, stream, position)
                 if not locked_row:
-                    logger.warning(f"Event not found for update: stream={stream}, position={position}")
+                    logger.warning(
+                        f"Event not found for update: stream={stream}, position={position}"
+                    )
                     return
 
                 # 2. Update the locked row
@@ -107,7 +112,7 @@ class AppendOnlyEventStore:
 
     async def save_events(self, events: list[dict[str, Any]]) -> None:
         """Simpan multiple events (batch) ke stream yang sesuai."""
-        streams = defaultdict(list)
+        streams: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ev in events:
             stream = ev.get("stream", f"default-{ev.get('type', 'unknown')}")
             streams[stream].append(ev)

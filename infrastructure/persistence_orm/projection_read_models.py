@@ -13,9 +13,19 @@ from sqlalchemy.dialects.postgresql import UUID as SQLUUID
 
 from infrastructure.persistence_orm.base_model import Base
 
+# ---------------------------------------------------------------------------
+# Catatan tipe:
+# ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+# (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+# Setiap subclass di bawah menimpanya dengan string literal — assignment
+# yang secara tipe tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy
+# declarative. Direktif ``# type: ignore[assignment]`` ditambahkan pada setiap
+# baris ``__tablename__``.
+# ---------------------------------------------------------------------------
+
 
 class ProjectionGLTable(Base):
-    __tablename__ = "projection_gl_ledger"
+    __tablename__ = "projection_gl_ledger"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -32,7 +42,7 @@ class ProjectionGLTable(Base):
 
 
 class ProjectionTrialBalanceTable(Base):
-    __tablename__ = "projection_trial_balance"
+    __tablename__ = "projection_trial_balance"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -51,7 +61,7 @@ class ProjectionTrialBalanceTable(Base):
 
 
 class ProjectionARAgingTable(Base):
-    __tablename__ = "projection_ar_aging"
+    __tablename__ = "projection_ar_aging"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -70,7 +80,7 @@ class ProjectionARAgingTable(Base):
 
 
 class ProjectionAPAgingTable(Base):
-    __tablename__ = "projection_ap_aging"
+    __tablename__ = "projection_ap_aging"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -89,7 +99,7 @@ class ProjectionAPAgingTable(Base):
 
 
 class ProjectionPPNSettlementTable(Base):
-    __tablename__ = "projection_ppn_settlement"
+    __tablename__ = "projection_ppn_settlement"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -105,7 +115,7 @@ class ProjectionPPNSettlementTable(Base):
 
 
 class ProjectionPPHSummaryTable(Base):
-    __tablename__ = "projection_pph_summary"
+    __tablename__ = "projection_pph_summary"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -120,7 +130,7 @@ class ProjectionPPHSummaryTable(Base):
 
 
 class ProjectionCoretaxDashboardTable(Base):
-    __tablename__ = "projection_coretax_dashboard"
+    __tablename__ = "projection_coretax_dashboard"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -136,7 +146,7 @@ class ProjectionCoretaxDashboardTable(Base):
 
 
 class ProjectionTrend12MonthTable(Base):
-    __tablename__ = "projection_trend_12month"
+    __tablename__ = "projection_trend_12month"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -151,7 +161,7 @@ class ProjectionTrend12MonthTable(Base):
 
 
 class ProjectionVarianceAnalysisTable(Base):
-    __tablename__ = "projection_variance_analysis"
+    __tablename__ = "projection_variance_analysis"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -167,7 +177,7 @@ class ProjectionVarianceAnalysisTable(Base):
 
 
 class ProjectionProfitabilitySegmentTable(Base):
-    __tablename__ = "projection_profitability_segment"
+    __tablename__ = "projection_profitability_segment"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -183,7 +193,7 @@ class ProjectionProfitabilitySegmentTable(Base):
 
 
 class ProjectionFinancialRatiosTable(Base):
-    __tablename__ = "projection_financial_ratios"
+    __tablename__ = "projection_financial_ratios"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -197,7 +207,7 @@ class ProjectionFinancialRatiosTable(Base):
 
 
 class ProjectionKpiAlerterTable(Base):
-    __tablename__ = "projection_kpi_alerter"
+    __tablename__ = "projection_kpi_alerter"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -217,7 +227,7 @@ class ProjectionKpiAlerterTable(Base):
 
 class ProjectionReadModelTable(Base):
     """Table untuk menyimpan state read model / projection."""
-    __tablename__ = "projection_read_models"
+    __tablename__ = "projection_read_models"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     projection_name = Column(String(100), unique=True, nullable=False, index=True)
@@ -228,10 +238,11 @@ class ProjectionReadModelTable(Base):
 
 class ProjectionCheckpointTable(Base):
     """Table untuk menyimpan checkpoint (last processed event id) per projector."""
-    __tablename__ = "projection_checkpoints"
+    __tablename__ = "projection_checkpoints"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     projection_name = Column(String(100), unique=True, nullable=False, index=True)
     checkpoint = Column(String(255), nullable=False)  # event id or timestamp
     updated_at = Column(DateTime, server_default="now()", onupdate="now()")
     created_at = Column(DateTime, server_default="now()")
+    

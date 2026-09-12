@@ -146,13 +146,16 @@ router = APIRouter(prefix="/budget", tags=["Budget"])
     operation_id="get_budget_dashboard",
 )
 async def get_budget_dashboard(
-    as_of_date: date = Query(..., description="As of date"),
+    # [FIX] Sebelumnya wajib diisi (Query(...)) sehingga setiap pemanggilan
+    # tanpa as_of_date selalu gagal 422 -- termasuk dari frontend yang
+    # memang tidak selalu mengirim parameter ini. Default ke hari ini.
+    as_of_date: date | None = Query(None, description="As of date (default: hari ini)"),
     _permission: None = Depends(require_permission("budget:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: BudgetService = Depends(get_budget_service),
 ) -> dict[str, Any]:
     try:
-        return await service.get_budget_dashboard(legal_entity_id, as_of_date)
+        return await service.get_budget_dashboard(legal_entity_id, as_of_date or date.today())
     except Exception as e:
         logger.exception(f"Failed to get budget dashboard: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -197,8 +200,11 @@ async def export_budgets(
     try:
         data = await service.export_budgets(legal_entity_id, fiscal_year, format, budget_type)
         media_type = "text/csv" if format == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = f"budgets_{legal_entity_id}_{fiscal_year}.{format}"
+        ext = "csv" if format == "csv" else "xlsx"
+        filename = f"budgets_{legal_entity_id}_{fiscal_year}.{ext}"
         return Response(content=data, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except NotImplementedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to export budgets: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

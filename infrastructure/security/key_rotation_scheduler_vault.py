@@ -19,7 +19,7 @@ Audit: Setiap rotasi kunci dicatat. Re-encryption data dicatat untuk compliance.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -96,13 +96,13 @@ class KeyRotationScheduler:
     - Manual rotation trigger
     """
 
-    def __init__(self, config_path: str = "config_files/security_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = "config_files/security_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
         self._encryption = get_field_encryption()
         self._scheduler: AsyncIOScheduler | None = None
         self._redis_manager: RedisManager | None = None
         self._vault: KeyManagementVault | None = None
-        self._reencryption_handlers: dict[str, Callable] = {}
+        self._reencryption_handlers: dict[str, Callable[[str, str], Awaitable[int]]] = {}
         self._running = False
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
@@ -134,13 +134,24 @@ class KeyRotationScheduler:
     async def _acquire_lock(self) -> bool:
         """
         Acquire distributed lock for key rotation.
+
+        ``RedisManager`` tidak mengekspos ``set`` dengan kwarg ``nx``/``ex``,
+        jadi kita pakai ``_client.setnx`` langsung (SEMANTIK ATOMIK: hanya
+        set jika key belum ada). Guard ``client is None`` ditambahkan agar
+        mypy tahu bahwa ``_client`` sudah tidak None dan agar kita tidak
+        crash bila Redis client belum diinisialisasi.
         """
         redis = await self._get_redis()
-        # SET NX (only if not exists)
-        result = await redis._client.setnx(ROTATION_LOCK_KEY, str(datetime.utcnow().timestamp()))
+        client = redis._client
+        if client is None:
+            logger.warning("Redis client not initialized, cannot acquire rotation lock")
+            return False
+        result = await client.setnx(
+            ROTATION_LOCK_KEY, str(datetime.now(UTC).timestamp())
+        )
         if result:
             await redis.expire(ROTATION_LOCK_KEY, LOCK_TTL_SECONDS)
-        return result
+        return bool(result)
 
     async def _release_lock(self) -> None:
         """
@@ -151,7 +162,7 @@ class KeyRotationScheduler:
 
     def register_reencryption_handler(
         self, key_id: str, handler: Callable[[str, str], Awaitable[int]]
-    ):
+    ) -> None:
         """
         Register a handler for re-encrypting data with a specific key.
 
@@ -183,7 +194,7 @@ class KeyRotationScheduler:
 
         try:
             logger.info("Starting key rotation process")
-            start_time = datetime.utcnow()
+            start_time = datetime.now(UTC)
 
             current_key_id = self._encryption.get_current_key_id()
             new_key_id = self._generate_new_key_id()
@@ -203,7 +214,7 @@ class KeyRotationScheduler:
             # Archive old key (but keep for decryption of old data)
             await self._archive_old_key(current_key_id)
 
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             result = {
                 "rotated": True,
@@ -211,7 +222,7 @@ class KeyRotationScheduler:
                 "new_key": new_key_id,
                 "reencrypted_count": reencrypted_count,
                 "duration_seconds": duration,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             logger.info(
@@ -243,7 +254,7 @@ class KeyRotationScheduler:
 
     def _generate_new_key_id(self) -> str:
         """Generate a new key ID based on timestamp."""
-        return f"key_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        return f"key_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
     async def _generate_new_key(self, key_id: str) -> None:
         """Generate a new encryption key."""
@@ -341,7 +352,7 @@ class KeyRotationScheduler:
             if key_id.startswith("key_"):
                 try:
                     key_date = datetime.strptime(key_id[4:], "%Y%m%d_%H%M%S")
-                    age_days = (datetime.utcnow() - key_date).days
+                    age_days = (datetime.now(UTC) - key_date.replace(tzinfo=UTC)).days
                     key_ages[key_id] = age_days
                 except ValueError:
                     key_ages[key_id] = None

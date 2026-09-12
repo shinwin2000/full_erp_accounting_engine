@@ -50,7 +50,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_BACKUP_CONFIG = {
+DEFAULT_BACKUP_CONFIG: dict[str, Any] = {
     "enabled": True,
     "backup_dir": "/var/backups/postgres",
     "retention_days": 30,
@@ -121,25 +121,25 @@ class DatabaseBackupPgDump:
     - Verifikasi integritas backup
     """
 
-    def __init__(self, config_path: str = "config_files/database_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = "config_files/database_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
         self._backup_dir = Path(self.config.get("backup_dir", "/var/backups/postgres"))
         self._backup_dir.mkdir(parents=True, exist_ok=True)
-        self._retention_days = self.config.get("retention_days", 30)
-        self._enabled = self.config.get("enabled", True)
-        self._backup_task: asyncio.Task | None = None
+        self._retention_days: int = self.config.get("retention_days", 30)
+        self._enabled: bool = self.config.get("enabled", True)
+        self._backup_task: asyncio.Task[None] | None = None
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
             config = load_yaml_config(config_path)
             backup_config = config.get("backup", {})
-            result = DEFAULT_BACKUP_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_BACKUP_CONFIG.copy()
             result.update(backup_config)
             return result
         except Exception:
             return DEFAULT_BACKUP_CONFIG.copy()
 
-    async def _get_db_connection_info(self) -> dict:
+    async def _get_db_connection_info(self) -> dict[str, Any]:
         """Get database connection info from config."""
         config = load_yaml_config("config_files/database_config.yaml")
         db_config = config.get("database", {})
@@ -157,11 +157,13 @@ class DatabaseBackupPgDump:
 
     async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
         """Delete file secara async di thread pool."""
-        def _delete_sync():
+
+        def _delete_sync() -> None:
             if ignore_missing:
                 file_path.unlink(missing_ok=True)
             else:
                 file_path.unlink()
+
         await asyncio.to_thread(_delete_sync)
 
     # ========================================================================
@@ -222,7 +224,8 @@ class DatabaseBackupPgDump:
         return uri
 
     # ========================================================================
-    # PERBAIKAN: _upload_to_glacier menggunakan aiofiles
+    # PERBAIKAN: _upload_to_glacier — hapus kwarg ``description`` yang tidak
+    # ada di signature ``GlacierColdStorageAdapter.upload``.
     # ========================================================================
 
     async def _upload_to_glacier(self, backup_file: Path, backup_name: str) -> str:
@@ -233,7 +236,6 @@ class DatabaseBackupPgDump:
         uri = await glacier.upload(
             file_content=file_content,
             file_name=backup_file.name,
-            description=f"Database backup: {backup_name}",
         )
         logger.info(f"Backup uploaded to Glacier: {uri}")
         return uri
@@ -289,7 +291,7 @@ class DatabaseBackupPgDump:
             if self.config.get("blobs", True):
                 cmd.append("--blobs")
 
-            env = None
+            env: dict[str, str] | None = None
             if db_info.get("password"):
                 env = {"PGPASSWORD": db_info["password"]}
 
@@ -308,7 +310,6 @@ class DatabaseBackupPgDump:
             checksum = await self._compute_checksum(backup_file)
 
             # Compress if enabled
-            compressed_path = None
             if self.config.get("compress", True):
                 compressed_path = await self._compress_backup(backup_file)
                 if compressed_path != backup_file:
@@ -324,7 +325,7 @@ class DatabaseBackupPgDump:
                 cloud_uri = await self._upload_to_glacier(backup_file, backup_name)
 
             # Create metadata
-            metadata = {
+            metadata: dict[str, Any] = {
                 "success": True,
                 "backup_name": backup_name,
                 "backup_file": str(backup_file),
@@ -368,13 +369,17 @@ class DatabaseBackupPgDump:
         db_info = await self._get_db_connection_info()
         target_db = target_database or db_info["database"]
 
-        backup_file = self._backup_dir / f"{backup_name}.dump"
+        # ``backup_file`` selalu bertipe Path: setiap ekspresi yang di-assign
+        # ke sini (``self._backup_dir / ...`` dan ``_download_from_s3``)
+        # mengembalikan Path. Annotation ``Path | None`` sebelumnya salah dan
+        # menyebabkan error mypy "Item None of Path | None has no attribute exists".
+        backup_file: Path = self._backup_dir / f"{backup_name}.dump"
         if not backup_file.exists():
             backup_file = self._backup_dir / f"{backup_name}.dump.gz"
             if not backup_file.exists() and self.config.get("upload_to_s3", False):
                 backup_file = await self._download_from_s3(backup_name)
 
-        if not backup_file or not backup_file.exists():
+        if not backup_file.exists():
             raise BackupNotFoundError(f"Backup {backup_name} not found")
 
         if backup_file.suffix == ".gz":
@@ -382,9 +387,11 @@ class DatabaseBackupPgDump:
             # Baca file compressed secara async
             async with aiofiles.open(backup_file, "rb") as f:
                 compressed_data = await f.read()
+
             # Decompress di thread pool
             def _decompress_sync(data: bytes) -> bytes:
                 return gzip.decompress(data)
+
             decompressed_data = await asyncio.to_thread(_decompress_sync, compressed_data)
             # Tulis file decompressed secara async
             async with aiofiles.open(decompressed_file, "wb") as f:
@@ -411,7 +418,7 @@ class DatabaseBackupPgDump:
                 str(backup_file),
             ]
 
-            env = None
+            env: dict[str, str] | None = None
             if db_info.get("password"):
                 env = {"PGPASSWORD": db_info["password"]}
 
@@ -462,7 +469,7 @@ class DatabaseBackupPgDump:
 
     async def list_backups(self) -> list[dict[str, Any]]:
         """List all available backups."""
-        backups = []
+        backups: list[dict[str, Any]] = []
         for file_path in self._backup_dir.glob("*.dump*"):
             metadata_file = file_path.with_suffix(".metadata.json")
             if metadata_file.exists():
@@ -539,7 +546,7 @@ class DatabaseBackupPgDump:
             db_info = await self._get_db_connection_info()
             cmd = ["pg_restore", "--list", str(backup_file)]
 
-            env = None
+            env: dict[str, str] | None = None
             if db_info.get("password"):
                 env = {"PGPASSWORD": db_info["password"]}
 
@@ -564,7 +571,7 @@ class DatabaseBackupPgDump:
             logger.warning("Scheduled backup already running")
             return
 
-        async def _backup_loop():
+        async def _backup_loop() -> None:
             while True:
                 try:
                     await self.create_backup(description="Scheduled daily backup")
@@ -633,7 +640,7 @@ async def get_backup_manager() -> DatabaseBackupPgDump:
 # ============================================================================
 
 
-def cli():
+def cli() -> Any:
     """CLI entry point for database backup (Parsing Only)."""
     import argparse
 
@@ -647,7 +654,7 @@ def cli():
     return parser.parse_args()
 
 
-async def run_backup_cli(args):
+async def run_backup_cli(args: Any) -> None:
     """Menjalankan operasi backup secara asynchronous berdasarkan argumen CLI."""
     manager = await get_backup_manager()
 
@@ -703,7 +710,7 @@ if __name__ == "__main__":
         asyncio.get_running_loop()
 
         # Deteksi loop aktif: alihkan coroutine CLI ke thread terisolasi dengan loop-nya sendiri
-        def _run_in_thread():
+        def _run_in_thread() -> None:
             thread_loop = asyncio.new_event_loop()
             try:
                 thread_loop.run_until_complete(run_backup_cli(args))
@@ -717,3 +724,4 @@ if __name__ == "__main__":
     except RuntimeError:
         # Tidak ada event loop aktif, aman untuk memutar loop utama secara langsung
         asyncio.run(run_backup_cli(args))
+        

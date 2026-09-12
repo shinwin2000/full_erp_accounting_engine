@@ -509,7 +509,6 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             if current_version != item.version:
                 raise OptimisticLockError(f"Version mismatch: expected {item.version}, got {current_version}")
             table = await self._to_orm_item(item)
-            table.version = item.version + 1
             table.updated_at = datetime.utcnow()
             await self.session.merge(table)
             await self.session.flush()

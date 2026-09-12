@@ -342,6 +342,18 @@ class SQLAlchemyUnitOfWork:
         except Exception as e:
             await self.rollback()
             raise UnitOfWorkCommitError(f"Commit failed: {e}") from e
+        finally:
+            # PENTING: reset session ke None supaya begin() berikutnya (mis.
+            # pada request selanjutnya kalau UoW ini instance yang dipakai
+            # ulang/singleton) benar-benar membuat transaksi baru, bukan
+            # melewati begin() karena _session masih ter-set dari commit
+            # sebelumnya (itu penyebab "UoW not started" di request kedua).
+            if self._session is not None:
+                try:
+                    await self._session.close()
+                except Exception as close_err:
+                    logger.debug(f"Error closing session after commit: {close_err}")
+            self._session = None
 
     async def rollback(self) -> None:
         if not self._transaction:
@@ -359,6 +371,12 @@ class SQLAlchemyUnitOfWork:
         except Exception as e:
             raise UnitOfWorkRollbackError(f"Rollback failed: {e}") from e
         finally:
+            if self._session is not None:
+                try:
+                    await self._session.close()
+                except Exception as close_err:
+                    logger.debug(f"Error closing session after rollback: {close_err}")
+            self._session = None
             self._event_collector.clear()
 
     async def flush(self) -> None:

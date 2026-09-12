@@ -101,7 +101,7 @@ class BackupMetadata:
         "wal_start_lsn",
     )
 
-    def __init__(self, backup_id: UUID, backup_type: str, started_at: datetime):
+    def __init__(self, backup_id: UUID, backup_type: str, started_at: datetime) -> None:
         self.backup_id = backup_id
         self.backup_type = backup_type
         self.started_at = started_at
@@ -154,8 +154,8 @@ class BackupMetadata:
 
 
 class EventStoreBackupArchiver:
-    def __init__(self, config_path: str = BACKUP_CONFIG_PATH):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = BACKUP_CONFIG_PATH) -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
         self.backup_dir = Path(self.config.get("backup_dir", DEFAULT_BACKUP_DIR))
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -180,17 +180,27 @@ class EventStoreBackupArchiver:
                 "database_user": "postgres",
             }
 
-    def _init_storage(self):
+    def _init_storage(self) -> None:
+        """
+        Inisialisasi storage adapter.
+
+        Catatan: ``S3FileStorageAdapter`` dan ``GlacierColdStorageAdapter``
+        tidak menerima keyword argument kustom di konstruktornya — mereka
+        membaca konfigurasi bucket/vault dari sumber internal (environment
+        atau config global). Instansiasi tanpa argumen, konsisten dengan
+        modul lain di codebase (``database_backup_pgdump.py``,
+        ``partition_archiver.py``).
+        """
         try:
             bucket = self.config.get("s3_bucket", "erp-eventstore-backup")
-            self.s3_storage = S3FileStorageAdapter(bucket_name=bucket)
+            self.s3_storage = S3FileStorageAdapter()
             logger.info(f"S3 storage initialized for bucket {bucket}")
         except Exception as e:
             logger.warning(f"Failed to initialize S3 storage: {e}")
 
         try:
             vault = self.config.get("glacier_vault", "erp-archive")
-            self.glacier_storage = GlacierColdStorageAdapter(vault_name=vault)
+            self.glacier_storage = GlacierColdStorageAdapter()
             logger.info(f"Glacier storage initialized for vault {vault}")
         except Exception as e:
             logger.warning(f"Failed to initialize Glacier storage: {e}")
@@ -203,7 +213,7 @@ class EventStoreBackupArchiver:
         """Compress file using gzip."""
         async with aiofiles.open(src_path, "rb") as f:
             data = await f.read()
-        compressed_data = await asyncio.to_thread(lambda: gzip.compress(data, compresslevel=6))
+        compressed_data = await asyncio.to_thread(gzip.compress, data, 6)
         async with aiofiles.open(dst_path, "wb") as f:
             await f.write(compressed_data)
         logger.debug(f"Compressed {src_path} to {dst_path}")
@@ -212,7 +222,7 @@ class EventStoreBackupArchiver:
         """Decompress gzip file."""
         async with aiofiles.open(src_path, "rb") as f:
             data = await f.read()
-        decompressed_data = await asyncio.to_thread(lambda: gzip.decompress(data))
+        decompressed_data = await asyncio.to_thread(gzip.decompress, data)
         async with aiofiles.open(dst_path, "wb") as f:
             await f.write(decompressed_data)
         logger.debug(f"Decompressed {src_path} to {dst_path}")
@@ -228,11 +238,12 @@ class EventStoreBackupArchiver:
         return sha256.hexdigest()
 
     async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
-        def _delete_sync():
+        def _delete_sync() -> None:
             if ignore_missing:
                 file_path.unlink(missing_ok=True)
             else:
                 file_path.unlink()
+
         await asyncio.to_thread(_delete_sync)
 
     # ========================================================================
@@ -248,6 +259,7 @@ class EventStoreBackupArchiver:
 
         logger.info(f"Starting full backup {backup_id}")
 
+        dump_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as tmp:
                 dump_path = Path(tmp.name)
@@ -325,7 +337,7 @@ class EventStoreBackupArchiver:
             raise BackupArchiverError(f"Backup failed: {e}") from e
         finally:
             self._running_backup = None
-            if "dump_path" in locals():
+            if dump_path is not None:
                 await self._delete_file(dump_path, ignore_missing=True)
 
     async def _cleanup_old_backups(self) -> None:
@@ -345,6 +357,13 @@ class EventStoreBackupArchiver:
             except (ValueError, IndexError):
                 continue
 
+    # ========================================================================
+    # PERBAIKAN: ``GlacierColdStorageAdapter`` tidak mengekspos method
+    # ``archive``. Gunakan API publik ``upload(file_content=..., file_name=...)``
+    # yang sudah dipakai di modul lain (``database_backup_pgdump.py``,
+    # ``partition_archiver.py``).
+    # ========================================================================
+
     async def archive_to_cold_storage(self, backup_id: UUID) -> bool:
         backup = await self.get_backup(backup_id)
         if not backup:
@@ -358,10 +377,16 @@ class EventStoreBackupArchiver:
             return False
 
         try:
-            archive_id = await self.glacier_storage.archive(
-                Path(backup.file_path), description=f"Event store backup {backup_id}"
+            backup_file = Path(backup.file_path)
+            async with aiofiles.open(backup_file, "rb") as f:
+                file_content = await f.read()
+            # Gunakan ``upload`` (API publik Glacier adapter). Nama file
+            # dipakai adapter sebagai identifier arsip.
+            archive_uri = await self.glacier_storage.upload(
+                file_content=file_content,
+                file_name=f"event_store_backup_{backup_id}.sql.gz",
             )
-            logger.info(f"Backup {backup_id} archived to Glacier with ID {archive_id}")
+            logger.info(f"Backup {backup_id} archived to Glacier: {archive_uri}")
             return True
         except Exception as e:
             logger.error(f"Failed to archive backup {backup_id}: {e}")

@@ -182,6 +182,17 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
     def _populate_nav(self) -> None:
+        # Tidak pakai indikator cabang bawaan Qt (segitiga kecil) -- kita
+        # gambar sendiri panah ▸/▾ di depan label kategori supaya konsisten
+        # tampilannya di semua platform/tema, dan supaya jelas kalau baris
+        # kategori itu bisa diklik.
+        self.nav_tree.setRootIsDecorated(False)
+        self.nav_tree.setIndentation(14)
+        # Matikan toggle expand bawaan lewat double-click supaya tidak
+        # bentrok dengan toggle manual di _toggle_category() (yang jalan
+        # lewat single-click biasa).
+        self.nav_tree.setExpandsOnDoubleClick(False)
+
         dashboard_item = QTreeWidgetItem(["🏠  Dashboard"])
         dashboard_item.setData(0, NAV_ROLE, ("dashboard", None))
         self.nav_tree.addTopLevelItem(dashboard_item)
@@ -193,14 +204,20 @@ class MainWindow(QMainWindow):
             configs = by_category.get(category)
             if not configs:
                 continue
-            cat_item = QTreeWidgetItem([category])
-            cat_item.setFlags(cat_item.flags() & ~Qt.ItemIsSelectable)
+            cat_item = QTreeWidgetItem([f"▸  {category}"])
+            cat_item.setData(0, NAV_ROLE, ("category", category))
+            cat_font = cat_item.font(0)
+            cat_font.setBold(True)
+            cat_font.setPointSize(cat_font.pointSize() + 1)
+            cat_item.setFont(0, cat_font)
             self.nav_tree.addTopLevelItem(cat_item)
             for cfg in sorted(configs, key=lambda c: c.label):
                 child = QTreeWidgetItem([f"{cfg.icon}  {cfg.label}"])
                 child.setData(0, NAV_ROLE, ("module", cfg.key))
                 cat_item.addChild(child)
-            cat_item.setExpanded(True)
+            # Kategori mulai dalam keadaan TERTUTUP -- hanya nama menu
+            # utama yang tampil sampai user klik untuk membukanya.
+            cat_item.setExpanded(False)
 
     def _select_dashboard(self) -> None:
         self._open_page("dashboard", None, "Dashboard")
@@ -210,11 +227,24 @@ class MainWindow(QMainWindow):
         if not payload:
             return
         kind, key = payload
+
+        if kind == "category":
+            self._toggle_category(item, key)
+            return
+
         label = item.text(0).strip()
         # buang emoji prefix untuk judul halaman
         parts = label.split("  ", 1)
         title = parts[1] if len(parts) > 1 else label
         self._open_page(kind, key, title)
+
+    def _toggle_category(self, item: QTreeWidgetItem, category: str) -> None:
+        """Buka/tutup grup sub-menu saat baris nama kategori diklik, dan
+        perbarui panah ▸ (tertutup) / ▾ (terbuka) di depan labelnya."""
+        expanding = not item.isExpanded()
+        item.setExpanded(expanding)
+        arrow = "▾" if expanding else "▸"
+        item.setText(0, f"{arrow}  {category}")
 
     # ------------------------------------------------------------------
     def _open_page(self, kind: str, key: str | None, title: str) -> None:

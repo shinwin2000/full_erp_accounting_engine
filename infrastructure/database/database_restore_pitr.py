@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_PITR_CONFIG = {
+DEFAULT_PITR_CONFIG: dict[str, Any] = {
     "enabled": True,
     "wal_archive_dir": "/var/lib/postgresql/wal_archive",
     "restore_dir": "/var/lib/postgresql/restore",
@@ -89,9 +89,9 @@ class DatabaseRestorePITR:
     - Dry-run mode untuk validasi
     """
 
-    def __init__(self, config_path: str = "config_files/database_config.yaml"):
-        self.config = self._load_config(config_path)
-        self._enabled = self.config.get("enabled", True)
+    def __init__(self, config_path: str = "config_files/database_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
+        self._enabled: bool = self.config.get("enabled", True)
         self._wal_archive_dir = Path(
             self.config.get("wal_archive_dir", "/var/lib/postgresql/wal_archive")
         )
@@ -104,13 +104,13 @@ class DatabaseRestorePITR:
         try:
             config = load_yaml_config(config_path)
             pitr_config = config.get("pitr", {})
-            result = DEFAULT_PITR_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_PITR_CONFIG.copy()
             result.update(pitr_config)
             return result
         except Exception:
             return DEFAULT_PITR_CONFIG.copy()
 
-    async def _get_db_connection_info(self) -> dict:
+    async def _get_db_connection_info(self) -> dict[str, Any]:
         """Get database connection info from config."""
         config = load_yaml_config("config_files/database_config.yaml")
         db_config = config.get("database", {})
@@ -128,23 +128,29 @@ class DatabaseRestorePITR:
 
     async def _move_dir(self, src: Path, dst: Path) -> None:
         """Move directory secara async di thread pool."""
-        def _move_sync():
+
+        def _move_sync() -> None:
             if dst.exists():
                 shutil.rmtree(dst)
             shutil.move(str(src), str(dst))
+
         await asyncio.to_thread(_move_sync)
 
     async def _rmtree(self, path: Path) -> None:
         """Remove directory tree secara async di thread pool."""
-        def _rm_sync():
+
+        def _rm_sync() -> None:
             if path.exists():
                 shutil.rmtree(path)
+
         await asyncio.to_thread(_rm_sync)
 
     async def _mkdir(self, path: Path) -> None:
         """Create directory secara async di thread pool."""
-        def _mkdir_sync():
+
+        def _mkdir_sync() -> None:
             path.mkdir(parents=True, exist_ok=True)
+
         await asyncio.to_thread(_mkdir_sync)
 
     # ========================================================================
@@ -213,16 +219,19 @@ recovery_target_timeline = 'latest'
         """
         Verify that WAL archive contains all segments needed for recovery.
         """
+
         # Cek keberadaan direktori (small I/O, bisa pakai asyncio.to_thread)
-        def _dir_exists():
+        def _dir_exists() -> bool:
             return self._wal_archive_dir.exists()
+
         if not await asyncio.to_thread(_dir_exists):
             logger.error(f"WAL archive directory {self._wal_archive_dir} does not exist")
             return False
 
         # Dapatkan daftar file WAL (blocking, jalankan di thread)
-        def _list_wal_files():
+        def _list_wal_files() -> list[Path]:
             return list(self._wal_archive_dir.glob("*.wal"))
+
         wal_files = await asyncio.to_thread(_list_wal_files)
 
         if not wal_files:
@@ -250,7 +259,10 @@ recovery_target_timeline = 'latest'
         Returns:
             Result dictionary
         """
-        result = {
+        # Anotasi eksplisit ``dict[str, Any]`` agar mypy tidak menginferensi
+        # tipe value sebagai union sempit (``bool | str | ...``) yang membuat
+        # ``result["message"]`` dianggap bukan ``str``.
+        result: dict[str, Any] = {
             "success": False,
             "target_time": target_time.isoformat(),
             "backup_name": backup_name,
@@ -359,17 +371,22 @@ recovery_target_timeline = 'latest'
         """
         Get list of available WAL segments in archive.
         """
-        segments = []
+        segments: list[dict[str, Any]] = []
         if self._wal_archive_dir.exists():
+
             # Dapatkan daftar file
-            def _list_wal():
+            def _list_wal() -> list[Path]:
                 return sorted(self._wal_archive_dir.glob("*.wal"))
+
             wal_files = await asyncio.to_thread(_list_wal)
 
             for wal_file in wal_files:
+
                 # Stat blocking, jalankan di thread
-                def _get_stat(p: Path):
-                    return p.stat().st_size, p.stat().st_mtime
+                def _get_stat(p: Path) -> tuple[int, float]:
+                    st = p.stat()
+                    return st.st_size, st.st_mtime
+
                 size, mtime = await asyncio.to_thread(_get_stat, wal_file)
                 segments.append(
                     {
@@ -394,8 +411,13 @@ recovery_target_timeline = 'latest'
         latest_backup = backups[0] if backups else None
 
         # Hitung jumlah WAL files
-        def _count_wal():
-            return len(list(self._wal_archive_dir.glob("*.wal"))) if self._wal_archive_dir.exists() else 0
+        def _count_wal() -> int:
+            return (
+                len(list(self._wal_archive_dir.glob("*.wal")))
+                if self._wal_archive_dir.exists()
+                else 0
+            )
+
         wal_count = await asyncio.to_thread(_count_wal)
 
         return {
@@ -428,7 +450,7 @@ async def get_pitr_manager() -> DatabaseRestorePITR:
 # ============================================================================
 
 
-def cli():
+def cli() -> Any:
     """CLI entry point for PITR (Parsing Only)."""
     import argparse
 
@@ -441,7 +463,7 @@ def cli():
     return parser.parse_args()
 
 
-async def run_pitr_cli(args):
+async def run_pitr_cli(args: Any) -> None:
     """Menjalankan operasi PITR secara asynchronous berdasarkan argumen CLI."""
     import json
 
@@ -490,7 +512,7 @@ if __name__ == "__main__":
         asyncio.get_running_loop()
 
         # Deteksi loop aktif: alihkan coroutine CLI ke thread terisolasi dengan loop-nya sendiri
-        def _run_in_thread():
+        def _run_in_thread() -> None:
             thread_loop = asyncio.new_event_loop()
             try:
                 thread_loop.run_until_complete(run_pitr_cli(args))
@@ -504,3 +526,4 @@ if __name__ == "__main__":
     except RuntimeError:
         # Tidak ada event loop aktif, aman untuk memutar loop utama secara langsung
         asyncio.run(run_pitr_cli(args))
+        

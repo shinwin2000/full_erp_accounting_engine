@@ -53,7 +53,12 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             budget_type=entity.budget_type,
             fiscal_year=entity.fiscal_year,
             period=entity.period,
-            version=entity.version,
+            # [FIX] entity.version adalah label string budget (mis. "1.0"),
+            # HARUS dipetakan ke kolom version_label -- bukan ke kolom
+            # `version` milik VersionMixin (Integer, optimistic-lock counter,
+            # yang bukan tanggung jawab repository untuk di-set manual).
+            version_label=entity.version,
+            version=entity.version_number,
             status=entity.status,
             effective_date=entity.effective_date,
             expiry_date=entity.expiry_date,
@@ -83,7 +88,11 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             budget_type=header.budget_type,
             fiscal_year=header.fiscal_year,
             period=header.period,
-            version=header.version,
+            # [FIX] Sebelumnya membaca kolom `version` (Integer, optimistic-lock
+            # counter VersionMixin) ke field string `version`, dan menduplikasi
+            # nilai yang sama ke version_number. Yang benar: label string dari
+            # version_label, dan counter integer dari version.
+            version=header.version_label,
             status=header.status,
             effective_date=header.effective_date,
             expiry_date=header.expiry_date,
@@ -174,7 +183,10 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             header.budget_type = budget.budget_type
             header.fiscal_year = budget.fiscal_year
             header.period = budget.period
-            header.version = budget.version
+            # [FIX] Baris ini sebelumnya menulis label string ke kolom
+            # `version` (int, langsung ditimpa oleh baris di bawah), dan
+            # `version_label` tidak pernah di-update sama sekali.
+            header.version_label = budget.version
             header.status = budget.status
             header.effective_date = budget.effective_date
             header.expiry_date = budget.expiry_date

@@ -21,8 +21,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from domain.budget.aggregate_root import (
+    Budget,
     BudgetAggregate,
     BudgetLine,
+    BudgetLineItem,
     BudgetPeriod,
     BudgetStatus,
     BudgetType,
@@ -307,6 +309,9 @@ class BudgetService:
             created_by=request.created_by,
             notes=request.notes,
             tags=request.tags,
+            # [FIX] version_label yang diberikan client sebelumnya diabaikan
+            # (selalu dipaksa "1.0" di BudgetAggregate.create).
+            version=request.version,
         )
 
         entity = self._aggregate_to_entity(aggregate)
@@ -429,51 +434,11 @@ class BudgetService:
 
     @audit
     async def update_budget(self, request: BudgetUpdateRequest) -> BudgetResponse:
-        entity = await self._budget_repo.get_by_id(request.id)
-        if not entity:
-            raise BudgetNotFoundError(f"Budget {request.id} not found")
-
-        aggregate = BudgetAggregate(
-            id=entity.id,
-            legal_entity_id=entity.legal_entity_id,
-            budget_code=entity.budget_code,
-            budget_name=entity.budget_name,
-            budget_type=BudgetType(entity.budget_type),
-            fiscal_year=entity.fiscal_year,
-            period=BudgetPeriod(entity.period),
-            version=entity.version,
-            status=BudgetStatus(entity.status),
-            effective_date=entity.effective_date,
-            expiry_date=entity.expiry_date,
-            currency=entity.currency,
-            lines=[
-                BudgetLine(
-                    id=line.id,
-                    account_id=line.account_id,
-                    account_code=line.account_code,
-                    amount=line.amount,
-                    note=line.note,
-                    created_at=line.created_at,
-                    updated_at=line.updated_at,
-                )
-                for line in entity.lines
-            ],
-            notes=entity.notes,
-            tags=entity.tags,
-            is_locked=entity.is_locked,
-            created_at=entity.created_at,
-            updated_at=entity.updated_at,
-            created_by=entity.created_by,
-            updated_by=entity.updated_by,
-            approved_at=entity.approved_at,
-            approved_by=entity.approved_by,
-            submitted_at=entity.submitted_at,
-            submitted_by=entity.submitted_by,
-            rejected_at=entity.rejected_at,
-            rejected_by=entity.rejected_by,
-            rejection_reason=entity.rejection_reason,
-            version_number=entity.version_number,
-        )
+        # [FIX] Dulu di sini ada duplikasi konstruksi `BudgetAggregate(...)` dengan
+        # kwargs datar yang salah (lihat penjelasan di `_get_aggregate`). Sekarang
+        # cukup pakai `_get_aggregate` yang sudah benar, sekaligus menghindari
+        # duplikasi kode.
+        aggregate = await self._get_aggregate(request.id)
 
         aggregate.update_info(
             user_id=request.updated_by,
@@ -514,12 +479,14 @@ class BudgetService:
     # WORKFLOW ACTIONS
     # ========================================================================
 
-    async def _get_aggregate(self, budget_id: UUID) -> BudgetAggregate:
-        entity = await self._budget_repo.get_by_id(budget_id)
-        if not entity:
-            raise BudgetNotFoundError(f"Budget {budget_id} not found")
-
-        return BudgetAggregate(
+    def _entity_to_budget(self, entity: BudgetEntity) -> Budget:
+        """
+        [FIX] Bangun value object `Budget` (immutable) dari `BudgetEntity`.
+        Dipakai sebagai satu-satunya tempat untuk merekonstruksi Budget dari
+        data repository, supaya tidak ada lagi konstruksi `BudgetAggregate`
+        dengan kwargs datar yang tidak sesuai dengan `BudgetAggregate.__init__`.
+        """
+        return Budget(
             id=entity.id,
             legal_entity_id=entity.legal_entity_id,
             budget_code=entity.budget_code,
@@ -533,7 +500,7 @@ class BudgetService:
             expiry_date=entity.expiry_date,
             currency=entity.currency,
             lines=[
-                BudgetLine(
+                BudgetLineItem(
                     id=line.id,
                     account_id=line.account_id,
                     account_code=line.account_code,
@@ -560,6 +527,21 @@ class BudgetService:
             rejection_reason=entity.rejection_reason,
             version_number=entity.version_number,
         )
+
+    async def _get_aggregate(self, budget_id: UUID) -> BudgetAggregate:
+        entity = await self._budget_repo.get_by_id(budget_id)
+        if not entity:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        # [FIX] `BudgetAggregate.__init__(self, budget: Budget, version: int = 1)`
+        # membungkus satu objek `Budget`, bukan menerima field-field budget
+        # sebagai kwargs datar. Sebelumnya kode ini memanggil
+        # `BudgetAggregate(id=..., legal_entity_id=..., ...)` yang selalu
+        # menghasilkan TypeError, sehingga SEMUA aksi workflow (submit,
+        # approve, reject, activate, lock, unlock, close, cancel, archive,
+        # add_line, update_line, remove_line) selalu gagal.
+        budget = self._entity_to_budget(entity)
+        return BudgetAggregate(budget, version=entity.version_number)
 
     async def _save_aggregate(self, aggregate: BudgetAggregate) -> None:
         entity = self._aggregate_to_entity(aggregate)
@@ -891,6 +873,17 @@ class BudgetService:
         budget_type: str | None = None,
     ) -> str | bytes:
         """Export budgets to CSV or Excel."""
+        # [FIX] Sebelumnya format="excel" tetap menghasilkan CSV mentah, lalu
+        # router mengirimnya dengan media type xlsx dan nama file berakhiran
+        # ".excel" -- file yang diunduh akan rusak/tidak bisa dibuka di Excel.
+        # Export xlsx sungguhan belum diimplementasikan (butuh dependency
+        # openpyxl yang belum ada di project ini), jadi untuk sekarang kita
+        # tolak secara eksplisit alih-alih diam-diam mengirim file rusak.
+        if format == "excel":
+            raise NotImplementedError(
+                "Export Excel (.xlsx) belum didukung. Gunakan format=csv untuk saat ini."
+            )
+
         budgets = await self.list_budgets(legal_entity_id, fiscal_year=fiscal_year)
         output = io.StringIO()
         writer = csv.writer(output)

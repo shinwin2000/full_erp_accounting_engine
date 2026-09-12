@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+from uuid import UUID  # noqa: F401  (re-exported by modules that import this one)
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -59,7 +60,7 @@ class SLASeverity(str, Enum):
 
 
 # Default SLA thresholds (seconds)
-DEFAULT_SLA_THRESHOLDS = {
+DEFAULT_SLA_THRESHOLDS: dict[SLAProcessType, dict[str, int]] = {
     SLAProcessType.PERIOD_CLOSE: {
         "warning": 300,  # 5 minutes
         "error": 600,  # 10 minutes
@@ -139,12 +140,12 @@ class SLABreachAlerter:
     - Support custom thresholds per legal entity
     """
 
-    def __init__(self, config_path: str = "config_files/sla_config.yaml"):
-        self.config = self._load_config(config_path)
-        self._thresholds = self._load_thresholds()
+    def __init__(self, config_path: str = "config_files/sla_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
+        self._thresholds: dict[SLAProcessType, dict[str, int]] = self._load_thresholds()
         self._active_processes: dict[str, SLAProcess] = {}
         self._compliance_stats: dict[str, dict[str, Any]] = {}
-        self._alert_history: list[dict] = []
+        self._alert_history: list[dict[str, Any]] = []
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
@@ -152,13 +153,23 @@ class SLABreachAlerter:
         except Exception:
             return {}
 
-    def _load_thresholds(self) -> dict[str, dict[str, int]]:
+    def _load_thresholds(self) -> dict[SLAProcessType, dict[str, int]]:
         """Load SLA thresholds from config or use defaults."""
-        config_thresholds = self.config.get("sla_thresholds", {})
-        thresholds = DEFAULT_SLA_THRESHOLDS.copy()
+        config_thresholds: dict[str, Any] = self.config.get("sla_thresholds", {})
 
-        for process_type, process_thresholds in config_thresholds.items():
-            if process_type in thresholds:
+        # Deep-copy defaults so mutations do not affect the module constant
+        thresholds: dict[SLAProcessType, dict[str, int]] = {
+            process_type: dict(values)
+            for process_type, values in DEFAULT_SLA_THRESHOLDS.items()
+        }
+
+        for process_type_str, process_thresholds in config_thresholds.items():
+            try:
+                process_type = SLAProcessType(process_type_str)
+            except ValueError:
+                logger.warning(f"Unknown SLA process type in config: {process_type_str}")
+                continue
+            if process_type in thresholds and isinstance(process_thresholds, dict):
                 thresholds[process_type].update(process_thresholds)
 
         return thresholds
@@ -173,9 +184,13 @@ class SLABreachAlerter:
                 legal_entity_id, {}
             )
             if process_type.value in entity_thresholds:
-                return entity_thresholds[process_type.value]
+                entity_override = entity_thresholds[process_type.value]
+                if isinstance(entity_override, dict):
+                    return entity_override  # type: ignore[no-any-return]
 
-        return self._thresholds.get(process_type, {"warning": 60, "error": 120, "critical": 300})
+        return self._thresholds.get(
+            process_type, {"warning": 60, "error": 120, "critical": 300}
+        )
 
     def start_process(
         self,
@@ -183,7 +198,7 @@ class SLABreachAlerter:
         process_id: str,
         legal_entity_id: str | None = None,
         user_id: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Start monitoring a process.
@@ -235,7 +250,9 @@ class SLABreachAlerter:
         # Remove from active
         del self._active_processes[process_key]
 
-        logger.info(f"SLA monitoring completed for {process_key}: {process.duration_seconds:.2f}s")
+        logger.info(
+            f"SLA monitoring completed for {process_key}: {process.duration_seconds:.2f}s"
+        )
         return process
 
     def _check_sla_breach(self, process: SLAProcess) -> None:
@@ -249,7 +266,7 @@ class SLABreachAlerter:
             return
 
         # Determine severity level
-        severity = None
+        severity: SLASeverity | None = None
         if duration > thresholds.get("critical", 300):
             severity = SLASeverity.CRITICAL
         elif duration > thresholds.get("error", 120):
@@ -333,6 +350,9 @@ class SLABreachAlerter:
         thresholds = self._get_thresholds(process.process_type, process.legal_entity_id)
         duration = process.duration_seconds
 
+        if duration is None:
+            return
+
         if duration <= thresholds.get("warning", 60):
             stats["compliant"] += 1
         elif duration <= thresholds.get("error", 120):
@@ -346,12 +366,14 @@ class SLABreachAlerter:
         stats["compliance_rate"] = (stats["compliant"] / stats["total"]) * 100
 
     def get_compliance_stats(
-        self, process_type: SLAProcessType | None = None, legal_entity_id: str | None = None
+        self,
+        process_type: SLAProcessType | None = None,
+        legal_entity_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Get SLA compliance statistics.
         """
-        results = {}
+        results: dict[str, Any] = {}
         for key, stats in self._compliance_stats.items():
             key_parts = key.split(":")
             key_type = key_parts[0]
@@ -366,7 +388,7 @@ class SLABreachAlerter:
 
         return results
 
-    def get_alert_history(self, limit: int = 100) -> list[dict]:
+    def get_alert_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get SLA breach alert history."""
         return self._alert_history[-limit:]
 
@@ -445,8 +467,8 @@ class SLAMonitor:
         process_id: str,
         legal_entity_id: str | None = None,
         user_id: str | None = None,
-        metadata: dict | None = None,
-    ):
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.process_type = process_type
         self.process_id = process_id
         self.legal_entity_id = legal_entity_id
@@ -455,13 +477,22 @@ class SLAMonitor:
         self._process_key: str | None = None
         self._alerter = get_sla_alerter()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "SLAMonitor":
         self._process_key = self._alerter.start_process(
-            self.process_type, self.process_id, self.legal_entity_id, self.user_id, self.metadata
+            self.process_type,
+            self.process_id,
+            self.legal_entity_id,
+            self.user_id,
+            self.metadata,
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         if self._process_key:
             self._alerter.complete_process(self._process_key)
 

@@ -12,14 +12,14 @@ import logging
 import os
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from config.loader_yaml import load_yaml_config
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "level": "INFO",
     "format": "json",
     "json_ensure_ascii": False,
@@ -34,10 +34,10 @@ DEFAULT_CONFIG = {
 
 
 class StructuredJsonLogger:
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
         self._logger = logging.getLogger(name)
-        self._config = self._load_config()
+        self._config: dict[str, Any] = self._load_config()
         self._configure()
 
     def _load_config(self) -> dict[str, Any]:
@@ -51,6 +51,10 @@ class StructuredJsonLogger:
         level = getattr(logging, self._config.get("level", "INFO").upper())
         self._logger.setLevel(level)
         self._logger.handlers.clear()
+        # Anotasi eksplisit ``logging.Formatter`` agar mypy tidak mengunci tipe
+        # dari assignment pertama (CustomJsonFormatter) lalu menolak
+        # reassignment dengan base class Formatter di cabang ``else``.
+        formatter: logging.Formatter
         if self._config.get("format") == "json":
             formatter = CustomJsonFormatter()
         else:
@@ -93,8 +97,8 @@ class StructuredJsonLogger:
         except ImportError:
             return None
 
-    def _add_context(self, extra: dict | None = None) -> dict:
-        context = {"correlation_id": self._get_current_correlation_id()}
+    def _add_context(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        context: dict[str, Any] = {"correlation_id": self._get_current_correlation_id()}
         if self._config.get("include_user_id", True):
             uid = self._get_current_user_id()
             if uid:
@@ -107,32 +111,43 @@ class StructuredJsonLogger:
             context.update(extra)
         return context
 
-    def debug(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def debug(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.debug(message, extra=self._add_context(extra), **kwargs)
 
-    def info(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def info(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.info(message, extra=self._add_context(extra), **kwargs)
 
-    def warning(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def warning(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.warning(message, extra=self._add_context(extra), **kwargs)
 
-    def error(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def error(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.error(message, extra=self._add_context(extra), **kwargs)
 
-    def critical(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def critical(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.critical(message, extra=self._add_context(extra), **kwargs)
 
-    def exception(self, message: str, extra: dict | None = None, **kwargs) -> None:
+    def exception(self, message: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self._logger.exception(message, extra=self._add_context(extra), **kwargs)
 
-    def log(self, level: int, message: str, extra: dict | None = None, **kwargs) -> None:
+    def log(
+        self, level: int, message: str, extra: dict[str, Any] | None = None, **kwargs: Any
+    ) -> None:
         self._logger.log(level, message, extra=self._add_context(extra), **kwargs)
 
 
 class CustomJsonFormatter(logging.Formatter):
-    def __init__(self, fmt: dict | None = None, style: str = "%", validate: bool = True):
+    def __init__(
+        self,
+        fmt: dict[str, Any] | None = None,
+        style: Literal["%", "{", "$"] = "%",
+        validate: bool = True,
+    ) -> None:
+        # ``style`` di-parent ``Formatter`` bertipe ``Literal["%", "{", "$"]``,
+        # bukan ``str``. Anotasi di sini menyempitkan tipe agar kompatibel.
         super().__init__(style=style, validate=validate)
-        self._fmt = fmt  # not used, but kept for compatibility
+        # Simpan sebagai atribut privat terpisah — jangan overwrite
+        # ``self._fmt`` milik parent (bertipe ``str | None``).
+        self._custom_fmt = fmt
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         # Manual ISO format with microseconds, works on all platforms
@@ -151,7 +166,7 @@ class CustomJsonFormatter(logging.Formatter):
         return str(uuid4())
 
     def format(self, record: logging.LogRecord) -> str:
-        log_entry = {
+        log_entry: dict[str, Any] = {
             "timestamp": self.formatTime(record),
             "level": record.levelname,
             "logger": record.name,
@@ -200,20 +215,27 @@ def configure_root_logger(level: str = "INFO") -> None:
 
 
 class LogContext:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self._context = kwargs
-        self._previous_context = None
+        self._previous_context: dict[str, Any] | None = None
+        self._current_context: dict[str, Any] = {}
 
-    def __enter__(self):
-        self._previous_context = getattr(self, "_current_context", {}).copy()
+    def __enter__(self) -> "LogContext":
+        self._previous_context = self._current_context.copy()
         self._current_context = self._context
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._current_context = self._previous_context
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        if self._previous_context is not None:
+            self._current_context = self._previous_context
 
 
-def setup_logging(level: str = "INFO", **kwargs) -> None:
+def setup_logging(level: str = "INFO", **kwargs: Any) -> None:
     """Alias / wrapper untuk configure_root_logger demi kompatibilitas daur hidup ASGI."""
     configure_root_logger(level=level)
 

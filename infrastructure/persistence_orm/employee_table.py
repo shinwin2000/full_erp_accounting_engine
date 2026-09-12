@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -48,7 +48,11 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     Model untuk tabel employee.
     """
 
-    __tablename__ = "employee"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "employee"  # type: ignore[assignment]
     __table_args__ = (
         # NOTE: uniqueness for employee_code/nik/email/tax_id is enforced via
         # partial unique indexes below (scoped to deleted_at IS NULL), not
@@ -271,7 +275,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         return self.employment_status == "resigned"
 
     @staticmethod
-    def _as_decimal(value) -> Decimal:
+    def _as_decimal(value: Any) -> Decimal:
         """Cast numeric column values yang aman ke Decimal.
 
         SQLAlchemy tidak selalu mengoersi nilai Python-side default/assigned
@@ -386,13 +390,17 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             self.special_leave_balance -= days
         self.increment_version()
 
-    def reset_leave_balance(self, annual_days: Decimal = 12, sick_days: Decimal = 14) -> None:
+    def reset_leave_balance(
+        self,
+        annual_days: Decimal = Decimal("12"),
+        sick_days: Decimal = Decimal("14"),
+    ) -> None:
         self.annual_leave_balance = annual_days
         self.sick_leave_balance = sick_days
-        self.special_leave_balance = 0
+        self.special_leave_balance = Decimal("0")
         self.increment_version()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "employee_code": self.employee_code,

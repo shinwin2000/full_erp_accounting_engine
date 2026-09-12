@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 
 class InventoryBatchTable(Base, TimestampMixin, VersionMixin, LegalEntityMixin):
-    __tablename__ = "inventory_batch"
+    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
+    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
+    # Subclass menimpanya dengan string literal — assignment yang secara tipe
+    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
+    __tablename__ = "inventory_batch"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("item_id", "batch_number", "warehouse_id", name="uq_inventory_batch_item_number_wh"),
         CheckConstraint("batch_number IS NOT NULL AND batch_number != ''", name="ck_inventory_batch_number"),
@@ -67,7 +71,7 @@ class InventoryBatchTable(Base, TimestampMixin, VersionMixin, LegalEntityMixin):
 
         return bool(self.expired_date and self.expired_date < _date.today())
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "item_id": str(self.item_id),

@@ -26,7 +26,7 @@ from uuid import UUID, uuid4
 
 from domain.bank_cash.bank_account_entity import BankAccount, BankAccountStatus, BankAccountType
 from domain.bank_cash.bank_aggregate_root import BankAggregate
-from domain.bank_cash.bank_reconciliation_engine import BankReconciliationEngine
+from domain.bank_cash.bank_reconciliation_engine import BankReconciliationEngine, ReconciliationStatus
 from domain.bank_cash.bank_transaction_entity import (
     BankTransaction,
     TransactionStatus,
@@ -297,6 +297,31 @@ class BankReconciliationDetailResponse:
     version: int = 1
     completed_at: datetime | None = None
     completed_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class SimpleTransferResult:
+    """Nilai balik SEMENTARA (in-memory saja, tidak pernah disimpan ke
+    tabel apapun) dari transfer_between_accounts() - dipakai untuk
+    membangun BankTransferResponse. Sengaja TIDAK memakai
+    `BankTransferEntity` (domain/bank_cash/bank_transfer_entity.py)
+    karena entity itu jauh lebih rumit (wajib transfer_number,
+    transfer_type, from_account_number, dst - dirancang untuk transfer
+    yang benar-benar dipersist sebagai baris sendiri), sedangkan desain
+    transfer di sini murni sepasang bank_transaction (lihat catatan di
+    transfer_between_accounts) - memakai entity asli di sini cuma bikin
+    TypeError kwarg tidak dikenali."""
+    id: UUID
+    legal_entity_id: UUID
+    from_account_id: UUID
+    to_account_id: UUID
+    amount: Decimal
+    transfer_date: date
+    description: str
+    status: TransferStatus
+    created_by: UUID
+    created_at: datetime
+    completed_at: datetime | None = None
 
 
 @dataclass(kw_only=True)
@@ -1283,16 +1308,31 @@ class BankCashService:
             request.bank_account_id, request.statement_date
         )
 
-        result = self._reconciliation_engine.match(
-            system_transactions=transactions,
-            statement_transactions=request.statement_transactions,
-            system_balance=system_balance,
+        # PENTING (fix): sebelumnya memanggil
+        # self._reconciliation_engine.match(...) - method itu TIDAK ADA
+        # SAMA SEKALI di BankReconciliationEngine (nama method aslinya
+        # `reconcile`, dengan parameter & hasil balik yang bentuknya
+        # beda total - ReconciliationResult, bukan objek dengan atribut
+        # matched_system_ids/is_matched/matched_count/
+        # unmatched_system_ids/unmatched_statement_refs yang tidak
+        # pernah ada). Diperbaiki menyesuaikan API asli engine ini.
+        result = self._reconciliation_engine.reconcile(
+            account_id=request.bank_account_id,
+            book_transactions=transactions,
             statement_balance=request.statement_ending_balance,
+            statement_date=datetime.combine(request.statement_date, datetime.min.time()),
+            statement_transactions=request.statement_transactions,
+            reconciled_by=str(request.user_id),
         )
+
+        matched_transaction_ids = [
+            item.transaction_id for item in result.matched_items if item.transaction_id
+        ]
+        is_matched = result.status in (ReconciliationStatus.BALANCED, ReconciliationStatus.APPROVED)
 
         matched_ids = []
         for tx in transactions:
-            if tx.transaction_id in result.matched_system_ids:
+            if tx.transaction_id in matched_transaction_ids:
                 tx.is_reconciled = True
                 tx.reconciled_at = datetime.now(UTC)
                 matched_ids.append(tx.transaction_id)
@@ -1323,12 +1363,12 @@ class BankCashService:
             statement_balance=request.statement_ending_balance,
             system_balance=system_balance,
             difference=result.difference,
-            is_matched=result.is_matched,
-            matched_count=result.matched_count,
+            is_matched=is_matched,
+            matched_count=len(result.matched_items),
             reconciliation_date=datetime.now(UTC),
             reconciled_by=request.user_id,
-            unmatched_system_count=len(result.unmatched_system_ids),
-            unmatched_statement_count=len(result.unmatched_statement_refs),
+            unmatched_system_count=len(result.book_only_items),
+            unmatched_statement_count=len(result.bank_only_items),
         )
 
         if self._uow and getattr(self._uow, "_is_active", False):
@@ -1364,10 +1404,12 @@ class BankCashService:
             system_balance=system_balance,
             statement_balance=request.statement_ending_balance,
             difference=result.difference,
-            is_matched=result.is_matched,
-            matched_count=result.matched_count,
-            unmatched_system_ids=result.unmatched_system_ids,
-            unmatched_statement_refs=result.unmatched_statement_refs,
+            is_matched=is_matched,
+            matched_count=len(result.matched_items),
+            unmatched_system_ids=[
+                item.transaction_id for item in result.book_only_items if item.transaction_id
+            ],
+            unmatched_statement_refs=[item.reference for item in result.bank_only_items],
         )
 
     async def reconcile_bank_account_detailed(
@@ -1544,7 +1586,13 @@ class BankCashService:
             )
             await self.record_transaction(in_request, user_id=user_id, correlation_id=correlation_id)
 
-            transfer = BankTransfer(
+            # PENTING (fix): sebelumnya memakai BankTransferEntity (alias
+            # BankTransfer) yang constructor-nya menolak kwarg 'id' (PK
+            # aslinya bernama transfer_id, plus banyak field wajib lain
+            # yang tidak relevan di sini) - selalu gagal TypeError.
+            # Diganti SimpleTransferResult yang memang dibuat khusus
+            # untuk nilai balik in-memory alur ini.
+            transfer = SimpleTransferResult(
                 id=transfer_id,
                 legal_entity_id=from_agg.legal_entity_id,
                 from_account_id=from_account_id,
@@ -2285,6 +2333,15 @@ class BankCashService:
         })
 
         return fund
+
+    async def get_petty_cash_funds(self, legal_entity_id: UUID) -> list[PettyCashFund]:
+        """FIX: fastapi_bank_cash_router.py (list_petty_cash_funds, route
+        GET /petty-cash yang baru ditambahkan) memanggil
+        `service.get_petty_cash_funds(...)`, padahal method ini
+        sebelumnya tidak ada di SERVICE ini sama sekali - yang ada cuma
+        versi di REPOSITORY (`self._bank_repo.get_petty_cash_funds`).
+        Method ini sekadar meneruskan ke situ."""
+        return await self._bank_repo.get_petty_cash_funds(legal_entity_id)
 
     @audit
     async def adjust_petty_cash(

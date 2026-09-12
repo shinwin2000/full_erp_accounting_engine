@@ -493,7 +493,7 @@ class InventoryService:
             sku=request.sku,
             name=request.name,
             description=request.description,
-            item_type=ItemType(request.item_type),
+            item_type=ItemType.from_string(request.item_type),
             unit_of_measure=UnitOfMeasure(request.uom),
             current_stock=Decimal("0"),
             current_stock_value=Decimal("0"),
@@ -577,7 +577,7 @@ class InventoryService:
             changes["description"] = {"old": item.description, "new": request.description}
             item.description = request.description
         if request.item_type is not None:
-            new_type = ItemType(request.item_type)
+            new_type = ItemType.from_string(request.item_type)
             if new_type != item.item_type:
                 changes["item_type"] = {"old": item.item_type.value, "new": new_type.value}
                 item.item_type = new_type
@@ -1556,8 +1556,8 @@ class InventoryService:
             unit_of_measure=item.unit_of_measure.value,
             brand=getattr(item, "brand", None),
             reorder_quantity=getattr(item, "reorder_quantity", Decimal("0")) or Decimal("0"),
-            min_stock=getattr(item, "minimum_stock", None),
-            max_stock=getattr(item, "maximum_stock", None),
+            min_stock=getattr(item, "minimum_stock", None) or Decimal("0"),
+            max_stock=getattr(item, "maximum_stock", None) or Decimal("0"),
             valuation_method=getattr(item, "valuation_method", None) or "FIFO",
             is_active=item.is_active,
             is_locked=False,  # belum dimodelkan di domain Item - default aman
@@ -1566,7 +1566,7 @@ class InventoryService:
             last_purchase_price=item.last_cost or None,
             last_purchase_date=None,  # belum ada kolom tanggal pembelian terakhir di domain
             total_value=item.current_stock_value,
-            updated_at=item.updated_at,
+            updated_at=item.updated_at or item.created_at,
             created_by=getattr(item, "created_by", None),
             created_by_name=None,  # butuh join ke user - belum diimplementasikan
             version=getattr(item, "version", 1),

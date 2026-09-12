@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 from uuid import UUID
 
 from config.loader_yaml import load_yaml_config
@@ -44,7 +44,7 @@ REDIS_SOD_CACHE_PREFIX = "sod:check:"
 SOD_CHECK_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 # Default SoD rules (can be overridden by config)
-DEFAULT_SOD_RULES = [
+DEFAULT_SOD_RULES: list[dict[str, Any]] = [
     # Journal related
     {
         "id": "SOD_JOURNAL_001",
@@ -154,21 +154,26 @@ DEFAULT_SOD_RULES = [
 # EXCEPTIONS
 # ============================================================================
 
+
 class SODConstraintError(Exception):
     """Base exception untuk SoD constraint checker."""
+
     pass
+
 
 class SODViolationError(SODConstraintError):
     """Terjadi pelanggaran Separation of Duties."""
 
-    def __init__(self, user_id: UUID, violations: list[dict[str, Any]]):
+    def __init__(self, user_id: UUID, violations: list[dict[str, Any]]) -> None:
         self.user_id = user_id
         self.violations = violations
         super().__init__(f"SoD violations for user {user_id}: {len(violations)} violation(s)")
 
+
 # ============================================================================
 # SOD CONSTRAINT CHECKER
 # ============================================================================
+
 
 class SODConstraintChecker:
     """
@@ -189,14 +194,14 @@ class SODConstraintChecker:
     - reload_rules() - Reload aturan dari konfigurasi
     """
 
-    def __init__(self, config_path: str = "config_files/security_config.yaml"):
+    def __init__(self, config_path: str = "config_files/security_config.yaml") -> None:
         self._config_path = config_path
-        self.config = self._load_config(config_path)
-        self._rules = self._load_rules()
+        self.config: dict[str, Any] = self._load_config(config_path)
+        self._rules: list[dict[str, Any]] = self._load_rules()
         self._redis_manager: RedisManager | None = None
         self._rbac_enforcer: RBACEnforcer | None = None
         self._user_repo: IAMUserRepositoryPort | None = None
-        self._violation_cache: dict[str, list[dict]] = {}
+        self._violation_cache: dict[str, list[dict[str, Any]]] = {}
         self._logger = logging.getLogger(f"{__name__}.SODConstraintChecker")
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
@@ -211,7 +216,7 @@ class SODConstraintChecker:
         """
         Load SoD rules from config or use defaults.
         """
-        rules = self.config.get("rules", DEFAULT_SOD_RULES)
+        rules: list[dict[str, Any]] = self.config.get("rules", DEFAULT_SOD_RULES)
         # Filter enabled rules
         return [r for r in rules if r.get("enabled", True)]
 
@@ -228,7 +233,9 @@ class SODConstraintChecker:
     async def _get_user_repo(self) -> IAMUserRepositoryPort:
         if self._user_repo is None:
             # Dynamic import to avoid architecture layer violation (P08)
-            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            get_container = __import__(
+                "bootstrap.dependency_container.ioc_container", fromlist=["get_container"]
+            ).get_container
             container = get_container()
             self._user_repo = container.resolve(IAMUserRepositoryPort)
         return self._user_repo
@@ -262,7 +269,7 @@ class SODConstraintChecker:
         cached = await redis.get(cache_key)
 
         if cached:
-            violations = json.loads(cached)
+            violations: list[dict[str, Any]] = json.loads(cached)
             self._violation_cache[str(user_id)] = violations
             return violations
 
@@ -289,9 +296,13 @@ class SODConstraintChecker:
                     }
                 )
 
-        # Cache result
+        # Cache result.
+        # RedisManager hanya mengekspos ``set`` dan ``expire`` secara terpisah
+        # (tidak ada ``setex`` maupun keyword ``ex``). Gunakan pola
+        # ``set`` + ``expire`` — ekuivalen dengan SET + EXPIRE.
         ttl = self.config.get("cache_ttl_seconds", SOD_CHECK_CACHE_TTL_SECONDS)
-        await redis.setex(cache_key, ttl, json.dumps(violations))
+        await redis.set(cache_key, json.dumps(violations))
+        await redis.expire(cache_key, ttl)
         self._violation_cache[str(user_id)] = violations
 
         # Alert for critical violations
@@ -319,7 +330,7 @@ class SODConstraintChecker:
 
     async def check_users_batch(
         self, user_ids: list[UUID], legal_entity_id: UUID | None = None
-    ) -> dict[UUID, list[dict]]:
+    ) -> dict[UUID, list[dict[str, Any]]]:
         """
         Check SoD violations for multiple users.
 
@@ -329,12 +340,14 @@ class SODConstraintChecker:
         if not user_ids:
             return {}
 
-        results = {}
+        results: dict[UUID, list[dict[str, Any]]] = {}
         for user_id in user_ids:
             results[user_id] = await self.check_user(user_id, legal_entity_id)
         return results
 
-    async def check_permission_combination(self, permissions: list[str]) -> list[dict[str, Any]]:
+    async def check_permission_combination(
+        self, permissions: list[str]
+    ) -> list[dict[str, Any]]:
         """
         Check if a combination of permissions violates any SoD rule.
         """
@@ -342,7 +355,7 @@ class SODConstraintChecker:
             return []
 
         permission_set = set(permissions)
-        violations = []
+        violations: list[dict[str, Any]] = []
 
         for rule in self._rules:
             conflicting_perms = rule.get("conflicting_permissions", [])
@@ -453,11 +466,13 @@ class SODConstraintChecker:
         await self.clear_cache()
         self._logger.info("SoD rules reloaded")
 
+
 # ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
 _sod_checker: SODConstraintChecker | None = None
+
 
 async def get_sod_checker() -> SODConstraintChecker:
     """Get singleton instance of SODConstraintChecker."""
@@ -466,24 +481,29 @@ async def get_sod_checker() -> SODConstraintChecker:
         _sod_checker = SODConstraintChecker()
     return _sod_checker
 
+
 # ============================================================================
 # DECORATOR
 # ============================================================================
 
-def enforce_sod():
+_F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
+
+
+def enforce_sod() -> Callable[[_F], _F]:
     """
     Decorator untuk memeriksa SoD sebelum menjalankan fungsi.
     """
 
-    def decorator(func):
-        async def wrapper(user_id: UUID, *args, **kwargs):
+    def decorator(func: _F) -> _F:
+        async def wrapper(user_id: UUID, *args: Any, **kwargs: Any) -> Any:
             checker = await get_sod_checker()
             await checker.enforce(user_id)
             return await func(user_id, *args, **kwargs)
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
+
 
 # ============================================================================
 # EXPORTS

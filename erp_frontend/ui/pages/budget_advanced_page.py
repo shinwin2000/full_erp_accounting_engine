@@ -96,7 +96,16 @@ class DashboardTab(QWidget):
         outer.addWidget(self.status_label)
 
     def refresh(self) -> None:
-        run_task(api_client.get, on_success=self._on_loaded, on_error=self._on_error, path=f"{BASE}/dashboard")
+        # [FIX] Sebelumnya tidak mengirim as_of_date sama sekali, cocok dengan
+        # log backend yang selalu 422 "Field required: as_of_date". Backend
+        # sekarang sudah default ke hari ini kalau parameter ini kosong, tapi
+        # tetap dikirim eksplisit di sini supaya jelas dan tidak bergantung
+        # semata-mata pada default sisi server.
+        from datetime import date
+        run_task(
+            api_client.get, on_success=self._on_loaded, on_error=self._on_error,
+            path=f"{BASE}/dashboard", params={"as_of_date": date.today().isoformat()},
+        )
 
     def _on_loaded(self, data: Any) -> None:
         data = data or {}

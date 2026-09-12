@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any
+from typing import Any, TypeVar
 
 # Try to import prometheus_client
 try:
@@ -30,70 +31,74 @@ try:
 except ImportError:
     PROMETHEUS_AVAILABLE = False
 
-    # Create dummy classes
-    class Counter:
-        def __init__(self, *args, **kwargs):
+    # Dummy classes untuk fallback saat prometheus_client tidak tersedia.
+    # ``# type: ignore[no-redef]`` diperlukan karena mypy melihat kedua
+    # definisi (import di blok try + class di blok except) dan menganggap
+    # yang kedua sebagai redefinisi — padahal secara runtime hanya satu
+    # yang aktif.
+    class Counter:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def inc(self, *args, **kwargs):
+        def inc(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def labels(self, *args, **kwargs):
+        def labels(self, *args: Any, **kwargs: Any) -> "Counter":
             return self
 
-    class Gauge:
-        def __init__(self, *args, **kwargs):
+    class Gauge:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def set(self, *args, **kwargs):
+        def set(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def inc(self, *args, **kwargs):
+        def inc(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def dec(self, *args, **kwargs):
+        def dec(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def labels(self, *args, **kwargs):
+        def labels(self, *args: Any, **kwargs: Any) -> "Gauge":
             return self
 
-    class Histogram:
-        def __init__(self, *args, **kwargs):
+    class Histogram:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def observe(self, *args, **kwargs):
+        def observe(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def labels(self, *args, **kwargs):
+        def labels(self, *args: Any, **kwargs: Any) -> "Histogram":
             return self
 
-    class Summary:
-        def __init__(self, *args, **kwargs):
+    class Summary:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def observe(self, *args, **kwargs):
+        def observe(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def labels(self, *args, **kwargs):
+        def labels(self, *args: Any, **kwargs: Any) -> "Summary":
             return self
 
-    class Info:
-        def __init__(self, *args, **kwargs):
+    class Info:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def info(self, *args, **kwargs):
+        def info(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-    class Enum:
-        def __init__(self, *args, **kwargs):
+    class Enum:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def state(self, *args, **kwargs):
+        def state(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-    REGISTRY = None
+    REGISTRY = None  # type: ignore[assignment]
 
-    def start_http_server(port, addr=""):
+    def start_http_server(port: int, addr: str = "") -> None:  # type: ignore[misc]
         pass
 
 
@@ -103,7 +108,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_BUCKETS = (
+DEFAULT_BUCKETS: list[float] = [
     0.005,
     0.01,
     0.025,
@@ -119,8 +124,8 @@ DEFAULT_BUCKETS = (
     7.5,
     10.0,
     float("inf"),
-)
-BATCH_BUCKETS = (1, 2, 5, 10, 20, 50, 100, 250, 500, float("inf"))
+]
+BATCH_BUCKETS: list[float] = [1, 2, 5, 10, 20, 50, 100, 250, 500, float("inf")]
 
 # ============================================================================
 # METRIC REGISTRY
@@ -139,7 +144,7 @@ class PrometheusMetricRegistry:
     - Metrics listing
     """
 
-    def __init__(self, namespace: str = "erp"):
+    def __init__(self, namespace: str = "erp") -> None:
         self.namespace = namespace
         self._metrics: dict[str, Any] = {}
         self._registry = REGISTRY
@@ -283,7 +288,7 @@ class PrometheusMetricRegistry:
         """
         return list(self._metrics.keys())
 
-    def get_registry(self):
+    def get_registry(self) -> Any:
         """
         Get the underlying Prometheus registry.
         """
@@ -526,8 +531,12 @@ async def flush() -> None:
 # DECORATORS
 # ============================================================================
 
+_F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
 
-def timed_metric(metric_name: str, labelnames: list[str] | None = None):
+
+def timed_metric(
+    metric_name: str, labelnames: list[str] | None = None
+) -> Callable[[_F], _F]:
     """
     Decorator untuk mengukur durasi fungsi.
 
@@ -537,9 +546,9 @@ def timed_metric(metric_name: str, labelnames: list[str] | None = None):
             ...
     """
 
-    def decorator(func):
+    def decorator(func: _F) -> _F:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             import time
 
             start = time.time()
@@ -548,7 +557,7 @@ def timed_metric(metric_name: str, labelnames: list[str] | None = None):
                 duration = time.time() - start
 
                 # Get label values from kwargs
-                labels = {}
+                labels: dict[str, str] = {}
                 if labelnames:
                     for label in labelnames:
                         labels[label] = str(kwargs.get(label, "default"))
@@ -564,26 +573,28 @@ def timed_metric(metric_name: str, labelnames: list[str] | None = None):
                 duration = time.time() - start
                 metric = get_histogram(metric_name, f"Duration of {func.__name__}", labelnames)
                 if labelnames:
-                    metric.labels(**{label: str(kwargs.get(label, "default")) for label in labelnames}).observe(
-                        duration
-                    )
+                    metric.labels(
+                        **{label: str(kwargs.get(label, "default")) for label in labelnames}
+                    ).observe(duration)
                 else:
                     metric.observe(duration)
                 raise
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
 
-def count_metric(metric_name: str, labelnames: list[str] | None = None):
+def count_metric(
+    metric_name: str, labelnames: list[str] | None = None
+) -> Callable[[_F], _F]:
     """
     Decorator untuk menghitung jumlah panggilan fungsi.
     """
 
-    def decorator(func):
+    def decorator(func: _F) -> _F:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             metric = get_counter(metric_name, f"Count of {func.__name__}", labelnames)
             if labelnames:
                 labels = {label: str(kwargs.get(label, "default")) for label in labelnames}
@@ -592,19 +603,21 @@ def count_metric(metric_name: str, labelnames: list[str] | None = None):
                 metric.inc()
             return await func(*args, **kwargs)
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
 
-def error_metric(metric_name: str, labelnames: list[str] | None = None):
+def error_metric(
+    metric_name: str, labelnames: list[str] | None = None
+) -> Callable[[_F], _F]:
     """
     Decorator untuk menghitung error pada fungsi.
     """
 
-    def decorator(func):
+    def decorator(func: _F) -> _F:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             metric = get_counter(metric_name, f"Error count of {func.__name__}", labelnames)
             try:
                 return await func(*args, **kwargs)
@@ -616,7 +629,7 @@ def error_metric(metric_name: str, labelnames: list[str] | None = None):
                     metric.inc()
                 raise
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 

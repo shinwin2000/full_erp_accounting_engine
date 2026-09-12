@@ -447,6 +447,33 @@ class ServiceRegistrar:
             container.register_singleton(SystemSettingsService, factory=_create_system_settings_service)
             logger.info("SystemSettingsService registered")
 
+            # ----- Registrasi PurchaseSalesService (FIX: sama seperti
+            # SystemSettingsService di atas -- sebelumnya TIDAK PERNAH
+            # terdaftar sama sekali, padahal fastapi_purchase_sales_router.py
+            # (endpoint Purchase Order & Sales Order, modul "Pembelian &
+            # Penjualan") memanggil container.resolve_async(PurchaseSalesService)
+            # di get_purchase_sales_service(). Akibatnya SEMUA endpoint PO/SO
+            # (GET/POST .../purchase-orders, .../sales-orders, dst) selalu
+            # gagal dengan DependencyNotFoundError, yang oleh auth middleware
+            # ditampilkan sebagai 401 Unauthorized -- bukan 500 -- sehingga
+            # gejalanya menyesatkan (terlihat seperti masalah login/token,
+            # padahal service-nya memang belum pernah didaftarkan).
+            # Constructor-nya hanya butuh EventPublisherPort opsional, jadi
+            # factory kecil ini meniru pola CapitalService/SystemSettingsService
+            # di atas. -----
+            from application.service_layer.service_purchase_sales import PurchaseSalesService
+
+            async def _create_purchase_sales_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return PurchaseSalesService(event_publisher=event_publisher)
+
+            container.register_singleton(PurchaseSalesService, factory=_create_purchase_sales_service)
+            logger.info("PurchaseSalesService registered")
+
             # ----- Registrasi FiscalPeriodService dengan dependensi lengkap -----
             # Daftarkan repository dan port-nya terlebih dahulu
             from adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl import (

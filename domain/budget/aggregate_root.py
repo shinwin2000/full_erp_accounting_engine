@@ -385,7 +385,6 @@ class BudgetAggregate:
     """
 
     # Untuk kepatuhan static checker (type hints only)
-    version: int
     id: UUID
 
     _snapshots: ClassVar[list[dict[str, Any]]] = []
@@ -398,14 +397,42 @@ class BudgetAggregate:
         self._take_snapshot()
         # Untuk kepatuhan static checker: set instance attributes
         self.id = budget.id
-        self.version = version
+
+    def __getattr__(self, name: str) -> Any:
+        # [FIX] Delegasikan akses field Budget yang tidak dideklarasikan eksplisit
+        # di aggregate (mis. budget_code, budget_name, status, lines, dst.) ke
+        # objek Budget yang dibungkus. __getattr__ hanya dipanggil ketika lookup
+        # normal (instance dict / properti / class dict) gagal.
+        budget = self.__dict__.get("_budget")
+        if budget is not None:
+            try:
+                return getattr(budget, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
     def budget(self) -> Budget:
         return self._budget
 
-    # Properties for version and id are redundant because they are instance attributes;
-    # we keep them only as attributes, not properties, to avoid conflict.
+    @property
+    def version(self) -> str:
+        """
+        [FIX] Label versi budget (mis. "1.0"), diambil dari Budget yang dibungkus.
+        Sebelumnya field ini adalah instance attribute int yang bentrok dengan
+        counter versi teknis (_version), sehingga label versi budget selalu
+        tertimpa oleh angka counter internal setiap kali status berubah.
+        """
+        return self._budget.version
+
+    @property
+    def version_number(self) -> int:
+        """[FIX] Nomor versi teknis (optimistic concurrency / event counter)."""
+        return self._version
+
+    @property
+    def lines(self) -> list[BudgetLineItem]:
+        return self._budget.lines
 
     @property
     def total_amount(self) -> Decimal:
@@ -429,6 +456,7 @@ class BudgetAggregate:
         created_by: UUID,
         notes: str | None = None,
         tags: list[str] | None = None,
+        version: str = "1.0",
     ) -> Self:
         """Factory untuk membuat budget baru dengan status DRAFT."""
         line_items = [line.to_line_item() for line in lines]
@@ -441,7 +469,9 @@ class BudgetAggregate:
             budget_type=budget_type,
             fiscal_year=fiscal_year,
             period=period,
-            version="1.0",
+            # [FIX] Sebelumnya hardcoded "1.0" sehingga version_label yang
+            # dikirim client (BudgetCreateRequest.version) selalu diabaikan.
+            version=version,
             status=BudgetStatus.DRAFT,
             effective_date=effective_date,
             expiry_date=expiry_date,
@@ -546,7 +576,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit(f"STATUS_CHANGE_{old_status.value}_TO_{new_status.value}", str(user_id), {
@@ -582,7 +611,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("SUBMIT", str(user_id), {"notes": notes})
@@ -622,7 +650,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("APPROVE", str(user_id), {"notes": notes})
@@ -663,7 +690,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("REJECT", str(user_id), {"reason": reason})
@@ -704,7 +730,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("ACTIVATE", str(user_id), {})
@@ -732,7 +757,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("LOCK", str(user_id), {"reason": reason})
@@ -762,7 +786,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("UNLOCK", str(user_id), {})
@@ -789,7 +812,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("CLOSE", str(user_id), {})
@@ -826,7 +848,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("CANCEL", str(user_id), {"reason": reason})
@@ -865,7 +886,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("ARCHIVE", str(user_id), {})
@@ -920,7 +940,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("UPDATE_INFO", str(user_id), {
@@ -959,7 +978,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("ADD_LINE", str(user_id), {
@@ -1022,7 +1040,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("UPDATE_LINE", str(user_id), {
@@ -1069,7 +1086,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("REMOVE_LINE", str(user_id), {
@@ -1107,7 +1123,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("REVISE", str(user_id), {"reason": reason})
@@ -1260,7 +1275,6 @@ class BudgetAggregate:
         new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
-        self.version = self._version
         self._take_snapshot()
 
         self._record_audit("TOUCH", str(touched_by), {})

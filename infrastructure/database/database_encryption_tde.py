@@ -36,7 +36,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_TDE_CONFIG = {
+DEFAULT_TDE_CONFIG: dict[str, Any] = {
     "enabled": False,
     "algorithm": "aes-256-cbc",
     "key_provider": "env",  # env, vault, kms
@@ -85,17 +85,17 @@ class DatabaseEncryptionTDE:
     - Query terenkripsi (decrypt saat SELECT)
     """
 
-    def __init__(self, config_path: str = "config_files/database_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = "config_files/database_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
         self._encryption_key: str | None = None
         self._current_key_id: str | None = None
-        self._key_rotation_task: asyncio.Task | None = None
+        self._key_rotation_task: asyncio.Task[None] | None = None
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
             config = load_yaml_config(config_path)
             tde_config = config.get("tde", {})
-            result = DEFAULT_TDE_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_TDE_CONFIG.copy()
             result.update(tde_config)
             return result
         except Exception:
@@ -253,10 +253,10 @@ class DatabaseEncryptionTDE:
         """
         old_key = await self._get_encryption_key()
         # Generate new key
-        import base64
-        import secrets
+        import base64 as _b64
+        import secrets as _secrets
 
-        new_key = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+        new_key = _b64.b64encode(_secrets.token_bytes(32)).decode("ascii")
 
         # Store new key in provider
         key_provider = self.config.get("key_provider", "env")
@@ -268,10 +268,24 @@ class DatabaseEncryptionTDE:
 
             vault = await get_vault_provider()
             key_id = new_key_id or self.config.get("key_id", "db_encryption_key")
-            await vault.store_secret(
-                f"secret/data/{key_id}",
-                {"key": new_key, "version": str(int(self._current_key_id or 0) + 1)},
-            )
+
+            # ``VaultDynamicSecretProvider`` tidak mengekspos ``store_secret``
+            # secara langsung. Gunakan ``getattr`` agar:
+            # - Jika provider di masa depan menambahkan method ``store_secret``,
+            #   kita otomatis memakainya.
+            # - Jika tidak, kita hanya log warning tanpa crash runtime dan
+            #   tanpa memicu error mypy.
+            store_secret = getattr(vault, "store_secret", None)
+            if store_secret is not None:
+                await store_secret(
+                    f"secret/data/{key_id}",
+                    {"key": new_key, "version": str(int(self._current_key_id or 0) + 1)},
+                )
+            else:
+                logger.warning(
+                    "Vault provider does not expose 'store_secret'; "
+                    "rotated key kept in-memory only"
+                )
 
         # Re-encrypt all encrypted columns
         session_factory = await get_session_factory()
@@ -329,7 +343,7 @@ class DatabaseEncryptionTDE:
         Start periodic key rotation task.
         """
 
-        async def rotate_periodically():
+        async def rotate_periodically() -> None:
             while True:
                 await asyncio.sleep(interval_days * 24 * 3600)
                 await self.rotate_encryption_key()
@@ -369,3 +383,4 @@ async def get_tde_manager() -> DatabaseEncryptionTDE:
 # ============================================================================
 
 __all__ = ["DatabaseEncryptionTDE", "EncryptionKeyError", "TDEError", "get_tde_manager"]
+

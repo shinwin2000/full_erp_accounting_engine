@@ -136,7 +136,7 @@ class CreateItemRequestDTO:
 class UpdateItemRequestDTO:
     """Request DTO for updating an existing item."""
 
-    item_id: UUID
+    item_id: UUID | None = None
     name: str | None = None
     description: str | None = None
     category: str | None = None
@@ -148,8 +148,42 @@ class UpdateItemRequestDTO:
     minimum_stock: Decimal | None = None
     maximum_stock: Decimal | None = None
     is_active: bool | None = None
+    # -- Field tambahan supaya cocok dengan kontrak router (ItemUpdateSchema) --
+    id: UUID | None = None
+    item_name: str | None = None
+    item_type: str | None = None
+    unit_of_measure: str | None = None
+    reorder_quantity: Decimal | None = None
+    valuation_method: str | None = None
+    warehouse_id: UUID | None = None
+    min_stock: Decimal | None = None
+    max_stock: Decimal | None = None
+    updated_by: UUID | None = None
+    legal_entity_id: UUID | None = None
+    # -- Alias untuk kompatibilitas dengan pembacaan di service (uom/warehouse_code) --
+    uom: str | None = None
+    warehouse_code: str | None = None
 
     def __post_init__(self) -> None:
+        # item_id/id dan name/item_name dan minimum_stock-maximum_stock/min_stock-max_stock
+        # merujuk konsep yang sama - saling isi kalau salah satu kosong.
+        if self.item_id is None and self.id is not None:
+            self.item_id = self.id
+        if self.id is None and self.item_id is not None:
+            self.id = self.item_id
+        if self.name is None and self.item_name is not None:
+            self.name = self.item_name
+        if self.minimum_stock is None and self.min_stock is not None:
+            self.minimum_stock = self.min_stock
+        if self.maximum_stock is None and self.max_stock is not None:
+            self.maximum_stock = self.max_stock
+        if self.uom is None and self.unit_of_measure is not None:
+            self.uom = self.unit_of_measure
+        if self.warehouse_code is None and self.warehouse_id is not None:
+            self.warehouse_code = str(self.warehouse_id)
+
+        if self.item_id is None:
+            raise ValueError("item_id is required")
         if not any(
             [
                 self.name,
@@ -163,6 +197,11 @@ class UpdateItemRequestDTO:
                 self.minimum_stock,
                 self.maximum_stock,
                 self.is_active is not None,
+                self.item_type,
+                self.unit_of_measure,
+                self.reorder_quantity,
+                self.valuation_method,
+                self.warehouse_id,
             ]
         ):
             raise ValueError("At least one field to update must be provided")

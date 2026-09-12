@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -124,19 +124,23 @@ class GLBalanceMetricsCollector:
     - Multi-currency support
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._ledger_service: Any = None
-        self._previous_balances: dict[str, dict[str, Decimal]] = {}
-        self._collection_task: asyncio.Task | None = None
+        self._previous_balances: dict[str, Decimal] = {}
+        self._collection_task: asyncio.Task[None] | None = None
         self._running = False
 
     async def _get_ledger_service(self) -> Any:
         if self._ledger_service is None:
             # Dynamic import to avoid architecture layer violation (P08)
-            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            get_container = __import__(
+                "bootstrap.dependency_container.ioc_container", fromlist=["get_container"]
+            ).get_container
             container = get_container()
             # Also import LedgerService
-            LedgerService = __import__('application.service_layer.service_ledger', fromlist=['LedgerService']).LedgerService
+            LedgerService = __import__(
+                "application.service_layer.service_ledger", fromlist=["LedgerService"]
+            ).LedgerService
             self._ledger_service = container.resolve(LedgerService)
         return self._ledger_service
 
@@ -151,7 +155,7 @@ class GLBalanceMetricsCollector:
             tb = await ledger_service.get_trial_balance(legal_entity_id, as_of_date)
 
             # Initialize balances
-            balances = {
+            balances: dict[str, Decimal] = {
                 "asset": Decimal(0),
                 "liability": Decimal(0),
                 "equity": Decimal(0),
@@ -253,7 +257,7 @@ class GLBalanceMetricsCollector:
         key = f"{le_id}_assets"
 
         if key in self._previous_balances:
-            previous = self._previous_balances[key]
+            previous: Decimal = self._previous_balances[key]
             if previous > 0:
                 change_percent = float(abs((current_assets - previous) / previous * 100))
                 daily_change.labels(legal_entity_id=le_id).set(change_percent)
@@ -345,7 +349,9 @@ class GLBalanceMetricsCollector:
         """
         return {
             "running": self._running,
-            "previous_balances": {k: float(v) for k, v in self._previous_balances.items()},
+            "previous_balances": {
+                k: float(cast(Decimal, v)) for k, v in self._previous_balances.items()
+            },
             "collection_interval_seconds": COLLECTION_INTERVAL_SECONDS,
             "alert_threshold_percent": ALERT_THRESHOLD_PERCENT,
             "critical_threshold_percent": CRITICAL_THRESHOLD_PERCENT,

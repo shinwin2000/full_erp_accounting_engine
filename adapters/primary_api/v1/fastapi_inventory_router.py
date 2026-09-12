@@ -145,6 +145,54 @@ class ValuationMethod(str, Enum):
     AVERAGE = "AVERAGE"
     STANDARD = "STANDARD"
 
+def _safe_item_type(value: str) -> ItemType:
+    """Konversi string item_type dari domain/DB ke enum router dengan aman.
+
+    Domain (domain.inventory.item_entity.ItemType) dan enum router ini punya
+    beberapa nilai yang berbeda ejaan/bentuknya (work_in_process vs
+    work_in_progress, finished_good vs finished_goods) serta beberapa nilai
+    yang cuma ada di salah satu sisi (packaging/supplies di domain,
+    consumable di router). Konstruksi ItemType(value) langsung bisa raise
+    ValueError kalau nilainya tidak persis cocok - fungsi ini menormalkan
+    dan menyediakan fallback supaya tidak menyebabkan 422 di endpoint manapun.
+    """
+    normalized = (value or "").strip().lower()
+    aliases = {
+        "work_in_process": ItemType.WORK_IN_PROCESS,
+        "work_in_progress": ItemType.WORK_IN_PROCESS,
+        "finished_good": ItemType.FINISHED_GOOD,
+        "finished_goods": ItemType.FINISHED_GOOD,
+        "packaging": ItemType.TRADING,
+        "supplies": ItemType.CONSUMABLE,
+        "spare_part": ItemType.CONSUMABLE,
+    }
+    try:
+        return ItemType(normalized)
+    except ValueError:
+        return aliases.get(normalized, ItemType.TRADING)
+
+
+def _safe_valuation_method(value: str | None) -> ValuationMethod:
+    """Konversi string valuation_method (bisa lowercase/None dari domain) ke
+    enum router dengan aman, fallback ke FIFO kalau tidak cocok."""
+    normalized = (value or "FIFO").strip().upper()
+    try:
+        return ValuationMethod(normalized)
+    except ValueError:
+        return ValuationMethod.FIFO
+
+
+def _safe_movement_type(value: str) -> MovementType:
+    """Konversi string movement_type ke enum router dengan aman. Domain
+    memakai taksonomi bisnis (purchase_receipt, sales_issue, dst) sedangkan
+    enum router ini memakai kode generik (IN/OUT/TRANSFER_IN/dst) - kalau
+    tidak ada padanan langsung, fallback ke ADJUSTMENT."""
+    try:
+        return MovementType(value)
+    except ValueError:
+        return MovementType.ADJUSTMENT
+
+
 
 # ============================================================================
 # PYDANTIC SCHEMAS
@@ -667,7 +715,7 @@ async def create_item(
             id=result.id,
             item_code=result.item_code,
             item_name=result.item_name,
-            item_type=ItemType(result.item_type),
+            item_type=_safe_item_type(result.item_type),
             unit_of_measure=result.unit_of_measure,
             category=result.category,
             brand=result.brand,
@@ -675,7 +723,7 @@ async def create_item(
             reorder_quantity=result.reorder_quantity,
             standard_cost=result.standard_cost,
             selling_price=result.selling_price,
-            valuation_method=ValuationMethod(result.valuation_method),
+            valuation_method=_safe_valuation_method(result.valuation_method),
             is_active=result.is_active,
             is_locked=result.is_locked,
             current_stock=result.current_stock,
@@ -728,7 +776,7 @@ async def get_item(
             id=item.id,
             item_code=item.item_code,
             item_name=item.item_name,
-            item_type=ItemType(item.item_type),
+            item_type=_safe_item_type(item.item_type),
             unit_of_measure=item.unit_of_measure,
             category=item.category,
             brand=item.brand,
@@ -736,7 +784,7 @@ async def get_item(
             reorder_quantity=item.reorder_quantity,
             standard_cost=item.standard_cost,
             selling_price=item.selling_price,
-            valuation_method=ValuationMethod(item.valuation_method),
+            valuation_method=_safe_valuation_method(item.valuation_method),
             is_active=item.is_active,
             is_locked=item.is_locked,
             current_stock=item.current_stock,
@@ -787,7 +835,7 @@ async def get_item_by_code(
             id=item.id,
             item_code=item.item_code,
             item_name=item.item_name,
-            item_type=ItemType(item.item_type),
+            item_type=_safe_item_type(item.item_type),
             unit_of_measure=item.unit_of_measure,
             category=item.category,
             brand=item.brand,
@@ -795,7 +843,7 @@ async def get_item_by_code(
             reorder_quantity=item.reorder_quantity,
             standard_cost=item.standard_cost,
             selling_price=item.selling_price,
-            valuation_method=ValuationMethod(item.valuation_method),
+            valuation_method=_safe_valuation_method(item.valuation_method),
             is_active=item.is_active,
             is_locked=item.is_locked,
             current_stock=item.current_stock,
@@ -865,7 +913,7 @@ async def update_item(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await inventory_service.update_item(update_dto)
+        result = await inventory_service.update_item(update_dto, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Item not found or cannot be updated")
@@ -874,7 +922,7 @@ async def update_item(
             id=result.id,
             item_code=result.item_code,
             item_name=result.item_name,
-            item_type=ItemType(result.item_type),
+            item_type=_safe_item_type(result.item_type),
             unit_of_measure=result.unit_of_measure,
             category=result.category,
             brand=result.brand,
@@ -882,7 +930,7 @@ async def update_item(
             reorder_quantity=result.reorder_quantity,
             standard_cost=result.standard_cost,
             selling_price=result.selling_price,
-            valuation_method=ValuationMethod(result.valuation_method),
+            valuation_method=_safe_valuation_method(result.valuation_method),
             is_active=result.is_active,
             is_locked=result.is_locked,
             current_stock=result.current_stock,
@@ -982,7 +1030,7 @@ async def activate_item(
             id=result.id,
             item_code=result.item_code,
             item_name=result.item_name,
-            item_type=ItemType(result.item_type),
+            item_type=_safe_item_type(result.item_type),
             unit_of_measure=result.unit_of_measure,
             category=result.category,
             brand=result.brand,
@@ -990,7 +1038,7 @@ async def activate_item(
             reorder_quantity=result.reorder_quantity,
             standard_cost=result.standard_cost,
             selling_price=result.selling_price,
-            valuation_method=ValuationMethod(result.valuation_method),
+            valuation_method=_safe_valuation_method(result.valuation_method),
             is_active=result.is_active,
             is_locked=result.is_locked,
             current_stock=result.current_stock,
@@ -1058,7 +1106,7 @@ async def list_items(
                 id=item.id,
                 item_code=item.item_code,
                 item_name=item.item_name,
-                item_type=ItemType(item.item_type),
+                item_type=_safe_item_type(item.item_type),
                 unit_of_measure=item.unit_of_measure,
                 category=item.category,
                 brand=item.brand,
@@ -1066,7 +1114,7 @@ async def list_items(
                 reorder_quantity=item.reorder_quantity,
                 standard_cost=item.standard_cost,
                 selling_price=item.selling_price,
-                valuation_method=ValuationMethod(item.valuation_method),
+                valuation_method=_safe_valuation_method(item.valuation_method),
                 is_active=item.is_active,
                 is_locked=item.is_locked,
                 current_stock=item.current_stock,
@@ -1133,7 +1181,7 @@ async def list_movements(
                 item_id=m.item_id,
                 item_code=m.item_code,
                 item_name=m.item_name,
-                movement_type=MovementType(m.movement_type),
+                movement_type=_safe_movement_type(m.movement_type),
                 quantity=m.quantity,
                 unit_cost=m.unit_cost,
                 total_cost=m.total_cost,
@@ -1205,7 +1253,7 @@ async def record_stock_movement(
             item_id=result.item_id,
             item_code=result.item_code,
             item_name=result.item_name,
-            movement_type=MovementType(result.movement_type),
+            movement_type=_safe_movement_type(result.movement_type),
             quantity=result.quantity,
             unit_cost=result.unit_cost,
             total_cost=result.total_cost,
@@ -1323,7 +1371,7 @@ async def reverse_movement(
             item_id=result.item_id,
             item_code=result.item_code,
             item_name=result.item_name,
-            movement_type=MovementType(result.movement_type),
+            movement_type=_safe_movement_type(result.movement_type),
             quantity=result.quantity,
             unit_cost=result.unit_cost,
             total_cost=result.total_cost,
@@ -1784,7 +1832,7 @@ async def get_inventory_valuation_by_path(
             item_id=result.item_id,
             item_code=result.item_code,
             item_name=result.item_name,
-            valuation_method=ValuationMethod(result.valuation_method),
+            valuation_method=_safe_valuation_method(result.valuation_method),
             as_of_date=as_of_date,
             total_quantity=result.total_quantity,
             total_value=result.total_value,
@@ -1840,7 +1888,7 @@ async def get_inventory_valuation(
             item_id=result.item_id,
             item_code=result.item_code,
             item_name=result.item_name,
-            valuation_method=ValuationMethod(result.valuation_method),
+            valuation_method=_safe_valuation_method(result.valuation_method),
             as_of_date=as_of_date,
             total_quantity=result.total_quantity,
             total_value=result.total_value,

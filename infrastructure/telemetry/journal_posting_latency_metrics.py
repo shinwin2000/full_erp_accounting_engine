@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -53,6 +53,14 @@ STAGE_APPROVAL = "approval"
 STAGE_LEDGER_POSTING = "ledger_posting"
 STAGE_EVENT_PUBLISHING = "event_publishing"
 STAGE_TOTAL = "total"
+
+# Ordered list of stages used for stage duration computation
+_STAGE_ORDER: tuple[str, ...] = (
+    STAGE_VALIDATION,
+    STAGE_APPROVAL,
+    STAGE_LEDGER_POSTING,
+    STAGE_EVENT_PUBLISHING,
+)
 
 # ============================================================================
 # METRICS
@@ -111,6 +119,20 @@ queue_size = get_gauge(
 
 
 # ============================================================================
+# TYPE DEFINITIONS
+# ============================================================================
+
+
+class _PostingState(TypedDict):
+    """Struktur internal untuk melacak satu operasi posting jurnal."""
+
+    journal_id: str
+    legal_entity_id: str
+    start_time: float
+    stages: dict[str, float]
+
+
+# ============================================================================
 # METRICS COLLECTOR
 # ============================================================================
 
@@ -126,8 +148,8 @@ class JournalPostingLatencyMetrics:
     - Concurrent posting tracking
     """
 
-    def __init__(self):
-        self._active_postings: dict[str, dict[str, float]] = {}
+    def __init__(self) -> None:
+        self._active_postings: dict[str, _PostingState] = {}
         self._stage_times: dict[str, list[float]] = {}
         self._last_slo_check: datetime | None = None
 
@@ -137,20 +159,22 @@ class JournalPostingLatencyMetrics:
         Returns tracking ID.
         """
         tracking_id = f"{journal_id}_{time.time()}"
+        legal_entity_key = str(legal_entity_id)
+
         self._active_postings[tracking_id] = {
             "journal_id": str(journal_id),
-            "legal_entity_id": str(legal_entity_id),
+            "legal_entity_id": legal_entity_key,
             "start_time": time.time(),
             "stages": {},
         }
 
         # Update concurrent gauge
-        concurrent_postings.labels(legal_entity_id=str(legal_entity_id)).set(
+        concurrent_postings.labels(legal_entity_id=legal_entity_key).set(
             len(
                 [
                     p
                     for p in self._active_postings.values()
-                    if p["legal_entity_id"] == str(legal_entity_id)
+                    if p["legal_entity_id"] == legal_entity_key
                 ]
             )
         )
@@ -170,8 +194,8 @@ class JournalPostingLatencyMetrics:
 
         if stage not in posting["stages"]:
             # Calculate duration since last stage or start
-            last_time = posting.get("start_time")
-            for s in ["validation", "approval", "ledger_posting", "event_publishing"]:
+            last_time: float = posting["start_time"]
+            for s in _STAGE_ORDER:
                 if s in posting["stages"]:
                     last_time = posting["stages"][s]
                 else:
@@ -181,9 +205,9 @@ class JournalPostingLatencyMetrics:
             posting["stages"][stage] = current_time
 
             # Record metric
-            posting_latency.labels(stage=stage, legal_entity_id=posting["legal_entity_id"]).observe(
-                duration
-            )
+            posting_latency.labels(
+                stage=stage, legal_entity_id=posting["legal_entity_id"]
+            ).observe(duration)
 
             logger.debug(f"Stage {stage} completed in {duration:.3f}s for {tracking_id}")
 
@@ -218,7 +242,7 @@ class JournalPostingLatencyMetrics:
 
         # Alert if too slow
         if total_duration > SLO_CRITICAL:
-            alert_task = asyncio.create_task(
+            _task = asyncio.create_task(
                 trigger_alert(
                     title="Journal Posting Slow",
                     message=f"Journal posting took {total_duration:.2f}s (critical: {SLO_CRITICAL}s)",
@@ -226,10 +250,8 @@ class JournalPostingLatencyMetrics:
                     source="JournalPostingLatencyMetrics",
                 )
             )
-            # Keep reference to avoid garbage collection
-            _task = alert_task
         elif total_duration > SLO_WARNING:
-            alert_task = asyncio.create_task(
+            _task = asyncio.create_task(
                 trigger_alert(
                     title="Journal Posting Slow",
                     message=f"Journal posting took {total_duration:.2f}s (warning: {SLO_WARNING}s)",
@@ -237,7 +259,6 @@ class JournalPostingLatencyMetrics:
                     source="JournalPostingLatencyMetrics",
                 )
             )
-            _task = alert_task
 
         # Remove from active
         del self._active_postings[tracking_id]
@@ -321,14 +342,20 @@ class PostingLatencyContext:
         self._metrics = JournalPostingLatencyMetrics()
         self._tracking_id: str | None = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "PostingLatencyContext":
         self._tracking_id = self._metrics.start_posting(self.journal_id, self.legal_entity_id)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         success = exc_type is None
         error_type = exc_type.__name__ if exc_type else None
-        self._metrics.complete_posting(self._tracking_id, success, error_type)
+        if self._tracking_id is not None:
+            self._metrics.complete_posting(self._tracking_id, success, error_type)
 
     async def record_stage(self, stage: str) -> None:
         """

@@ -62,12 +62,12 @@ class EvidenceDocumentRetriever:
         self,
         hot_storage: FileStoragePort | None = None,
         cold_storage: GlacierColdStorageAdapter | None = None,
-    ):
+    ) -> None:
         self._hot_storage = hot_storage
         self._cold_storage = cold_storage
         self._redis_manager: RedisManager | None = None
-        self._presigned_url_cache: dict[str, dict] = {}
-        self._retrieval_jobs: dict[str, dict] = {}
+        self._presigned_url_cache: dict[str, dict[str, Any]] = {}
+        self._retrieval_jobs: dict[str, dict[str, Any]] = {}
 
     async def _get_hot_storage(self) -> FileStoragePort:
         if self._hot_storage is None:
@@ -115,7 +115,14 @@ class EvidenceDocumentRetriever:
             if use_cache and len(content) < 10 * 1024 * 1024:
                 redis = await self._get_redis()
                 import base64
-                await redis.setex(cache_key, 3600, base64.b64encode(content).decode("ascii"))
+                # RedisManager hanya mengekspos ``set`` dan ``expire`` secara
+                # terpisah (tidak ada ``setex`` maupun keyword ``ex``).
+                # Gunakan pola ``set`` + ``expire`` — ekuivalen dengan SET + EXPIRE.
+                await redis.set(
+                    cache_key,
+                    base64.b64encode(content).decode("ascii"),
+                )
+                await redis.expire(cache_key, 3600)
 
             await self._audit_access(evidence_uri, "success")
             return content
@@ -133,7 +140,9 @@ class EvidenceDocumentRetriever:
         content = file_stream.read()
         if verify_hash:
             metadata = await storage.get_metadata(evidence_uri)
-            stored_hash = metadata.get("metadata", {}).get("content_hash") or metadata.get("file_hash")
+            stored_hash = metadata.get("metadata", {}).get("content_hash") or metadata.get(
+                "file_hash"
+            )
             if stored_hash:
                 from infrastructure.file_storage.file_integrity_hasher import FileIntegrityHasher
                 hasher = FileIntegrityHasher()
@@ -153,7 +162,7 @@ class EvidenceDocumentRetriever:
         job_status = await storage.get_job_status(archive_id)
         if job_status and job_status.get("status") == "Succeeded":
             download_result = await storage.download(evidence_uri)
-            # `download` dapat mengembalikan BinaryIO; baca menjadi bytes bila perlu
+            # ``download`` dapat mengembalikan BinaryIO; baca menjadi bytes bila perlu
             if isinstance(download_result, bytes):
                 return download_result
             return download_result.read()
@@ -205,10 +214,10 @@ class EvidenceDocumentRetriever:
             raise BatchRetrievalError(
                 f"Batch size exceeds limit: {len(evidence_uris)} > {MAX_BATCH_SIZE}"
             )
-        results = {}
-        errors = {}
+        results: dict[str, bytes] = {}
+        errors: dict[str, str] = {}
 
-        async def retrieve_one(uri: str):
+        async def retrieve_one(uri: str) -> None:
             try:
                 content = await self.retrieve_evidence(uri, verify_hash, use_cache=True)
                 results[uri] = content
@@ -339,14 +348,17 @@ class EvidenceDocumentRetriever:
 
 _evidence_retriever: EvidenceDocumentRetriever | None = None
 
+
 async def get_evidence_retriever() -> EvidenceDocumentRetriever:
     global _evidence_retriever
     if _evidence_retriever is None:
         _evidence_retriever = EvidenceDocumentRetriever()
     return _evidence_retriever
 
-async def get_evidence_retriever_dep():
+
+async def get_evidence_retriever_dep() -> EvidenceDocumentRetriever:
     return await get_evidence_retriever()
+
 
 __all__ = [
     "BatchRetrievalError",

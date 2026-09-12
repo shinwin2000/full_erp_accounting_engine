@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
+from typing import Any
 from uuid import uuid4
 
 # DO NOT import get_logger at module level to avoid circular import
@@ -134,7 +135,7 @@ class UserContextInjector:
         return _legal_entity_id_ctx.get()
 
     @staticmethod
-    def set_request_info(path: str, method: str) -> None:
+    def set_request_info(path: str | None, method: str | None) -> None:
         """Set request path and method for current context."""
         _request_path_ctx.set(path)
         _method_ctx.set(method)
@@ -165,17 +166,25 @@ class CorrelationIdScope:
             do_something()
     """
 
-    def __init__(self, correlation_id: str | None = None):
+    def __init__(self, correlation_id: str | None = None) -> None:
         self._correlation_id = correlation_id or CorrelationIdInjector.generate()
         self._previous_correlation_id: str | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> "CorrelationIdScope":
         self._previous_correlation_id = CorrelationIdInjector.get()
         CorrelationIdInjector.set(self._correlation_id)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        CorrelationIdInjector.set(self._previous_correlation_id)
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        if self._previous_correlation_id is not None:
+            CorrelationIdInjector.set(self._previous_correlation_id)
+        else:
+            CorrelationIdInjector.clear()
 
     @property
     def correlation_id(self) -> str:
@@ -194,15 +203,16 @@ class RequestContextScope:
         legal_entity_id: str | None = None,
         path: str | None = None,
         method: str | None = None,
-    ):
+    ) -> None:
         self._correlation_id = correlation_id or CorrelationIdInjector.generate()
         self._user_id = user_id
         self._legal_entity_id = legal_entity_id
         self._path = path
         self._method = method
-        self._previous = {}
+        # Anotasi eksplisit agar mypy tahu tipe nested dict
+        self._previous: dict[str, str | None] = {}
 
-    def __enter__(self):
+    def __enter__(self) -> "RequestContextScope":
         self._previous = {
             "correlation_id": CorrelationIdInjector.get(),
             "user_id": UserContextInjector.get_user_id(),
@@ -218,11 +228,23 @@ class RequestContextScope:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        CorrelationIdInjector.set(self._previous["correlation_id"])
-        UserContextInjector.set_user_id(self._previous["user_id"])
-        UserContextInjector.set_legal_entity_id(self._previous["legal_entity_id"])
-        UserContextInjector.set_request_info(self._previous["path"], self._previous["method"])
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        prev_corr = self._previous.get("correlation_id")
+        if prev_corr is not None:
+            CorrelationIdInjector.set(prev_corr)
+        else:
+            CorrelationIdInjector.clear()
+
+        UserContextInjector.set_user_id(self._previous.get("user_id"))
+        UserContextInjector.set_legal_entity_id(self._previous.get("legal_entity_id"))
+        UserContextInjector.set_request_info(
+            self._previous.get("path"), self._previous.get("method")
+        )
 
     @property
     def correlation_id(self) -> str:
@@ -242,20 +264,21 @@ class CorrelationIdMiddleware:
         app.add_middleware(CorrelationIdMiddleware)
     """
 
-    def __init__(self, app, header_name: str = "X-Correlation-ID"):
+    def __init__(self, app: Any, header_name: str = "X-Correlation-ID") -> None:
         self.app = app
         self.header_name = header_name
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
         # Extract correlation ID from header
         headers = dict(scope.get("headers", []))
-        correlation_id = headers.get(self.header_name.encode())
-        if correlation_id:
-            correlation_id = correlation_id.decode()
+        correlation_id_raw = headers.get(self.header_name.encode())
+        correlation_id: str
+        if correlation_id_raw:
+            correlation_id = correlation_id_raw.decode()
         else:
             correlation_id = CorrelationIdInjector.generate()
 

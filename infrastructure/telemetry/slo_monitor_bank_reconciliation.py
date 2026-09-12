@@ -89,15 +89,15 @@ class SLOMonitorBankReconciliation:
     - Store history untuk reporting
     """
 
-    def __init__(self, config_path: str = "config_files/slo_config.yaml"):
-        self.config = self._load_config(config_path)
-        self._slo_target_days = self.config.get("bank_reconciliation", {}).get(
+    def __init__(self, config_path: str = "config_files/slo_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
+        self._slo_target_days: int = self.config.get("bank_reconciliation", {}).get(
             "target_days", DEFAULT_SLO_TARGET_DAYS
         )
-        self._warning_days = self.config.get("bank_reconciliation", {}).get(
+        self._warning_days: int = self.config.get("bank_reconciliation", {}).get(
             "warning_days", DEFAULT_SLO_WARNING_DAYS
         )
-        self._critical_days = self.config.get("bank_reconciliation", {}).get(
+        self._critical_days: int = self.config.get("bank_reconciliation", {}).get(
             "critical_days", DEFAULT_SLO_CRITICAL_DAYS
         )
         self._active_reconciliations: dict[str, dict[str, Any]] = {}
@@ -363,42 +363,40 @@ class SLOMonitorBankReconciliation:
             legal_entity_id=str(legal_entity_id), bank_account_id=str(bank_account_id)
         ).set(days_outstanding)
 
-        # Check if alert needed
+        # Determine alert severity (may be None if within thresholds)
         alert_key = f"{legal_entity_id}:{bank_account_id}:{statement_date}"
         last_alert = self._outstanding_alerts_sent.get(alert_key)
 
-        should_alert = False
-        severity = None
-
+        severity: str | None = None
         if days_outstanding > self._critical_days:
-            should_alert = True
             severity = SEVERITY_CRITICAL
         elif days_outstanding > self._warning_days:
-            should_alert = True
             severity = SEVERITY_WARNING
 
-        if should_alert:
-            # Rate limit alerts (max 1 per day per account)
-            if last_alert and (datetime.now(UTC) - last_alert).total_seconds() < 86400:
-                return
+        if severity is None:
+            return
 
-            self._outstanding_alerts_sent[alert_key] = datetime.now(UTC)
+        # Rate limit alerts (max 1 per day per account)
+        if last_alert and (datetime.now(UTC) - last_alert).total_seconds() < 86400:
+            return
 
-            _task = asyncio.create_task(  # noqa: RUF006
-                trigger_alert(
-                    title=f"Outstanding Bank Reconciliation ({severity})",
-                    message=f"Bank account {bank_account_id} has outstanding reconciliation for {statement_date} "
-                    f"({days_outstanding} days outstanding)",
-                    severity=severity,
-                    source="SLOMonitorBankReconciliation",
-                    metadata={
-                        "legal_entity_id": str(legal_entity_id),
-                        "bank_account_id": str(bank_account_id),
-                        "statement_date": statement_date.isoformat(),
-                        "days_outstanding": days_outstanding,
-                    },
-                )
+        self._outstanding_alerts_sent[alert_key] = datetime.now(UTC)
+
+        _task = asyncio.create_task(  # noqa: RUF006
+            trigger_alert(
+                title=f"Outstanding Bank Reconciliation ({severity})",
+                message=f"Bank account {bank_account_id} has outstanding reconciliation for {statement_date} "
+                f"({days_outstanding} days outstanding)",
+                severity=severity,
+                source="SLOMonitorBankReconciliation",
+                metadata={
+                    "legal_entity_id": str(legal_entity_id),
+                    "bank_account_id": str(bank_account_id),
+                    "statement_date": statement_date.isoformat(),
+                    "days_outstanding": days_outstanding,
+                },
             )
+        )
 
     def get_active_reconciliations(self) -> list[dict[str, Any]]:
         """Get currently active reconciliations."""
@@ -464,7 +462,7 @@ class BankReconciliationSLAMonitor:
         bank_account_id: UUID,
         statement_date: date,
         started_by: UUID | None = None,
-    ):
+    ) -> None:
         self.legal_entity_id = legal_entity_id
         self.bank_account_id = bank_account_id
         self.statement_date = statement_date
@@ -473,13 +471,18 @@ class BankReconciliationSLAMonitor:
         self._key: str | None = None
         self._difference_amount: Decimal | None = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "BankReconciliationSLAMonitor":
         self._key = self._monitor.start_reconciliation(
             self.legal_entity_id, self.bank_account_id, self.statement_date, self.started_by
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         if exc_type:
             self._monitor.fail_reconciliation(
                 self.legal_entity_id,

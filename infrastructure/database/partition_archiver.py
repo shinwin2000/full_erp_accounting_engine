@@ -52,7 +52,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_ARCHIVE_CONFIG = {
+DEFAULT_ARCHIVE_CONFIG: dict[str, Any] = {
     "enabled": True,
     "archive_after_days": 730,  # Archive partitions older than 2 years
     "archive_storage": "glacier",  # glacier, s3, local
@@ -123,27 +123,27 @@ class PartitionArchiver:
     - Metadata tracking untuk arsip
     """
 
-    def __init__(self, config_path: str = "config_files/database_config.yaml"):
-        self.config = self._load_config(config_path)
-        self._archive_tables = self.config.get("tables", [])
-        self._enabled = self.config.get("enabled", True)
-        self._archive_storage = self.config.get("archive_storage", "glacier")
-        self._archive_bucket = self.config.get("archive_bucket", "erp-archive")
-        self._archive_prefix = self.config.get("archive_prefix", "partitions/")
-        self._compress = self.config.get("compress", True)
-        self._archive_metadata: dict[str, dict] = {}
+    def __init__(self, config_path: str = "config_files/database_config.yaml") -> None:
+        self.config: dict[str, Any] = self._load_config(config_path)
+        self._archive_tables: list[dict[str, Any]] = self.config.get("tables", [])
+        self._enabled: bool = self.config.get("enabled", True)
+        self._archive_storage: str = self.config.get("archive_storage", "glacier")
+        self._archive_bucket: str = self.config.get("archive_bucket", "erp-archive")
+        self._archive_prefix: str = self.config.get("archive_prefix", "partitions/")
+        self._compress: bool = self.config.get("compress", True)
+        self._archive_metadata: dict[str, dict[str, Any]] = {}
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
             config = load_yaml_config(config_path)
             archive_config = config.get("partition_archive", {})
-            result = DEFAULT_ARCHIVE_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_ARCHIVE_CONFIG.copy()
             result.update(archive_config)
             return result
         except Exception:
             return DEFAULT_ARCHIVE_CONFIG.copy()
 
-    async def _get_db_connection_info(self) -> dict:
+    async def _get_db_connection_info(self) -> dict[str, Any]:
         """Get database connection info from config."""
         from config.loader_yaml import load_yaml_config
 
@@ -157,7 +157,7 @@ class PartitionArchiver:
             "password": db_config.get("password"),
         }
 
-    async def _get_old_partitions(self, table_config: dict) -> list[dict]:
+    async def _get_old_partitions(self, table_config: dict[str, Any]) -> list[dict[str, Any]]:
         """
         Get list of partitions older than archive_after_days.
         """
@@ -180,7 +180,7 @@ class PartitionArchiver:
             WHERE inhparent = :parent::regclass
             """
             result = await session.execute(query, {"parent": table_name})
-            partitions = []
+            partitions: list[dict[str, Any]] = []
             for row in result:
                 part_name = row[0]
                 part_range = row[1]
@@ -229,7 +229,7 @@ class PartitionArchiver:
             "--no-privileges",
         ]
 
-        env = None
+        env: dict[str, str] | None = None
         if db_info.get("password"):
             env = {"PGPASSWORD": db_info["password"]}
 
@@ -271,7 +271,10 @@ class PartitionArchiver:
         return compressed_path
 
     # ========================================================================
-    # _upload_to_storage menggunakan aiofiles
+    # PERBAIKAN: _upload_to_storage — pisahkan variabel per cabang agar mypy
+    # tidak menyimpulkan tipe dari cabang pertama (Glacier) lalu menolak
+    # assignment berikutnya (S3). ``uri`` dianotasi ``str`` di awal karena
+    # semua cabang pasti meng-assign-nya.
     # ========================================================================
 
     async def _upload_to_storage(self, file_path: Path, archive_key: str) -> str:
@@ -279,31 +282,33 @@ class PartitionArchiver:
             logger.warning("File storage not available, keeping local copy")
             return f"local://{file_path}"
 
-        uri = None
         async with aiofiles.open(file_path, "rb") as f:
             file_content = await f.read()
 
+        uri: str
         if self._archive_storage == "glacier":
-            storage = await get_glacier_cold_storage_adapter()
-            uri = await storage.upload(
+            glacier_storage = await get_glacier_cold_storage_adapter()
+            uri = await glacier_storage.upload(
                 file_content=file_content,
                 file_name=file_path.name,
                 metadata={"archive_key": archive_key},
             )
         elif self._archive_storage == "s3":
-            storage = await get_s3_storage_adapter()
-            uri = await storage.upload(
+            s3_storage = await get_s3_storage_adapter()
+            uri = await s3_storage.upload(
                 file_content=file_content,
                 file_name=file_path.name,
                 bucket=self._archive_bucket,
             )
         else:
-            def _local_copy():
+
+            def _local_copy() -> str:
                 archive_dir = Path("/var/archives")
                 archive_dir.mkdir(parents=True, exist_ok=True)
                 dest = archive_dir / file_path.name
                 shutil.copy(file_path, dest)
                 return f"local://{dest}"
+
             uri = await asyncio.to_thread(_local_copy)
 
         logger.info(f"Uploaded archive to {uri}")
@@ -321,29 +326,33 @@ class PartitionArchiver:
     # ========================================================================
 
     async def _create_temp_file(self, suffix: str = ".dump") -> Path:
-        def _create():
-            fd, path = tempfile.mkstemp(suffix=suffix)
+        def _create() -> Path:
+            _fd, path = tempfile.mkstemp(suffix=suffix)
             return Path(path)
+
         return await asyncio.to_thread(_create)
 
     async def _delete_file(self, path: Path, ignore_missing: bool = True) -> None:
-        def _delete():
+        def _delete() -> None:
             if ignore_missing:
                 path.unlink(missing_ok=True)
             else:
                 path.unlink()
+
         await asyncio.to_thread(_delete)
 
     # ========================================================================
     # Archive partition
     # ========================================================================
 
-    async def archive_partition(self, table_config: dict, partition: dict) -> dict[str, Any]:
+    async def archive_partition(
+        self, table_config: dict[str, Any], partition: dict[str, Any]
+    ) -> dict[str, Any]:
         table_name = table_config["name"]
         partition_name = partition["name"]
         archive_key = f"{self._archive_prefix}{table_name}/{partition_name}.dump"
 
-        result = {
+        result: dict[str, Any] = {
             "partition": partition_name,
             "table": table_name,
             "status": "pending",
@@ -422,18 +431,21 @@ class PartitionArchiver:
         return results
 
     # ========================================================================
-    # PERBAIKAN: restore_partition dengan async I/O
+    # PERBAIKAN: restore_partition — pisahkan variabel storage per cabang
+    # agar mypy tidak menyimpulkan tipe dari cabang pertama. ``content``
+    # dianotasi ``Any`` karena ``download()`` bisa mengembalikan ``bytes``
+    # atau ``BinaryIO`` tergantung adapter.
     # ========================================================================
 
     async def restore_partition(self, archive_key: str, target_table: str) -> bool:
         try:
-            content = None
+            content: Any = None
             if self._archive_storage == "glacier":
-                storage = await get_glacier_cold_storage_adapter()
-                content = await storage.download(archive_key)
+                glacier_storage = await get_glacier_cold_storage_adapter()
+                content = await glacier_storage.download(archive_key)
             elif self._archive_storage == "s3":
-                storage = await get_s3_storage_adapter()
-                content = await storage.download(archive_key)
+                s3_storage = await get_s3_storage_adapter()
+                content = await s3_storage.download(archive_key)
             else:
                 local_path = Path(archive_key.replace("local://", ""))
                 async with aiofiles.open(local_path, "rb") as f:
@@ -443,8 +455,10 @@ class PartitionArchiver:
                 raise ArchiveRestoreError("Failed to download archive content")
 
             if archive_key.endswith(".gz"):
-                def _decompress_sync(data):
+
+                def _decompress_sync(data: bytes) -> bytes:
                     return gzip.decompress(data)
+
                 content = await asyncio.to_thread(_decompress_sync, content)
 
             dump_path = await self._create_temp_file(suffix=".dump")
@@ -469,7 +483,7 @@ class PartitionArchiver:
                 str(dump_path),
             ]
 
-            env = None
+            env: dict[str, str] | None = None
             if db_info.get("password"):
                 env = {"PGPASSWORD": db_info["password"]}
 
@@ -496,8 +510,8 @@ class PartitionArchiver:
             )
             return False
 
-    async def list_archives(self, table_name: str | None = None) -> list[dict]:
-        archives = []
+    async def list_archives(self, table_name: str | None = None) -> list[dict[str, Any]]:
+        archives: list[dict[str, Any]] = []
         for _key, metadata in self._archive_metadata.items():
             if table_name and metadata.get("table") != table_name:
                 continue
@@ -537,7 +551,7 @@ async def get_partition_archiver() -> PartitionArchiver:
 # ============================================================================
 
 
-def cli():
+def cli() -> None:
     import argparse
     import asyncio
 
@@ -551,7 +565,7 @@ def cli():
 
     args = parser.parse_args()
 
-    async def run():
+    async def run() -> None:
         archiver = await get_partition_archiver()
 
         if args.command == "archive":
@@ -588,3 +602,4 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
+    
