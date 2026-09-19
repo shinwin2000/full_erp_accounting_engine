@@ -575,7 +575,12 @@ class LowStockAlertSchema(BaseModel):
     reorder_point: Decimal
     reorder_quantity: Decimal
     shortage: Decimal
-    warehouse_id: UUID
+    # FIX: item yang belum diberi gudang default (warehouse_id kosong) itu
+    # SAH secara bisnis - tapi field ini sebelumnya wajib UUID (bukan
+    # opsional), jadi begitu ada satu saja item tanpa gudang yang stoknya
+    # di bawah titik reorder, SELURUH endpoint /alerts/low-stock gagal 500
+    # (pydantic ValidationError "UUID input should be ... not NoneType").
+    warehouse_id: UUID | None = None
     warehouse_name: str | None = None
     days_until_out: int | None = None
 
@@ -606,8 +611,24 @@ class WarehouseResponseSchema(BaseModel):
     is_default: bool
     notes: str | None
     created_at: datetime
-    created_by: UUID
+    # FIX: kolom warehouse.created_by di database nullable, jadi gudang
+    # lama/hasil seed bisa punya nilai None. Sebelumnya field ini wajib
+    # (UUID), sehingga GET /warehouses gagal 500 ValidationError begitu
+    # ada satu saja baris dengan created_by kosong.
+    created_by: UUID | None = None
     version: int = 1
+
+
+class WarehouseUpdateSchema(BaseModel):
+    """Schema untuk update warehouse/gudang."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    warehouse_name: str | None = Field(None, min_length=3, max_length=100, description="Nama gudang")
+    location: str | None = Field(None, max_length=200, description="Lokasi")
+    is_active: bool | None = Field(None, description="Aktif")
+    is_default: bool | None = Field(None, description="Gudang default")
+    notes: str | None = Field(None, max_length=500)
 
 
 # ============================================================================
@@ -983,8 +1004,17 @@ async def deactivate_item(
             )
             action = "voided"
         else:
-            result = await inventory_service.deactivate_item(
-                item_id, current_user.user_id, legal_entity_id, reason
+            # FIX: sebelumnya memanggil deactivate_item() secara posisional,
+            # padahal urutan parameternya (item_id, reason, user_id, ...) -
+            # akibatnya user_id terkirim sebagai "reason". Method aslinya juga
+            # me-return bool sehingga result.item_code di bawah selalu
+            # AttributeError. deactivate_item_api() memakai keyword yang benar
+            # dan mengembalikan ItemResponse.
+            result = await inventory_service.deactivate_item_api(
+                item_id=item_id,
+                user_id=current_user.user_id,
+                legal_entity_id=legal_entity_id,
+                reason=reason,
             )
             action = "deactivated"
 
@@ -1466,9 +1496,77 @@ async def get_stock_card(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+class StockOpnameSummarySchema(BaseModel):
+    """Ringkasan header stock opname untuk daftar/dropdown."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    opname_number: str
+    opname_date: date
+    warehouse_id: UUID | None = None
+    status: str
+    description: str | None = None
+    total_expected_value: Decimal
+    total_counted_value: Decimal
+    total_variance_value: Decimal
+    created_by: UUID | None = None
+    approved_by: UUID | None = None
+    approved_at: datetime | None = None
+
+
+class StockOpnameListResponseSchema(BaseModel):
+    """Response terpaginasi untuk GET /stock-opname."""
+
+    items: list[StockOpnameSummarySchema]
+    total: int
+    page: int
+    page_size: int
+
+
 # ----------------------------------------------------------------------------
 # STOCK OPNAME
 # ----------------------------------------------------------------------------
+
+
+@router.get(
+    "/stock-opname",
+    response_model=StockOpnameListResponseSchema,
+    summary="List stock opnames",
+    operation_id="list_stock_opnames",
+)
+async def list_stock_opnames(
+    status_filter: str | None = Query(None, alias="status"),
+    warehouse_id: UUID | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _permission: None = Depends(require_permission("inventory:read")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> StockOpnameListResponseSchema:
+    """List stock opname headers - FIX: sebelumnya tidak ada endpoint
+    list sama sekali, jadi satu-satunya cara mendapatkan opname_id untuk
+    di-approve/dibatalkan adalah menyalin manual dari respons create -
+    yang menyebabkan user mengetik ID asal (mis. "1") dan selalu 422.
+    """
+    try:
+        items, total = await inventory_service.list_stock_opnames(
+            legal_entity_id=legal_entity_id,
+            status=status_filter,
+            warehouse_id=warehouse_id,
+            page=page,
+            page_size=page_size,
+        )
+        return StockOpnameListResponseSchema(
+            items=[StockOpnameSummarySchema(**it) for it in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as e:
+        logger.exception("Failed to list stock opnames: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
@@ -2049,6 +2147,131 @@ async def list_warehouses(
         ]
     except Exception as e:
         logger.exception("Failed to list warehouses: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/warehouses",
+    response_model=WarehouseResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create warehouse",
+    operation_id="create_warehouse",
+)
+async def create_warehouse(
+    request: WarehouseCreateSchema,
+    _permission: None = Depends(require_permission("inventory:create")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> WarehouseResponseSchema:
+    """Create a new warehouse/gudang."""
+    try:
+        warehouse = await inventory_service.create_warehouse(
+            legal_entity_id=legal_entity_id,
+            warehouse_code=request.warehouse_code,
+            warehouse_name=request.warehouse_name,
+            location=request.location,
+            is_active=request.is_active,
+            is_default=request.is_default,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+        return WarehouseResponseSchema(
+            id=warehouse.id,
+            warehouse_code=warehouse.warehouse_code,
+            warehouse_name=warehouse.warehouse_name,
+            location=warehouse.location,
+            is_active=warehouse.is_active,
+            is_default=warehouse.is_default,
+            notes=warehouse.notes,
+            created_at=warehouse.created_at,
+            created_by=warehouse.created_by,
+            version=warehouse.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create warehouse: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put(
+    "/warehouses/{warehouse_id}",
+    response_model=WarehouseResponseSchema,
+    summary="Update warehouse",
+    operation_id="update_warehouse",
+)
+async def update_warehouse(
+    warehouse_id: UUID,
+    request: WarehouseUpdateSchema,
+    _permission: None = Depends(require_permission("inventory:update")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> WarehouseResponseSchema:
+    """Update an existing warehouse/gudang."""
+    try:
+        warehouse = await inventory_service.update_warehouse(
+            warehouse_id=warehouse_id,
+            legal_entity_id=legal_entity_id,
+            warehouse_name=request.warehouse_name,
+            location=request.location,
+            is_active=request.is_active,
+            is_default=request.is_default,
+            notes=request.notes,
+            updated_by=current_user.user_id,
+        )
+        if not warehouse:
+            raise HTTPException(status_code=404, detail="Warehouse not found")
+        return WarehouseResponseSchema(
+            id=warehouse.id,
+            warehouse_code=warehouse.warehouse_code,
+            warehouse_name=warehouse.warehouse_name,
+            location=warehouse.location,
+            is_active=warehouse.is_active,
+            is_default=warehouse.is_default,
+            notes=warehouse.notes,
+            created_at=warehouse.created_at,
+            created_by=warehouse.created_by,
+            version=warehouse.version,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update warehouse: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/warehouses/{warehouse_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete warehouse",
+    operation_id="delete_warehouse",
+)
+async def delete_warehouse(
+    warehouse_id: UUID,
+    _permission: None = Depends(require_permission("inventory:delete")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> dict:
+    """Soft-delete (nonaktifkan) sebuah warehouse/gudang."""
+    try:
+        deleted = await inventory_service.delete_warehouse(
+            warehouse_id=warehouse_id,
+            legal_entity_id=legal_entity_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Warehouse not found")
+        return {"warehouse_id": str(warehouse_id), "message": "Warehouse deleted successfully"}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to delete warehouse: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

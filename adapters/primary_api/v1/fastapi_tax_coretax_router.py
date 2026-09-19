@@ -1645,25 +1645,28 @@ async def bulk_submit_faktur(
             return cached
 
     try:
-        result = await bulk_use_case.submit_faktur_batch(
-            faktur_ids=faktur_ids,
-            legal_entity_id=legal_entity_id,
-            submitted_by=current_user.user_id,
+        # BUG FIX: bulk_use_case.submit_faktur_batch() tidak pernah ada di
+        # CoretaxBulkSubmissionUseCase manapun (selalu AttributeError -> HTTP
+        # 500 sejak awal). Use case yang nyata ada (execute()) dirancang
+        # untuk bulk submission SPT masa/tahunan dengan data terstruktur
+        # (tax_type/period/spt_data per item), BUKAN submit faktur yang
+        # sudah ada hanya berdasarkan ID. Tidak ada repository method di
+        # basis kode ini untuk mengambil faktur berdasarkan ID lalu
+        # menyerahkannya ke submit_faktur_keluaran() - endpoint ini jujur
+        # menolak alih-alih mengarang alur fetch-then-submit yang tidak
+        # benar-benar terimplementasi di service layer manapun.
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Bulk submit faktur berdasarkan ID belum terimplementasi - "
+                "tidak ada repository method untuk mengambil faktur berdasarkan "
+                "ID di service layer saat ini. Gunakan endpoint submit faktur "
+                "satuan, atau bulk submission SPT (/spt/bulk-submit) untuk "
+                "pengajuan SPT masa/tahunan."
+            ),
         )
-
-        response = {
-            "batch_id": str(result.batch_id),
-            "total_submitted": result.total_submitted,
-            "success_count": result.success_count,
-            "failed_count": result.failed_count,
-            "failed_ids": [str(fid) for fid in result.failed_ids],
-            "errors": result.errors,
-        }
-
-        if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
-        return response
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to bulk submit faktur: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

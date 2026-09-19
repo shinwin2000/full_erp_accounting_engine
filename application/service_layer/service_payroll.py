@@ -301,7 +301,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("set_employee_salary_structure", {
             "employee_id": str(employee_id),
@@ -377,7 +388,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("add_salary_component", {
             "employee_id": str(request.employee_id),
@@ -447,7 +469,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("create_payroll_run", {
             "payroll_run_id": str(payroll_run.id),
@@ -520,7 +553,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         if self._event_publisher:
             for ps in payslips:
@@ -533,7 +577,18 @@ class PayrollService:
                     user_id=str(user_id),
                     correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Payroll",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
 
         self._record_audit("process_payroll_run", {
             "payroll_run_id": str(payroll_run_id),
@@ -572,7 +627,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("approve_payroll_run", {
             "payroll_run_id": str(payroll_run_id),
@@ -611,7 +677,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("pay_payroll_run", {
             "payroll_run_id": str(payroll_run_id),
@@ -651,7 +728,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("cancel_payroll_run", {
             "payroll_run_id": str(payroll_run_id),
@@ -881,7 +969,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("post_payroll_to_gl", {
             "payroll_run_id": str(payroll_run_id),
@@ -932,7 +1031,18 @@ class PayrollService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Payroll",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("send_payslip_to_employee", {
             "payslip_id": str(payslip_id),

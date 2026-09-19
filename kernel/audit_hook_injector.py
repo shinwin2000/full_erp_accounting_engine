@@ -235,6 +235,10 @@ class AuditHookInjector(BaseAuditHookInjector):
         self._digital_signer = _get_digital_signer()
         self._active_contexts: dict[UUID, AuditContext] = {}
         self._async_queue: asyncio.Queue[AuditContext] = asyncio.Queue()
+        # BUG FIX (lihat _ensure_worker di bawah): dipakai untuk mendeteksi
+        # kapan queue perlu dibuat ulang karena event loop yang membuatnya
+        # sudah mati.
+        self._queue_loop: asyncio.AbstractEventLoop | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._custom_logger = custom_logger
         self._shutting_down = False
@@ -245,8 +249,6 @@ class AuditHookInjector(BaseAuditHookInjector):
 
     def _ensure_worker(self) -> None:
         """Start background worker only if there is a running event loop and worker not already running."""
-        if self._worker_task is not None and not self._worker_task.done():
-            return
         if self._shutting_down:
             return
 
@@ -257,17 +259,58 @@ class AuditHookInjector(BaseAuditHookInjector):
             logger.debug("No running event loop, audit worker not started")
             return
 
+        # BUG FIX: self._async_queue adalah singleton yang dibuat SEKALI di
+        # __init__, terikat ke event loop yang kebetulan aktif saat itu.
+        # Kalau loop tsb sudah ditutup (mis. antar test pytest-asyncio yang
+        # membuat loop baru per test function, atau skenario apa pun yang
+        # membuat beberapa event loop dalam satu proses) dan worker lama
+        # sebelumnya juga sudah mati, worker baru di bawah akan dibuat di
+        # loop yang benar TAPI masih menunjuk ke queue lama yang terikat
+        # loop mati -> setiap await self._async_queue.get() gagal terus,
+        # ditangkap "except Exception", langsung diulang tanpa jeda ->
+        # busy-loop tak terbatas yang memakan CPU dan membuat proses
+        # terlihat macet total. Fix: kalau loop berubah, buat queue baru.
+        if self._queue_loop is not loop:
+            if not self._async_queue.empty():
+                logger.warning(
+                    "Audit event loop changed with %d event(s) still queued - "
+                    "event(s) tersebut akan hilang (tidak bisa dipindah lintas loop).",
+                    self._async_queue.qsize(),
+                )
+            self._async_queue = asyncio.Queue()
+            self._queue_loop = loop
+            self._worker_task = None  # paksa worker baru dibuat di bawah
+
+        if self._worker_task is not None and not self._worker_task.done():
+            return
+
         async def worker() -> None:
+            consecutive_errors = 0
             while not self._shutting_down:
                 try:
                     context = await self._async_queue.get()
                     await self._flush_context(context)
                     self._async_queue.task_done()
+                    consecutive_errors = 0
                 except asyncio.CancelledError:
                     logger.debug("Audit worker cancelled, exiting")
                     break
                 except Exception as e:
+                    consecutive_errors += 1
                     logger.error(f"Audit worker error: {e}")
+                    # BUG FIX: safety-net tambahan supaya kesalahan berulang
+                    # apa pun (bukan cuma kasus queue lintas-loop di atas)
+                    # tidak pernah bisa jadi busy-loop tanpa jeda. Backoff
+                    # singkat lalu berhenti sama sekali kalau terus gagal -
+                    # _ensure_worker() akan membuat worker baru saat
+                    # dibutuhkan lagi.
+                    if consecutive_errors >= 5:
+                        logger.error(
+                            "Audit worker menyerah setelah %d error beruntun, berhenti.",
+                            consecutive_errors,
+                        )
+                        break
+                    await asyncio.sleep(min(0.1 * consecutive_errors, 1.0))
 
         self._worker_task = loop.create_task(worker())
         logger.debug("Audit worker started")
@@ -363,7 +406,17 @@ class AuditHookInjector(BaseAuditHookInjector):
                 "timestamp": datetime.now(UTC).isoformat(),
                 "data": {
                     "execution_time_ms": envelope.execution_time_ms,
-                    "result": self._safe_serialize(result)[:1000],
+                    # BUG FIX: _safe_serialize() bisa mengembalikan None, int,
+                    # float, bool, dict, atau list (bukan cuma str) - slicing
+                    # [:1000] langsung di atasnya crash dengan
+                    # "'NoneType'/'int'/... object is not subscriptable" untuk
+                    # SEMUA command yang hasilnya bukan string panjang.
+                    # Truncation [:1000] hanya relevan & aman untuk str.
+                    "result": (
+                        serialized[:1000]
+                        if isinstance((serialized := self._safe_serialize(result)), str)
+                        else serialized
+                    ),
                 },
             }
         )

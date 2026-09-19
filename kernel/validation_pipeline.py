@@ -16,6 +16,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from enum import Enum, auto
 from typing import Any
 from uuid import UUID
@@ -23,7 +24,7 @@ from uuid import UUID
 from axioms.accrual_basis import get_accrual_basis_axiom
 from axioms.causality_chain import get_causality_chain_axiom
 from axioms.conservation_of_value import get_conservation_axiom
-from axioms.double_entry import get_double_entry_axiom
+from axioms.double_entry import DoubleEntryValidator, get_double_entry_axiom
 from axioms.entity_isolation import get_entity_isolation_axiom
 from axioms.going_concern import get_going_concern_axiom
 from axioms.immutability import get_immutability_axiom
@@ -33,8 +34,57 @@ from axioms.period_bound import get_period_bound_axiom
 from axioms.substance_over_form import get_substance_over_form_axiom
 from axioms.time_irreversibility import get_time_irreversibility_axiom
 from constitution.constitutional_invariants import get_constitutional_invariants_service
-from constitution.enforcement_engine import EnforcementResult, get_enforcement_engine
+from constitution.enforcement_engine import (
+    EnforcementCatastrophicError,
+    EnforcementContext,
+    EnforcementRejectedError,
+    EnforcementResult,
+    get_enforcement_engine,
+)
 from constitution.forbidden_states import get_forbidden_states_service
+
+# --- GUARDS (kernel/guards) -------------------------------------------------
+# Semua guard di bawah ini punya API seragam: check(context: dict) -> list[str]
+# (list kosong = lolos). Diimpor lewat paket kernel.guards (bukan modul
+# individual) supaya BUG FIX pada kernel/guards/__init__.py ikut terpakai.
+from kernel.guards import (
+    get_authority_matrix_guard,
+    get_balance_checker,
+    get_budget_availability_guard,
+    get_coretax_format_guard,
+    get_credit_limit_enforcer,
+    get_currency_validator,
+    get_emergency_freeze_guard,
+    get_evidence_attacher_guard,
+    get_legal_entity_boundary_guard,
+    get_period_lock_guard,
+    get_regulatory_compliance_guard,
+    get_sod_enforcer,
+    get_temporal_consistency_guard,
+)
+
+# --- IMMUTABLE LAWS (kernel/immutable_laws) --------------------------------
+# Diimpor dari paket resmi (bukan dari modul monolitik kernel.immutable_laws.
+# immutable_laws yang berisi duplikat versi sederhana dengan nama kelas sama) -
+# getter di bawah ini menunjuk ke implementasi lengkap per file.
+from kernel.immutable_laws import (
+    get_asset_existence_enforcer,
+    get_audit_trail_completeness_enforcer,
+    get_dual_approval_enforcer,
+    get_evidence_mandate_enforcer,
+    get_fair_value_measurement_enforcer,
+    get_gl_supremacy_enforcer,
+    get_immutability_enforcer,
+    get_no_retroactive_policy_enforcer,
+    get_period_closure_enforcer,
+    get_reversal_constraint_enforcer,
+    get_segregation_of_duties_enforcer,
+    get_traceability_enforcer,
+)
+
+# --- POLICY ENGINE ----------------------------------------------------------
+from policy_engine.interpreter import get_policy_interpreter
+from policy_engine.loader_yaml import get_policy_loader
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +346,9 @@ class ValidationPipeline(BaseValidationPipeline):
 
         # 17. Guards
         if overall_status != ValidationStatus.FAIL:
-            result = await self._run_guards(command_data, command_id, legal_entity_id)
+            result = await self._run_guards(
+                command_data, command_id, legal_entity_id, user_id, command_type
+            )
             stage_results.append(result)
             if result.status == ValidationStatus.FAIL:
                 overall_status = ValidationStatus.FAIL
@@ -304,7 +356,9 @@ class ValidationPipeline(BaseValidationPipeline):
 
         # 18. Immutable Laws
         if overall_status != ValidationStatus.FAIL:
-            result = await self._run_immutable_laws(command_data, command_id, legal_entity_id)
+            result = await self._run_immutable_laws(
+                command_data, command_id, legal_entity_id, user_id, command_type
+            )
             stage_results.append(result)
             if result.status == ValidationStatus.FAIL:
                 overall_status = ValidationStatus.FAIL
@@ -312,8 +366,13 @@ class ValidationPipeline(BaseValidationPipeline):
 
         # 19. Policy
         if overall_status != ValidationStatus.FAIL:
-            result = await self._run_policy(command_data, command_id, legal_entity_id)
+            result = await self._run_policy(
+                command_data, command_id, legal_entity_id, user_id, command_type
+            )
             stage_results.append(result)
+            if result.status == ValidationStatus.FAIL:
+                overall_status = ValidationStatus.FAIL
+                rejection_reason = result.message
 
         # 20. Post Validation
         result = await self._run_post_validation(command_data)
@@ -368,22 +427,34 @@ class ValidationPipeline(BaseValidationPipeline):
     ) -> ValidationResult:
         start = time.time()
         try:
-            total_debit = data.get("total_debit", 0)
-            total_credit = data.get("total_credit", 0)
-            is_balanced, details = self._double_entry_axiom.verify_balance(
-                debit_total=total_debit,
-                credit_total=total_credit,
-                context=f"command_{command_id}",
+            raw_debit = data.get("total_debit", 0)
+            raw_credit = data.get("total_credit", 0)
+            try:
+                total_debit = Decimal(str(raw_debit))
+                total_credit = Decimal(str(raw_credit))
+            except (InvalidOperation, ValueError, TypeError) as e:
+                return ValidationResult(
+                    stage=ValidationStage.AXIOMS,
+                    status=ValidationStatus.FAIL,
+                    message=f"Invalid debit/credit value: total_debit={raw_debit!r}, total_credit={raw_credit!r} ({e})",
+                    duration_ms=(time.time() - start) * 1000,
+                    severity="CRITICAL",
+                )
+            # BUG FIX: DoubleEntryAxiom tidak punya method verify_balance().
+            # Pengecekan seimbang/tidaknya debit=kredit sebenarnya ada di
+            # DoubleEntryValidator.validate_balance() (staticmethod, real logic).
+            is_balanced, difference = DoubleEntryValidator.validate_balance(
+                total_debit, total_credit
             )
             if not is_balanced:
                 return ValidationResult(
                     stage=ValidationStage.AXIOMS,
                     status=ValidationStatus.FAIL,
-                    message=f"Double entry violation: debit={total_debit}, credit={total_credit}",
+                    message=f"Double entry violation: debit={total_debit}, credit={total_credit}, diff={difference}",
                     details={
-                        "total_debit": total_debit,
-                        "total_credit": total_credit,
-                        "details": details,
+                        "total_debit": str(total_debit),
+                        "total_credit": str(total_credit),
+                        "difference": str(difference),
                     },
                     duration_ms=(time.time() - start) * 1000,
                     severity="CRITICAL",
@@ -740,14 +811,23 @@ class ValidationPipeline(BaseValidationPipeline):
     ) -> ValidationResult:
         start = time.time()
         try:
-            report = self._enforcement_engine.enforce(
+            # BUG FIX: EnforcementEngine.enforce() menerima satu objek
+            # EnforcementContext, bukan keyword-args longgar (operation_id,
+            # context, raise_on_violation, dst yang sebelumnya dipakai di sini
+            # tidak pernah ada di signature aslinya). enforce() juga RAISE
+            # (bukan return status) ketika hasilnya REJECTED/CATASTROPHIC.
+            ctx = EnforcementContext(
                 operation_id=command_id,
                 operation_type=command_type,
-                context=data,
-                user_roles=[user_id],
+                user_id=user_id,
+                user_roles=[user_id] if user_id else [],
                 legal_entity_id=legal_entity_id,
-                raise_on_violation=False,
+                period_id=data.get("period_id"),
+                transaction_id=data.get("transaction_id", command_id),
+                source="internal_api",
+                data=data,
             )
+            report = self._enforcement_engine.enforce(ctx)
             if report.final_result != EnforcementResult.PASS:
                 return ValidationResult(
                     stage=ValidationStage.CONSTITUTION,
@@ -760,6 +840,14 @@ class ValidationPipeline(BaseValidationPipeline):
                 status=ValidationStatus.PASS,
                 message="Constitution OK",
                 duration_ms=(time.time() - start) * 1000,
+            )
+        except (EnforcementRejectedError, EnforcementCatastrophicError) as e:
+            return ValidationResult(
+                stage=ValidationStage.CONSTITUTION,
+                status=ValidationStatus.FAIL,
+                message=str(e),
+                duration_ms=(time.time() - start) * 1000,
+                severity="CRITICAL",
             )
         except Exception as e:
             return ValidationResult(
@@ -774,7 +862,11 @@ class ValidationPipeline(BaseValidationPipeline):
     ) -> ValidationResult:
         start = time.time()
         try:
-            violations = self._invariants_service.validate_all_active(
+            # BUG FIX: ConstitutionalInvariantsService tidak punya method
+            # validate_all_active() (itu method di kelas internal
+            # ConstitutionalInvariants, bukan di service wrapper-nya).
+            # Method publik yang benar di service adalah validate_all().
+            violations = self._invariants_service.validate_all(
                 context=data,
                 transaction_id=command_id,
                 legal_entity_id=legal_entity_id,
@@ -851,37 +943,283 @@ class ValidationPipeline(BaseValidationPipeline):
                 duration_ms=(time.time() - start) * 1000,
             )
 
+    def _build_shared_context(
+        self,
+        data: dict[str, Any],
+        command_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None,
+        command_type: str,
+    ) -> dict[str, Any]:
+        """
+        Menyatukan payload command dengan metadata eksekusi menjadi satu
+        context dict yang dipakai bersama oleh semua guard & immutable law.
+        Field dari `data` didahulukan (tidak ditimpa) karena itu payload
+        spesifik command; field metadata hanya diisi jika belum ada.
+        """
+        context: dict[str, Any] = dict(data or {})
+        context.setdefault("command_id", str(command_id))
+        context.setdefault("legal_entity_id", str(legal_entity_id))
+        context.setdefault("command_type", command_type)
+        context.setdefault("operation_type", command_type)
+        if user_id is not None:
+            context.setdefault("user_id", user_id)
+            # BUG FIX: sebelumnya creator_user_id di-auto-default dari
+            # user_id untuk SEMUA command yang punya user_id (nyaris semua
+            # command yang datang dari user asli). Akibatnya sod_enforcer
+            # (maker-checker check) selalu ikut terpicu bahkan untuk proses
+            # batch/otomatis satu-aktor yang memang tidak punya konsep
+            # approver terpisah (mis. forex revaluation run, depreciation
+            # run) -> selalu ditolak "approver_user_id is required" padahal
+            # command jenis itu memang tidak dirancang untuk dual-approval.
+            # creator_user_id sekarang HANYA ada di context kalau caller
+            # (command_data) memang secara eksplisit menyertakannya -
+            # menandakan command tsb sungguh punya relasi maker-checker
+            # yang perlu ditegakkan.
+        return context
+
     async def _run_guards(
-        self, data: dict[str, Any], command_id: UUID, legal_entity_id: UUID
+        self,
+        data: dict[str, Any],
+        command_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        command_type: str = "",
     ) -> ValidationResult:
+        """
+        Menjalankan seluruh pre-condition guard di kernel.guards.
+        Setiap guard hanya dieksekusi jika context command benar-benar
+        membawa field yang relevan untuk guard tersebut (trigger_keys) -
+        guard yang tidak relevan untuk command_type ini di-skip, bukan
+        dipaksa jalan dan gagal karena field yang memang tidak ada.
+        Guard tanpa trigger_keys (None) dianggap wajib untuk SETIAP command
+        (mis. pembekuan darurat sistem).
+        """
         start = time.time()
+        context = self._build_shared_context(data, command_id, legal_entity_id, user_id, command_type)
+
+        guard_registry: list[tuple[str, Any, frozenset[str] | None]] = [
+            ("emergency_freeze", get_emergency_freeze_guard, None),
+            ("authority_matrix", get_authority_matrix_guard, frozenset({"resource", "action"})),
+            ("balance_checker", get_balance_checker, frozenset({"account_id", "proposed_change"})),
+            ("period_lock", get_period_lock_guard, frozenset({"period_id"})),
+            ("currency_validator", get_currency_validator, frozenset({"currency"})),
+            ("legal_entity_boundary", get_legal_entity_boundary_guard, frozenset({"target_entity_id"})),
+            ("evidence_attacher", get_evidence_attacher_guard, frozenset({"evidence_ids"})),
+            ("regulatory_compliance", get_regulatory_compliance_guard, frozenset({"checks"})),
+            ("temporal_consistency", get_temporal_consistency_guard, frozenset({"transaction_date"})),
+            ("coretax_format", get_coretax_format_guard, frozenset({"document_type"})),
+            ("sod_enforcer", get_sod_enforcer, frozenset({"creator_user_id", "approver_user_id"})),
+            ("budget_availability", get_budget_availability_guard, frozenset({"cost_center_id"})),
+            ("credit_limit", get_credit_limit_enforcer, frozenset({"customer_id"})),
+        ]
+
+        violations: list[str] = []
+        skipped: list[str] = []
+        ran: list[str] = []
+        for name, getter, trigger_keys in guard_registry:
+            if trigger_keys is not None and context.keys().isdisjoint(trigger_keys):
+                skipped.append(name)
+                continue
+            try:
+                guard = getter()
+                errors = guard.check(context)
+            except Exception as e:  # noqa: BLE001 - guard rusak tidak boleh membungkam pipeline
+                logger.exception("Guard '%s' raised an exception during check()", name)
+                violations.append(f"[{name}] internal guard error: {e}")
+                ran.append(name)
+                continue
+            ran.append(name)
+            for err in errors:
+                violations.append(f"[{name}] {err}")
+
+        duration_ms = (time.time() - start) * 1000
+        if violations:
+            return ValidationResult(
+                stage=ValidationStage.GUARDS,
+                status=ValidationStatus.FAIL,
+                message=f"{len(violations)} guard violation(s): " + "; ".join(violations[:5]),
+                details={"violations": violations, "guards_ran": ran, "guards_skipped": skipped},
+                duration_ms=duration_ms,
+                severity="HIGH",
+            )
         return ValidationResult(
             stage=ValidationStage.GUARDS,
             status=ValidationStatus.PASS,
-            message="Guards passed (simplified)",
-            duration_ms=(time.time() - start) * 1000,
+            message=f"{len(ran)} guard(s) evaluated, 0 violations ({len(skipped)} not applicable)",
+            details={"guards_ran": ran, "guards_skipped": skipped},
+            duration_ms=duration_ms,
         )
 
     async def _run_immutable_laws(
-        self, data: dict[str, Any], command_id: UUID, legal_entity_id: UUID
+        self,
+        data: dict[str, Any],
+        command_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        command_type: str = "",
     ) -> ValidationResult:
+        """
+        Menjalankan seluruh immutable law enforcer di kernel.immutable_laws.
+        Sama seperti guards, setiap law hanya dijalankan jika context
+        membawa field yang relevan untuknya.
+        """
         start = time.time()
+        context = self._build_shared_context(data, command_id, legal_entity_id, user_id, command_type)
+
+        law_registry: list[tuple[str, Any, frozenset[str] | None]] = [
+            ("immutability", get_immutability_enforcer, frozenset({"journal_id"})),
+            ("evidence_mandate", get_evidence_mandate_enforcer, frozenset({"journal_id", "journal_type"})),
+            ("reversal_constraint", get_reversal_constraint_enforcer, frozenset({"reversal_journal_id", "original_journal_id"})),
+            ("traceability", get_traceability_enforcer, frozenset({"transaction_id", "source_type"})),
+            ("period_closure", get_period_closure_enforcer, frozenset({"period_id"})),
+            ("gl_supremacy", get_gl_supremacy_enforcer, frozenset({"account_code"})),
+            ("segregation_of_duties", get_segregation_of_duties_enforcer, frozenset({"creator_user_id", "approver_user_id"})),
+            ("no_retroactive_policy", get_no_retroactive_policy_enforcer, frozenset({"policy_id", "effective_date"})),
+            ("audit_trail_completeness", get_audit_trail_completeness_enforcer, frozenset({"transaction_id"})),
+            ("asset_existence", get_asset_existence_enforcer, frozenset({"asset_id", "asset_type"})),
+            ("fair_value_measurement", get_fair_value_measurement_enforcer, frozenset({"asset_class", "fair_value"})),
+        ]
+
+        violations: list[str] = []
+        skipped: list[str] = []
+        ran: list[str] = []
+        for name, getter, trigger_keys in law_registry:
+            if trigger_keys is not None and context.keys().isdisjoint(trigger_keys):
+                skipped.append(name)
+                continue
+            try:
+                enforcer = getter()
+                errors = enforcer.check(context)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Immutable law '%s' raised an exception during check()", name)
+                violations.append(f"[{name}] internal law-enforcer error: {e}")
+                ran.append(name)
+                continue
+            ran.append(name)
+            for err in errors:
+                violations.append(f"[{name}] {err}")
+
+        # DualApprovalEnforcer punya API berbeda (bukan check(context)->list[str]),
+        # jadi ditangani terpisah lewat enforce_dual_approval(..., raise_on_violation=False).
+        transaction_id = context.get("transaction_id") or context.get("journal_id")
+        transaction_type = context.get("transaction_type") or context.get("journal_type")
+        amount = context.get("amount")
+        if transaction_id and transaction_type and amount is not None:
+            try:
+                dual_approval = get_dual_approval_enforcer()
+                ok, violation = dual_approval.enforce_dual_approval(
+                    transaction_id=transaction_id,
+                    transaction_type=transaction_type,
+                    amount=amount,
+                    legal_entity_id=legal_entity_id,
+                    user_id=user_id,
+                    raise_on_violation=False,
+                )
+                ran.append("dual_approval")
+                if not ok and violation is not None:
+                    violations.append(f"[dual_approval] {violation.message}")
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Immutable law 'dual_approval' raised an exception during check()")
+                violations.append(f"[dual_approval] internal law-enforcer error: {e}")
+                ran.append("dual_approval")
+        else:
+            skipped.append("dual_approval")
+
+        duration_ms = (time.time() - start) * 1000
+        if violations:
+            return ValidationResult(
+                stage=ValidationStage.IMMUTABLE_LAWS,
+                status=ValidationStatus.FAIL,
+                message=f"{len(violations)} immutable law violation(s): " + "; ".join(violations[:5]),
+                details={"violations": violations, "laws_ran": ran, "laws_skipped": skipped},
+                duration_ms=duration_ms,
+                severity="CRITICAL",
+            )
         return ValidationResult(
             stage=ValidationStage.IMMUTABLE_LAWS,
             status=ValidationStatus.PASS,
-            message="Immutable laws satisfied",
-            duration_ms=(time.time() - start) * 1000,
+            message=f"{len(ran)} immutable law(s) evaluated, 0 violations ({len(skipped)} not applicable)",
+            details={"laws_ran": ran, "laws_skipped": skipped},
+            duration_ms=duration_ms,
         )
 
     async def _run_policy(
-        self, data: dict[str, Any], command_id: UUID, legal_entity_id: UUID
+        self,
+        data: dict[str, Any],
+        command_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        command_type: str = "",
     ) -> ValidationResult:
+        """
+        Mengevaluasi policy set yang aktif untuk domain command ini lewat
+        PolicyLoader + PolicyInterpreter. Jika tidak ada policy terdaftar
+        untuk domain tsb, itu bukan 'PASS palsu' - dilaporkan apa adanya
+        sebagai 'tidak ada policy berlaku', beda dari 'policy dievaluasi dan
+        lolos'.
+        """
         start = time.time()
+        context = self._build_shared_context(data, command_id, legal_entity_id, user_id, command_type)
+        domain = context.get("policy_domain") or (command_type.split("_")[0] if command_type else "")
+        jurisdiction = context.get("jurisdiction")
+
+        try:
+            loader = get_policy_loader()
+            policies = loader.get_policies_by_domain(domain, jurisdiction=jurisdiction) if domain else []
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Policy loader failed while resolving domain '%s'", domain)
+            return ValidationResult(
+                stage=ValidationStage.POLICY,
+                status=ValidationStatus.FAIL,
+                message=f"Policy loader error for domain '{domain}': {e}",
+                duration_ms=(time.time() - start) * 1000,
+                severity="HIGH",
+            )
+
+        if not policies:
+            return ValidationResult(
+                stage=ValidationStage.POLICY,
+                status=ValidationStatus.PASS,
+                message=f"No active policy set registered for domain '{domain}' - nothing to enforce",
+                details={"domain": domain, "policies_evaluated": 0},
+                duration_ms=(time.time() - start) * 1000,
+            )
+
+        interpreter = get_policy_interpreter()
+        rejections: list[str] = []
+        flags: list[str] = []
+        for policy_set in policies:
+            try:
+                results = interpreter.evaluate_policy(policy_set, dict(context))
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Policy evaluation failed for policy set '%s'", policy_set.id)
+                rejections.append(f"[{policy_set.id}] evaluation error: {e}")
+                continue
+            for action_result in results:
+                if action_result.get("status") == "rejected":
+                    rejections.append(
+                        f"[{policy_set.id}] {action_result.get('message', 'rejected by policy')}"
+                    )
+                if action_result.get("flag"):
+                    flags.append(f"[{policy_set.id}] {action_result.get('flag')}")
+
+        duration_ms = (time.time() - start) * 1000
+        if rejections:
+            return ValidationResult(
+                stage=ValidationStage.POLICY,
+                status=ValidationStatus.FAIL,
+                message=f"{len(rejections)} policy rejection(s): " + "; ".join(rejections[:5]),
+                details={"domain": domain, "rejections": rejections, "flags": flags},
+                duration_ms=duration_ms,
+                severity="HIGH",
+            )
         return ValidationResult(
             stage=ValidationStage.POLICY,
-            status=ValidationStatus.PASS,
-            message="Policy engine not fully implemented",
-            duration_ms=(time.time() - start) * 1000,
+            status=ValidationStatus.WARNING if flags else ValidationStatus.PASS,
+            message=f"{len(policies)} policy set(s) evaluated, 0 rejections, {len(flags)} flag(s)",
+            details={"domain": domain, "flags": flags},
+            duration_ms=duration_ms,
         )
 
     async def _run_post_validation(self, data: dict[str, Any]) -> ValidationResult:

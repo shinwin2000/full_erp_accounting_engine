@@ -447,7 +447,17 @@ class SystemSettingsService:
         if not self._event_publisher:
             return
         try:
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+            # event_type/aggregate_id/aggregate_type - panggilan lama (event,
+            # correlation_id=correlation_id) selalu TypeError kalau benar-benar
+            # dieksekusi.
+            await self._event_publisher.publish(
+                event,
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="SystemSettings",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
             logger.debug(f"Published {event.__class__.__name__} for {log_context}")
         except Exception as e:
             logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")

@@ -87,18 +87,24 @@ class CreateItemRequestDTO:
             raise ValueError("SKU must be at least 3 characters")
         if not self.name:
             raise ValueError("Item name is required")
+        # FIX BUG: daftar ini sebelumnya berisi nilai yang TIDAK PERNAH bisa
+        # sampai ke sini ("work_in_progress" - salah ketik, seharusnya
+        # "work_in_process"; "finished_goods", "packaging", "spare_part",
+        # "supplies" - tidak ada di enum ItemType backend sama sekali), dan
+        # JUSTRU TIDAK MENCANTUMKAN "work_in_process" yang merupakan nilai
+        # SAH dari ItemType enum (lihat fastapi_inventory_router.py). Karena
+        # router sudah memvalidasi item_type lewat Pydantic ItemType enum
+        # sebelum DTO ini dipanggil, satu-satunya nilai yang mungkin masuk
+        # ke sini adalah 7 nilai resmi tsb - daftar disamakan persis supaya
+        # tidak ada validasi ganda yang saling bertentangan.
         valid_item_types = [
             "raw_material",
-            "work_in_progress",
-            "finished_goods",
+            "work_in_process",
             "finished_good",
-            "packaging",
-            "spare_part",
             "trading",
             "consumable",
             "service",
             "asset",
-            "supplies",
         ]
         if self.item_type not in valid_item_types:
             raise ValueError(f"Invalid item_type: {self.item_type}")
@@ -179,8 +185,12 @@ class UpdateItemRequestDTO:
             self.maximum_stock = self.max_stock
         if self.uom is None and self.unit_of_measure is not None:
             self.uom = self.unit_of_measure
-        if self.warehouse_code is None and self.warehouse_id is not None:
-            self.warehouse_code = str(self.warehouse_id)
+        # FIX BUG: baris ini sebelumnya memasukkan UUID gudang (warehouse_id)
+        # mentah-mentah ke warehouse_code (field string bebas yang di sisi
+        # domain/database TIDAK terhubung ke kolom FK warehouse_id yang
+        # sebenarnya) - akibatnya pilihan gudang di form Barang/Item selalu
+        # gagal tersimpan secara diam-diam. warehouse_id sekarang dikirim
+        # apa adanya ke service, yang memetakannya ke kolom FK yang benar.
 
         if self.item_id is None:
             raise ValueError("item_id is required")
@@ -211,6 +221,21 @@ class UpdateItemRequestDTO:
             raise ValueError(f"Reorder point cannot be negative: {self.reorder_point}")
         if self.safety_stock is not None and self.safety_stock < 0:
             raise ValueError(f"Safety stock cannot be negative: {self.safety_stock}")
+        # FIX BUG: CreateItemRequestDTO sudah menolak standard_cost/selling_price
+        # negatif sejak awal, tapi UpdateItemRequestDTO ini TIDAK PERNAH punya
+        # validasi yang sama - jadi item yang sudah ada bisa diedit sampai
+        # harganya minus (terbukti dari screenshot user: "Harga Jual" -4,00
+        # sempat bisa masuk ke form update tanpa ditolak).
+        if self.standard_cost is not None and self.standard_cost < 0:
+            raise ValueError(f"Standard cost cannot be negative: {self.standard_cost}")
+        if self.selling_price is not None and self.selling_price < 0:
+            raise ValueError(f"Selling price cannot be negative: {self.selling_price}")
+        if self.minimum_stock is not None and self.minimum_stock < 0:
+            raise ValueError(f"Minimum stock cannot be negative: {self.minimum_stock}")
+        if self.maximum_stock is not None and self.maximum_stock < 0:
+            raise ValueError(f"Maximum stock cannot be negative: {self.maximum_stock}")
+        if self.reorder_quantity is not None and self.reorder_quantity < 0:
+            raise ValueError(f"Reorder quantity cannot be negative: {self.reorder_quantity}")
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"item_id": str(self.item_id)}
@@ -461,11 +486,56 @@ class LowStockAlertQueryDTO:
 
 
 # Aliases for router compatibility
+@dataclass(kw_only=True)
+class InterWarehouseTransferRequestDTO:
+    """Request DTO transfer antar gudang versi header + banyak item.
+
+    FIX: sebelumnya alias ``InterWarehouseTransferRequest`` menunjuk ke
+    ``TransferRequestDTO`` yang bentuknya berbeda total (single item, gudang
+    dinyatakan sebagai string ``from_warehouse``/``to_warehouse``). Endpoint
+    POST /inventory/inventory/transfers membangun DTO-nya dengan
+    ``from_warehouse_id``/``to_warehouse_id``/``items``/``created_by``,
+    sehingga pemanggilan itu selalu gagal TypeError "unexpected keyword
+    argument". DTO ini mencocokkan apa yang benar-benar dikirim router.
+    """
+
+    legal_entity_id: UUID
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    items: list[dict[str, Any]]
+    transfer_date: date | None = None
+    notes: str | None = None
+    created_by: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.from_warehouse_id == self.to_warehouse_id:
+            raise ValueError("Gudang asal dan gudang tujuan tidak boleh sama")
+        if not self.items:
+            raise ValueError("Transfer harus punya minimal 1 item")
+        for line in self.items:
+            qty = Decimal(str(line.get("quantity", 0)))
+            if qty <= 0:
+                raise ValueError(f"Qty harus lebih besar dari 0: {qty}")
+        if self.transfer_date is None:
+            object.__setattr__(self, "transfer_date", date.today())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "legal_entity_id": str(self.legal_entity_id),
+            "from_warehouse_id": str(self.from_warehouse_id),
+            "to_warehouse_id": str(self.to_warehouse_id),
+            "items": self.items,
+            "transfer_date": self.transfer_date.isoformat() if self.transfer_date else None,
+            "notes": self.notes,
+            "created_by": str(self.created_by) if self.created_by else None,
+        }
+
+
 ItemCreateRequest = CreateItemRequestDTO
 ItemUpdateRequest = UpdateItemRequestDTO
 StockMovementRequest = StockMovementRequestDTO
 StockOpnameRequest = StockOpnameRequestDTO
-InterWarehouseTransferRequest = TransferRequestDTO
+InterWarehouseTransferRequest = InterWarehouseTransferRequestDTO
 COGSCalculationRequest = COGSCalculationRequestDTO
 InventoryValuationRequest = InventoryValuationRequestDTO
 LowStockAlertQuery = LowStockAlertQueryDTO
@@ -476,6 +546,7 @@ __all__ = [
     "COGSCalculationRequestDTO",
     "CreateItemRequestDTO",
     "InterWarehouseTransferRequest",
+    "InterWarehouseTransferRequestDTO",
     "InventoryValuationRequest",
     "InventoryValuationRequestDTO",
     "ItemCreateRequest",

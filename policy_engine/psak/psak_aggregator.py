@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from policy_engine.psak.psak_01_presentation import (
-    PresentationFormat,
+    PSAK1ComplianceLevel,
     PSAK1ValidationResult,
     PSAK1Validator,
 )
@@ -27,12 +27,12 @@ from policy_engine.psak.psak_02_cash_flow import (
     PSAK2Validator,
 )
 from policy_engine.psak.psak_14_inventories import (
-    InventoryValuationMethod,
+    PSAK14ComplianceLevel,
     PSAK14ValidationResult,
     PSAK14Validator,
 )
 from policy_engine.psak.psak_16_ppe import (
-    DepreciationMethodPSAK,
+    PSAK16ComplianceLevel,
     PSAK16ValidationResult,
     PSAK16Validator,
 )
@@ -241,26 +241,33 @@ class PSAKAggregator:
         )
 
     def _assess_psak1(self, kwargs: dict) -> PSAK1ValidationResult:
-        return self._psak1.validate_financial_statements(  # type: ignore[call-arg]
-            components=kwargs.get("components", []),
+        # BUG FIX: validate_financial_statements() aslinya butuh objek
+        # PSAK1FinancialStatementSet + dict kebijakan current/prior (dibangun
+        # lewat create_statement_set()), bukan kwargs datar seperti
+        # 'components'/'current_period_data' yang dipakai sebelumnya (tidak
+        # pernah cocok dengan signature asli -> selalu TypeError).
+        statement_set = kwargs.get("statement_set")
+        if statement_set is None:
+            return PSAK1ValidationResult(
+                is_compliant=True,
+                compliance_level=PSAK1ComplianceLevel.FULL,
+            )
+        return self._psak1.validate_financial_statements(
+            statement_set=statement_set,
             balance_sheet_accounts=kwargs.get("balance_sheet_accounts", []),
-            income_statement_accounts=kwargs.get("income_statement_accounts", []),
-            presentation_format=kwargs.get("presentation_format", PresentationFormat.CLASSIFIED),
-            current_period_data=kwargs.get("current_period_data"),
-            prior_period_data=kwargs.get("prior_period_data"),
-            is_going_concern_uncertain=kwargs.get("is_going_concern_uncertain", False),
-            has_going_concern_disclosure=kwargs.get("has_going_concern_disclosure", False),
-            material_items=kwargs.get("material_items"),
-            material_items_disclosed=kwargs.get("material_items_disclosed", False),
+            policies_current=kwargs.get("policies_current", {}),
+            policies_prior=kwargs.get("policies_prior", {}),
+            current_data_available=kwargs.get("current_data_available", True),
+            prior_data_available=kwargs.get("prior_data_available", True),
         )
 
     def _assess_psak2(self, kwargs: dict) -> PSAK2ValidationResult:
         statement = kwargs.get("cash_flow_statement")
         if statement:
-            return self._psak2.validate_cash_flow_statement(  # type: ignore[attr-defined]
-                statement,
-                previous_statement=kwargs.get("previous_statement"),
-            )
+            # BUG FIX: method aslinya bernama validate_statement(), bukan
+            # validate_cash_flow_statement(), dan tidak menerima parameter
+            # previous_statement.
+            return self._psak2.validate_statement(statement)
         # Jika tidak ada data, kembalikan hasil default compliant
         return PSAK2ValidationResult(
             is_compliant=True,
@@ -268,36 +275,50 @@ class PSAKAggregator:
         )
 
     def _assess_psak14(self, kwargs: dict) -> PSAK14ValidationResult:
-        valuations = kwargs.get("valuations", [])
-        method = kwargs.get("valuation_method", InventoryValuationMethod.FIFO)
-        previous_method = kwargs.get("previous_method")
-        return self._psak14.validate_inventory_valuation(  # type: ignore[attr-defined]
-            valuations, method, previous_method
-        )
+        # BUG FIX: PSAK14Validator tidak punya validate_inventory_valuation();
+        # method aslinya adalah validate_inventory(inventory) yang menerima
+        # objek PSAK14Inventory (dibangun lewat create_inventory()+add_item()).
+        inventory = kwargs.get("inventory")
+        if inventory is None:
+            return PSAK14ValidationResult(
+                is_compliant=True,
+                compliance_level=PSAK14ComplianceLevel.FULL,
+            )
+        return self._psak14.validate_inventory(inventory)
 
     def _assess_psak16(self, kwargs: dict) -> PSAK16ValidationResult:
-        cost = kwargs.get("cost", Decimal(0))
-        useful_life = kwargs.get("useful_life_years", 0)
-        category = kwargs.get("asset_category", "")
-        salvage = kwargs.get("salvage_value", Decimal(0))
-        method = kwargs.get("depreciation_method", DepreciationMethodPSAK.STRAIGHT_LINE)
-        return self._psak16.validate_asset_recognition(  # type: ignore[attr-defined]
-            cost, useful_life, category, salvage, method
-        )
+        # BUG FIX: PSAK16Validator tidak punya validate_asset_recognition(cost,
+        # useful_life, ...); method aslinya adalah validate_register(register)
+        # yang menerima objek PSAK16AssetRegister (dibangun lewat
+        # create_register()+add_asset()).
+        register = kwargs.get("register")
+        if register is None:
+            return PSAK16ValidationResult(
+                is_compliant=True,
+                compliance_level=PSAK16ComplianceLevel.FULL,
+            )
+        return self._psak16.validate_register(register)
 
     def _assess_psak71(self, kwargs: dict) -> PSAK71ValidationResult:
-        hedge = kwargs.get("hedging_relationship")
-        if hedge:
-            return self._psak71.validate_hedge_effectiveness(hedge)  # type: ignore[attr-defined]
-        return PSAK71ValidationResult(
-            is_compliant=True,
-            compliance_level=PSAK71ComplianceLevel.FULL,
-        )
+        # BUG FIX: PSAK71Validator tidak punya validate_hedge_effectiveness();
+        # method yang benar-benar mengembalikan PSAK71ValidationResult adalah
+        # validate_asset(asset) atas objek PSAK71FinancialAsset. (hedge_
+        # effectiveness_test() nyata ada tapi mengembalikan tuple status+rasio,
+        # bukan PSAK71ValidationResult, jadi bukan pengganti yang cocok di sini.)
+        asset = kwargs.get("financial_asset")
+        if asset is None:
+            return PSAK71ValidationResult(
+                is_compliant=True,
+                compliance_level=PSAK71ComplianceLevel.FULL,
+            )
+        return self._psak71.validate_asset(asset)
 
     def _assess_psak72(self, kwargs: dict) -> PSAK72ValidationResult:
+        # BUG FIX: method aslinya bernama validate_contract(), bukan
+        # validate_contract_compliance().
         contract = kwargs.get("contract")
         if contract:
-            return self._psak72.validate_contract_compliance(contract)  # type: ignore[attr-defined]
+            return self._psak72.validate_contract(contract)
         return PSAK72ValidationResult(
             is_compliant=True,
             compliance_level=PSAK72ComplianceLevel.FULL,

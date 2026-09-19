@@ -112,6 +112,25 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     def session(self, value: AsyncSession) -> None:
         self._session = value
 
+    async def _flush_and_commit(self) -> None:
+        """Flush + COMMIT perubahan ke database.
+
+        FIX BUG KRITIS ("data gudang/barang tersimpan tapi tidak benar-benar
+        ada di database"): seluruh method tulis di repository ini dulunya
+        hanya memanggil ``session.flush()``. flush() cuma mengirim SQL
+        INSERT/UPDATE ke dalam transaksi yang masih terbuka - datanya
+        terlihat oleh query di session yang sama (jadi endpoint balas
+        201 Created dan record sempat muncul), TAPI tidak pernah
+        di-COMMIT. Repository ini membuat session-nya sendiri secara
+        lazy (lihat property ``session`` di atas) dan tidak berada di
+        bawah dependency ``get_async_session()`` FastAPI yang biasanya
+        melakukan commit otomatis, sehingga transaksinya tidak pernah
+        ditutup dan seluruh perubahan hilang begitu koneksi dilepas.
+        Semua operasi tulis sekarang memanggil helper ini.
+        """
+        await self.session.flush()
+        await self.session.commit()
+
     def _get_legal_entity_id(self, provided: UUID | None = None) -> UUID:
         if provided is not None:
             return provided
@@ -164,7 +183,12 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             standard_cost=table.standard_cost or Decimal("0"),
             selling_price=table.selling_price or Decimal("0"),
             category=table.category,
-            warehouse_code=None,
+            # FIX BUG: sebelumnya di-hardcode None saat memuat item dari
+            # database, sehingga setiap kali form Barang/Item dibuka lagi,
+            # gudang default terlihat "belum pernah diisi" walau sudah
+            # pernah disimpan (karena memang tidak pernah benar-benar
+            # tersimpan - lihat catatan di _to_orm_item()).
+            warehouse_id=table.warehouse_id,
             created_by=table.created_by,
             created_at=table.created_at,
             updated_at=table.updated_at,
@@ -207,7 +231,10 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             current_stock=item.current_stock or Decimal("0"),
             average_cost=item.average_cost or Decimal("0"),
             last_cost=item.last_cost or Decimal("0"),
-            warehouse_id=None,  # domain Item hanya menyimpan warehouse_code (string), bukan UUID FK
+            # FIX BUG: sebelumnya di-hardcode None sehingga pilihan gudang
+            # default di form Barang/Item TIDAK PERNAH benar-benar tersimpan
+            # (kolom FK warehouse_id selalu ditimpa NULL setiap update/create).
+            warehouse_id=getattr(item, "warehouse_id", None),
             minimum_stock=getattr(item, "minimum_stock", None),
             min_stock=getattr(item, "minimum_stock", None),
             maximum_stock=getattr(item, "maximum_stock", None),
@@ -353,11 +380,11 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 existing.reversed_by = movement.reversed_by
                 existing.notes = movement.notes
                 existing.version = movement.version
-                await self.session.flush()
+                await self._flush_and_commit()
                 return movement
             table = self._to_orm_movement_entity(movement)
             self.session.add(table)
-            await self.session.flush()
+            await self._flush_and_commit()
             return movement
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to save movement: {e}") from e
@@ -465,7 +492,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 raise DuplicateItemCodeError(f"Item code {item_code} already exists")
             table = await self._to_orm_item(item)
             self.session.add(table)
-            await self.session.flush()
+            await self._flush_and_commit()
             await self._log_audit("ADD", item.id, {"item_code": item_code})
             logger.info("Item added: %s", item_code)
         except DuplicateItemCodeError:
@@ -501,17 +528,55 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
 
     async def update_item(self, item: InventoryItemAggregate) -> None:
         try:
-            stmt = select(InventoryItemTable.version).where(InventoryItemTable.id == item.id)
+            # FIX BUG KRITIS #3: InventoryItemTable memakai VersionMixin
+            # (infrastructure/persistence_orm/base_model.py) yang mendaftarkan
+            # `version_id_col` bawaan SQLAlchemy - artinya SQLAlchemy SENDIRI
+            # sudah otomatis mengecek dan menaikkan kolom version setiap kali
+            # baris diupdate, TANPA perlu (dan TIDAK BOLEH) disentuh manual.
+            # v7 menambahkan `table.version = current_version + 1` lalu
+            # `session.merge(table)` pada objek LEPAS (detached) - kombinasi
+            # inilah yang menyebabkan error baru "Version id '9' ... does not
+            # match existing version '8' - leave the version attribute unset
+            # when merging". Pola yang benar (sudah dipakai & didokumentasikan
+            # di sqlalchemy_bank_cash_repository_impl.py._update_cash_book:
+            # "version TIDAK disentuh manual - version_id_col yang urus
+            # otomatis") adalah: ambil baris yang SUDAH melekat (attached) ke
+            # session lewat select(), ubah field-fieldnya langsung di objek
+            # itu, lalu flush - JANGAN membangun objek baru lalu session.merge().
+            stmt = select(InventoryItemTable).where(InventoryItemTable.id == item.id)
             result = await self.session.execute(stmt)
-            current_version = result.scalar_one_or_none()
-            if current_version is None:
+            table = result.scalar_one_or_none()
+            if table is None:
                 raise ItemNotFoundError(f"Item {item.id} not found")
-            if current_version != item.version:
-                raise OptimisticLockError(f"Version mismatch: expected {item.version}, got {current_version}")
-            table = await self._to_orm_item(item)
+            if table.version != item.version:
+                raise OptimisticLockError(f"Version mismatch: expected {item.version}, got {table.version}")
+
+            fresh = await self._to_orm_item(item)
+            skip_columns = {"id", "version", "created_at", "created_by"}
+            # FIX BUG KRITIS #4 (v9 keliru): sebelumnya loop di atas memakai
+            # `InventoryItemTable.__table__.columns.keys()` - yaitu SEMUA
+            # kolom fisik tabel (ternyata >100 kolom, dipakai bersama oleh
+            # modul lain: manufacturing/BOM, purchasing, dsb - lihat
+            # serial_required, cost_price, bom_required, dst di error
+            # NotNullViolationError yang dilaporkan user). `_to_orm_item()`
+            # hanya mengisi SEBAGIAN kecil kolom yang relevan untuk item
+            # master sederhana ini; kolom lain yang TIDAK diisi otomatis
+            # bernilai None pada objek `fresh` (transient/belum pernah
+            # disimpan). Loop lama menyalin None itu ke SEMUA kolom lain
+            # yang tidak disentuh - menimpa nilai asli di database jadi
+            # NULL, melanggar constraint NOT NULL di kolom seperti
+            # serial_required. Diperbaiki: HANYA salin atribut yang benar-
+            # benar di-set eksplisit oleh _to_orm_item() (dicek lewat
+            # vars(fresh), bukan daftar lengkap semua kolom tabel).
+            explicitly_set = {
+                k: v for k, v in vars(fresh).items()
+                if k != "_sa_instance_state" and k not in skip_columns
+            }
+            for column, value in explicitly_set.items():
+                setattr(table, column, value)
             table.updated_at = datetime.utcnow()
-            await self.session.merge(table)
-            await self.session.flush()
+            # version TIDAK disentuh manual - version_id_col yang urus otomatis.
+            await self._flush_and_commit()
             item_code = item.item.sku
             await self._log_audit("UPDATE", item.id, {"item_code": item_code})
             logger.info("Item updated: %s", item_code)
@@ -595,7 +660,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                     )
             table = await self._to_orm_movement(movement)
             self.session.add(table)
-            await self.session.flush()
+            await self._flush_and_commit()
             await self._log_audit("MOVEMENT", movement.item_id, {"movement_number": movement.movement_number})
             logger.info("Movement added: %s", movement.movement_number)
         except (InsufficientStockError, ItemNotFoundError):
@@ -762,7 +827,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 opname.notes = (notes or "") + f" | Comparisons: {comparisons}"
 
             self.session.add(opname)
-            await self.session.flush()
+            await self._flush_and_commit()
             await self._log_audit("CREATE_OPNAME", opname_id, {
                 "warehouse_id": str(warehouse_id),
                 "items_count": len(items_data) if items_data else 0,
@@ -801,7 +866,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 updated_at=datetime.utcnow(),
             )
             await self.session.execute(stmt_update)
-            await self.session.flush()
+            await self._flush_and_commit()
             await self._log_audit("RECORD_OPNAME_ITEM", item_id, {
                 "opname_id": str(opname_id),
                 "system": str(system_count),
@@ -859,7 +924,12 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                     if item:
                         # Update item stock
                         item.current_stock = Quantity(value=item.current_stock.value + diff, uom=item.unit_of_measure)
-                        item.version += 1
+                        # FIX: version TIDAK di-pre-increment manual di sini - update_item()
+                        # sendiri yang mengecek versi lama sama dengan yang di database, dan
+                        # membiarkan SQLAlchemy version_id_col menaikkannya otomatis saat flush.
+                        # Pre-increment manual seperti sebelumnya membuat update_item() SELALU
+                        # menolak dengan OptimisticLockError (versi yang dikirim jadi tidak
+                        # pernah cocok dengan versi asli di database).
                         await self.update_item(item)
                         adjustments.append({
                             "item_id": str(item_id),
@@ -875,7 +945,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 adjustments_applied=auto_adjust,
             )
             await self.session.execute(stmt_update)
-            await self.session.flush()
+            await self._flush_and_commit()
             await self._log_audit("COMPLETE_OPNAME", opname_id, {
                 "auto_adjust": auto_adjust,
                 "adjustments": len(adjustments),
@@ -935,7 +1005,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                         difference_value=it.discrepancy_value,
                         notes=it.notes,
                     ))
-                await self.session.flush()
+                await self._flush_and_commit()
                 return opname
 
             table = StockOpnameTable(
@@ -966,10 +1036,64 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                     difference_value=it.discrepancy_value,
                     notes=it.notes,
                 ))
-            await self.session.flush()
+            await self._flush_and_commit()
             return opname
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to save opname: {e}") from e
+
+    async def list_opnames(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        warehouse_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Daftar header stock opname (ringkas, tanpa lines) untuk ditampilkan
+        di dropdown/tabel frontend - dipakai supaya user memilih opname yang
+        mau di-approve/dibatalkan dari daftar nyata, bukan mengetik UUID
+        secara manual (sebelumnya tidak ada endpoint list sama sekali, jadi
+        satu-satunya cara mendapatkan opname_id adalah menyalinnya sendiri
+        dari respons saat membuat opname)."""
+        try:
+            conditions = [StockOpnameTable.legal_entity_id == legal_entity_id]
+            if status:
+                conditions.append(StockOpnameTable.status == status)
+            if warehouse_id:
+                conditions.append(StockOpnameTable.warehouse_id == warehouse_id)
+
+            count_stmt = select(func.count()).select_from(StockOpnameTable).where(*conditions)
+            total = (await self.session.execute(count_stmt)).scalar_one()
+
+            stmt = (
+                select(StockOpnameTable)
+                .where(*conditions)
+                .order_by(StockOpnameTable.opname_date.desc(), StockOpnameTable.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            rows = (await self.session.execute(stmt)).scalars().all()
+
+            items = [
+                {
+                    "id": row.id,
+                    "opname_number": row.opname_number,
+                    "opname_date": row.opname_date,
+                    "warehouse_id": row.warehouse_id,
+                    "status": row.status,
+                    "description": row.description,
+                    "total_expected_value": row.total_expected_value,
+                    "total_counted_value": row.total_counted_value,
+                    "total_variance_value": row.total_variance_value,
+                    "created_by": row.created_by,
+                    "approved_by": row.approved_by,
+                    "approved_at": row.approved_at,
+                }
+                for row in rows
+            ]
+            return items, total
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to list stock opnames: {e}") from e
 
     async def get_opname_by_id(self, opname_id: UUID) -> StockOpname | None:
         try:
@@ -1147,7 +1271,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 existing.unit_cost = transfer.unit_cost
                 existing.total_value = transfer.total_value
                 existing.version = transfer.version
-                await self.session.flush()
+                await self._flush_and_commit()
                 return transfer
 
             table = InterWarehouseTransferTable(
@@ -1182,7 +1306,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                     batch_number=getattr(it, "batch_number", None),
                     expiry_date=getattr(it, "expiry_date", None),
                 ))
-            await self.session.flush()
+            await self._flush_and_commit()
             return transfer
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to save transfer: {e}") from e
@@ -1402,8 +1526,8 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 return False
             table.deleted_at = datetime.utcnow()
             table.is_active = False
-            table.version += 1
-            await self.session.flush()
+            # version TIDAK disentuh manual - version_id_col yang urus otomatis.
+            await self._flush_and_commit()
             await self._log_audit("DELETE", item_id, {})
             logger.info("Item %s soft deleted", item_id)
             return True
@@ -1477,6 +1601,132 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             return result.scalar_one_or_none()
         except Exception:
             return None
+
+    @staticmethod
+    def _warehouse_to_dict(w: WarehouseTable) -> dict[str, Any]:
+        return {
+            "id": w.id,
+            "warehouse_code": w.warehouse_code,
+            "name": w.name,
+            "location_code": w.location_code,
+            "is_active": w.is_active,
+            "is_default": w.is_default,
+            "notes": w.notes,
+            "created_at": w.created_at,
+            "created_by": w.created_by,
+            "version": w.version,
+        }
+
+    async def create_warehouse(
+        self,
+        legal_entity_id: UUID,
+        warehouse_code: str,
+        name: str,
+        location_code: str | None = None,
+        is_active: bool = True,
+        is_default: bool = False,
+        notes: str | None = None,
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Buat warehouse/gudang baru (dipakai endpoint POST /warehouses)."""
+        try:
+            table = WarehouseTable(
+                id=uuid4(),
+                legal_entity_id=legal_entity_id,
+                warehouse_code=warehouse_code,
+                name=name,
+                location_code=location_code,
+                is_active=is_active,
+                status="active" if is_active else "inactive",
+                is_default=is_default,
+                notes=notes,
+                created_by=created_by,
+            )
+            self.session.add(table)
+            await self._flush_and_commit()
+            await self._log_audit("CREATE_WAREHOUSE", table.id, {"warehouse_code": warehouse_code})
+            logger.info("Warehouse %s created", warehouse_code)
+            return self._warehouse_to_dict(table)
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(
+                f"Failed to create warehouse (kode/nama mungkin sudah dipakai): {e}"
+            ) from e
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to create warehouse: {e}") from e
+
+    async def update_warehouse(
+        self,
+        warehouse_id: UUID,
+        legal_entity_id: UUID,
+        name: str | None = None,
+        location_code: str | None = None,
+        is_active: bool | None = None,
+        is_default: bool | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update warehouse/gudang yang sudah ada. Return None kalau tidak ditemukan."""
+        try:
+            stmt = select(WarehouseTable).where(
+                WarehouseTable.id == warehouse_id,
+                WarehouseTable.legal_entity_id == legal_entity_id,
+                WarehouseTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            if name is not None:
+                table.name = name
+            if location_code is not None:
+                table.location_code = location_code
+            if is_active is not None:
+                table.is_active = is_active
+                table.status = "active" if is_active else "inactive"
+            if is_default is not None:
+                table.is_default = is_default
+            if notes is not None:
+                table.notes = notes
+            # FIX: WarehouseTable pakai VersionMixin (version_id_col bawaan
+            # SQLAlchemy) - version TIDAK disentuh manual, SQLAlchemy sendiri
+            # yang mengecek & menaikkan kolom version saat flush (lihat
+            # catatan panjang di InventoryRepository.update_item() untuk
+            # detail bug yang sama pernah terjadi di tabel item).
+            await self._flush_and_commit()
+            await self._log_audit("UPDATE_WAREHOUSE", warehouse_id, {})
+            logger.info("Warehouse %s updated", table.warehouse_code)
+            return self._warehouse_to_dict(table)
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to update warehouse: {e}") from e
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to update warehouse: {e}") from e
+
+    async def delete_warehouse(self, warehouse_id: UUID, legal_entity_id: UUID) -> bool:
+        """Soft-delete (nonaktifkan) warehouse/gudang."""
+        try:
+            stmt = select(WarehouseTable).where(
+                WarehouseTable.id == warehouse_id,
+                WarehouseTable.legal_entity_id == legal_entity_id,
+                WarehouseTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return False
+            table.deleted_at = datetime.utcnow()
+            table.is_active = False
+            table.status = "inactive"
+            # version TIDAK disentuh manual - version_id_col yang urus otomatis.
+            await self._flush_and_commit()
+            await self._log_audit("DELETE_WAREHOUSE", warehouse_id, {})
+            logger.info("Warehouse %s soft deleted", warehouse_id)
+            return True
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to delete warehouse: {e}") from e
 
     # ========================================================================
     # METHODS REQUIRED BY CONTRACT (save_item, find_item_by_id, adjust_stock)
@@ -1553,7 +1803,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         # not update item stock automatically. We need to update item stock.
         # We'll update item stock after movement.
         item.current_stock = Quantity(value=item.current_stock.value + quantity, uom=item.unit_of_measure)
-        item.version += 1
+        # version TIDAK di-pre-increment manual - lihat catatan di update_item().
         await self.update_item(item)
 
 

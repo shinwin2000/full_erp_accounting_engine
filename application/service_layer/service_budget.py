@@ -15,7 +15,7 @@ import logging
 # ADDITIONAL DTOs (untuk testing compatibility)
 # ============================================================================
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -153,6 +153,11 @@ def audit(func):
 class BudgetService:
     """Service untuk budget management."""
 
+    _MONTH_NAMES_ID = [
+        "", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+        "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+    ]
+
     def __init__(
         self,
         budget_repo: BudgetRepositoryPort,
@@ -238,6 +243,7 @@ class BudgetService:
             currency=aggregate.currency,
             total_amount=aggregate.total_amount,
             notes=aggregate.notes,
+            description=aggregate.description,
             tags=aggregate.tags,
             is_locked=aggregate.is_locked,
             created_at=aggregate.created_at,
@@ -284,6 +290,7 @@ class BudgetService:
             currency=aggregate.currency,
             total_amount=aggregate.total_amount,
             notes=aggregate.notes,
+            description=aggregate.description,
             tags=aggregate.tags,
             is_locked=aggregate.is_locked,
             created_at=aggregate.created_at,
@@ -350,6 +357,7 @@ class BudgetService:
             ],
             created_by=request.created_by,
             notes=request.notes,
+            description=request.description,
             tags=request.tags,
             # [FIX] version_label yang diberikan client sebelumnya diabaikan
             # (selalu dipaksa "1.0" di BudgetAggregate.create).
@@ -391,6 +399,7 @@ class BudgetService:
             currency=entity.currency,
             total_amount=entity.total_amount,
             notes=entity.notes,
+            description=entity.description,
             tags=entity.tags,
             is_locked=entity.is_locked,
             created_at=entity.created_at,
@@ -441,6 +450,7 @@ class BudgetService:
                 currency=e.currency,
                 total_amount=e.total_amount,
                 notes=e.notes,
+                description=e.description,
                 tags=e.tags,
                 is_locked=e.is_locked,
                 created_at=e.created_at,
@@ -487,6 +497,7 @@ class BudgetService:
             effective_date=request.effective_date,
             expiry_date=request.expiry_date,
             notes=request.notes,
+            description=request.description,
             tags=request.tags,
         )
 
@@ -552,6 +563,7 @@ class BudgetService:
                 for line in entity.lines
             ],
             notes=entity.notes,
+            description=entity.description,
             tags=entity.tags,
             is_locked=entity.is_locked,
             created_at=entity.created_at,
@@ -799,6 +811,164 @@ class BudgetService:
         }
 
     @audit
+    async def get_budget_version_history(
+        self, legal_entity_id: UUID, budget_code: str
+    ) -> list[dict[str, Any]]:
+        """
+        [FITUR] Riwayat versi budget untuk tab 'Versi Budget'. Sebelumnya
+        endpoint ini tidak ada sama sekali di backend (404 selalu).
+        """
+        try:
+            return await self._budget_repo.get_revision_history(legal_entity_id, budget_code)
+        except NotImplementedError:
+            return []
+
+    @audit
+    async def transfer_budget_amount(
+        self,
+        legal_entity_id: UUID,
+        fiscal_year: int,
+        from_account_id: UUID,
+        to_account_id: UUID,
+        amount: Decimal,
+        reason: str,
+        requested_by: UUID,
+    ) -> dict[str, Any]:
+        """
+        [FITUR] Transfer/realokasi anggaran antar akun. Sebelumnya endpoint
+        ini tidak ada sama sekali di backend (404 selalu).
+
+        DESAIN (perlu diketahui pengguna): transfer hanya didukung KALAU
+        kedua akun (sumber & tujuan) ada di baris budget yang SAMA, untuk
+        fiscal_year & legal_entity yang diberikan, dengan status
+        approved/active. Transfer lintas-budget (dua budget berbeda)
+        sengaja TIDAK didukung -- itu operasi yang jauh lebih berisiko
+        (butuh keputusan bisnis: apakah boleh lintas budget_type, siapa
+        yang approve, dst.) dan tidak dibangun tanpa konfirmasi eksplisit.
+        """
+        budgets = await self.list_budgets(legal_entity_id, fiscal_year=fiscal_year)
+        target = None
+        for b in budgets:
+            if b.status not in ("approved", "active"):
+                continue
+            account_ids = {line.account_id for line in b.lines}
+            if from_account_id in account_ids and to_account_id in account_ids:
+                target = b
+                break
+
+        if target is None:
+            raise BudgetServiceError(
+                "Tidak ditemukan budget berstatus approved/active untuk fiscal_year "
+                f"{fiscal_year} yang memiliki KEDUA akun sumber dan tujuan pada baris "
+                "yang sama. Transfer lintas-budget tidak didukung."
+            )
+
+        aggregate = await self._get_aggregate(target.id)
+        aggregate.transfer_line_amount(requested_by, from_account_id, to_account_id, amount, reason)
+        await self._save_aggregate(aggregate)
+
+        from_line = next(l for l in aggregate.lines if l.account_id == from_account_id)
+        to_line = next(l for l in aggregate.lines if l.account_id == to_account_id)
+        return {
+            "budget_id": str(aggregate.id),
+            "budget_code": aggregate.budget_code,
+            "from_account_id": str(from_account_id),
+            "from_account_new_balance": str(from_line.amount),
+            "to_account_id": str(to_account_id),
+            "to_account_new_balance": str(to_line.amount),
+            "amount": str(amount),
+            "reason": reason,
+        }
+
+    @staticmethod
+    def _add_months_end_of_month(d: date, months: int) -> date:
+        """Tambahkan N bulan ke `d`, kembalikan tanggal akhir bulan hasilnya."""
+        total_months = (d.month - 1) + months
+        year = d.year + total_months // 12
+        month = total_months % 12 + 1
+        next_month_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        return next_month_first - timedelta(days=1)
+
+    @audit
+    async def create_rolling_forecast(
+        self,
+        legal_entity_id: UUID,
+        base_budget_id: UUID,
+        forecast_months: int,
+        notes: str | None,
+        created_by: UUID,
+    ) -> BudgetResponse:
+        """
+        [FITUR] Buat budget forecast baru (status DRAFT) dengan meng-kloning
+        baris anggaran dari budget dasar, untuk `forecast_months` bulan ke
+        depan mulai awal tahun fiskal berikutnya. Sebelumnya endpoint ini
+        tidak ada sama sekali di backend (404 selalu).
+
+        DESAIN: forecast dibuat sebagai budget BARU yang terpisah (bukan
+        memodifikasi budget dasar), berstatus DRAFT supaya tetap melalui
+        alur submit/approve normal sebelum dipakai sungguhan. Baris
+        anggaran disalin persis dari budget dasar sebagai titik awal --
+        pengguna diharapkan menyesuaikan jumlahnya lewat form Ubah/Tambah
+        Baris sebelum submit.
+        """
+        base = await self._budget_repo.get_by_id(base_budget_id)
+        if not base:
+            raise BudgetNotFoundError(f"Budget dasar {base_budget_id} tidak ditemukan")
+        if not base.lines:
+            raise BudgetServiceError("Budget dasar tidak punya baris anggaran untuk di-kloning")
+
+        new_fiscal_year = base.fiscal_year + 1
+        new_effective_date = date(new_fiscal_year, 1, 1)
+        new_expiry_date = self._add_months_end_of_month(new_effective_date, forecast_months - 1)
+
+        new_budget_code = f"{base.budget_code}-FCST{new_fiscal_year}"
+        existing = await self._budget_repo.get_by_code_and_year(
+            legal_entity_id, new_budget_code, new_fiscal_year
+        )
+        if existing:
+            raise BudgetServiceError(
+                f"Rolling forecast untuk {base.budget_code} tahun {new_fiscal_year} "
+                f"sudah pernah dibuat (kode {new_budget_code})."
+            )
+
+        lines = [
+            BudgetLine(
+                id=uuid4(), account_id=line.account_id, account_code=line.account_code,
+                amount=line.amount, note=line.note,
+            )
+            for line in base.lines
+        ]
+
+        combined_notes = f"Rolling forecast otomatis dari budget {base.budget_code} ({forecast_months} bulan)."
+        if notes:
+            combined_notes += f" {notes}"
+
+        aggregate = BudgetAggregate.create(
+            legal_entity_id=legal_entity_id,
+            budget_code=new_budget_code,
+            budget_name=f"Rolling Forecast - {base.budget_name}",
+            budget_type=BudgetType(base.budget_type),
+            fiscal_year=new_fiscal_year,
+            period=BudgetPeriod(base.period),
+            effective_date=new_effective_date,
+            expiry_date=new_expiry_date,
+            currency=base.currency,
+            lines=lines,
+            created_by=created_by,
+            notes=combined_notes,
+            description=(
+                f"Rolling forecast otomatis dari {base.budget_code}, "
+                f"{forecast_months} bulan ke depan mulai {new_effective_date.isoformat()}."
+            ),
+            version="1.0",
+        )
+        entity = self._aggregate_to_entity(aggregate)
+        await self._budget_repo.save(entity)
+        await self._maybe_commit_uow()
+        await self._publish_events(aggregate)
+        return self._to_response(aggregate)
+
+    @audit
     async def get_budget_alerts(
         self,
         legal_entity_id: UUID,
@@ -806,26 +976,36 @@ class BudgetService:
         severity: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get budget alerts for accounts exceeding threshold."""
+        # [FITUR] Sebelumnya `actual` selalu hardcode Decimal(0) (placeholder
+        # murni, komentar aslinya "Ganti dengan query nyata") sehingga
+        # consumption selalu 0 dan alert TIDAK PERNAH muncul apapun
+        # kondisinya. Sekarang ambil realisasi sungguhan dari ledger_entry
+        # (YTD sampai bulan berjalan) lewat `get_actual_amounts_by_account`.
+        current_month = datetime.now(UTC).month
         budgets = await self.list_budgets(legal_entity_id)
         alerts = []
         for b in budgets:
             if b.status not in ("active", "approved"):
                 continue
+            if not b.lines:
+                continue
+            account_ids = [line.account_id for line in b.lines]
+            actuals: dict[UUID, Decimal] = {}
+            try:
+                actuals = await self._budget_repo.get_actual_amounts_by_account(
+                    legal_entity_id, account_ids, b.fiscal_year, current_month, ytd=True
+                )
+            except NotImplementedError:
+                pass  # repository lama belum dukung -- alert tetap jalan, cuma consumption 0
             for line in b.lines:
-                # Simulasi konsumsi (tanpa actual data, pakai 0)
                 consumption = Decimal(0)
-                if line.amount > 0:
-                    # Di sini seharusnya ambil actual dari ledger_repo
-                    actual = Decimal(0)
-                    if self._ledger_repo:
-                        try:
-                            # Placeholder: ambil actual per account
-                            actual = Decimal(0)  # Ganti dengan query nyata
-                        except Exception:
-                            pass
-                    if actual > 0:
-                        consumption = (actual / line.amount) * 100
+                actual = actuals.get(line.account_id, Decimal(0))
+                if line.amount > 0 and actual > 0:
+                    consumption = (actual / line.amount) * 100
                 if consumption > threshold_percent:
+                    sev = "critical" if consumption > 80 else "warning"
+                    if severity and sev != severity:
+                        continue
                     alerts.append({
                         "budget_id": str(b.id),
                         "budget_name": b.budget_name,
@@ -833,33 +1013,41 @@ class BudgetService:
                         "account_code": line.account_code,
                         "account_name": line.account_code,
                         "budget_amount": str(line.amount),
-                        "actual_amount": str(actual) if 'actual' in locals() else "0",
+                        "actual_amount": str(actual),
                         "consumption_percent": float(consumption),
                         "threshold_percent": float(threshold_percent),
                         "message": f"Budget line {line.account_code} used {consumption:.1f}%",
-                        "severity": "critical" if consumption > 80 else "warning",
+                        "severity": sev,
                         "created_at": datetime.now(UTC).isoformat(),
                     })
         return alerts
 
     @audit
     async def get_budget_vs_actual(
-        self, budget_id: UUID, legal_entity_id: UUID, period: int
+        self, budget_id: UUID, legal_entity_id: UUID, period: int, ytd: bool = False
     ) -> BudgetVsActualResponse | None:
-        """Get budget vs actual for a specific month."""
+        """Get budget vs actual for a specific month (atau YTD kalau ytd=True)."""
         entity = await self._budget_repo.get_by_id(budget_id)
         if not entity:
             return None
 
-        # Placeholder: tanpa actual data, return 0
-        total_budget = entity.total_amount
-        total_actual = Decimal(0)
-        total_variance = total_actual - total_budget
-        variance_percent = float(abs(total_variance) / total_budget * 100) if total_budget > 0 else 0.0
+        # [FITUR] Sebelumnya `actual` selalu hardcode Decimal(0) untuk semua
+        # baris (placeholder murni). Sekarang ambil realisasi sungguhan dari
+        # ledger_entry lewat `get_actual_amounts_by_account`.
+        account_ids = [line.account_id for line in entity.lines]
+        actuals: dict[UUID, Decimal] = {}
+        try:
+            actuals = await self._budget_repo.get_actual_amounts_by_account(
+                legal_entity_id, account_ids, entity.fiscal_year, period, ytd=ytd
+            )
+        except NotImplementedError:
+            pass  # repository lama belum dukung -- tetap tampilkan budget, actual 0
 
         lines = []
+        total_actual = Decimal(0)
         for line in entity.lines:
-            actual = Decimal(0)
+            actual = actuals.get(line.account_id, Decimal(0))
+            total_actual += actual
             var = actual - line.amount
             var_pct = float(abs(var) / line.amount * 100) if line.amount > 0 else 0.0
             lines.append(
@@ -872,23 +1060,29 @@ class BudgetService:
                     variance_amount=var,
                     variance_percent=var_pct,
                     variance_type="neutral" if var == 0 else ("favorable" if var < 0 else "unfavorable"),
-                    consumption_percent=0.0,
+                    consumption_percent=float(actual / line.amount * 100) if line.amount > 0 else 0.0,
                     remaining_budget=line.amount - actual,
                 )
             )
+
+        total_budget = entity.total_amount
+        total_variance = total_actual - total_budget
+        variance_percent = float(abs(total_variance) / total_budget * 100) if total_budget > 0 else 0.0
+        month_name = self._MONTH_NAMES_ID[period] if 1 <= period <= 12 else str(period)
+        period_name = f"YTD s.d. {month_name}" if ytd else month_name
 
         return BudgetVsActualResponse(
             budget_id=entity.id,
             budget_name=entity.budget_name,
             fiscal_year=entity.fiscal_year,
             period=period,
-            period_name=f"Month {period}",
+            period_name=period_name,
             total_budget=total_budget,
             total_actual=total_actual,
             total_variance=total_variance,
             variance_percent=variance_percent,
             variance_type="neutral" if total_variance == 0 else ("favorable" if total_variance < 0 else "unfavorable"),
-            consumption_rate=0.0,
+            consumption_rate=float(total_actual / total_budget * 100) if total_budget > 0 else 0.0,
             remaining_budget=total_budget - total_actual,
             lines=lines,
             generated_at=datetime.now(UTC),
@@ -898,10 +1092,11 @@ class BudgetService:
     async def get_budget_vs_actual_ytd(
         self, budget_id: UUID, legal_entity_id: UUID, as_of_month: int
     ) -> BudgetVsActualResponse | None:
-        """Get budget vs actual YTD."""
-        # Untuk YTD, kita gunakan data yang sama dengan agregasi dari month 1..as_of_month
-        # Placeholder: sama seperti di atas
-        return await self.get_budget_vs_actual(budget_id, legal_entity_id, 0)
+        """Get budget vs actual YTD (akumulasi Januari..as_of_month)."""
+        # [FIX] Sebelumnya memanggil get_budget_vs_actual(..., period=0) --
+        # period=0 tidak valid (bulan 1-12), dan tidak pernah mengaktifkan
+        # mode YTD sama sekali (selalu delegasi ke placeholder yang sama).
+        return await self.get_budget_vs_actual(budget_id, legal_entity_id, as_of_month, ytd=True)
 
     @audit
     async def export_budgets(

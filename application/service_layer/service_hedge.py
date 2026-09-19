@@ -303,7 +303,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("designate_hedge", {
             "hedge_id": str(hedge.id),
@@ -396,7 +407,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("test_effectiveness", {
             "hedge_id": str(hedge.id),
@@ -504,7 +526,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("record_fair_value_change", {
             "hedge_id": str(hedge.id),
@@ -575,7 +608,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("discontinue_hedge", {
             "hedge_id": str(hedge_id),
@@ -630,7 +674,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("cancel_hedge", {
             "hedge_id": str(hedge_id),
@@ -706,7 +761,18 @@ class HedgeService:
                 correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Hedge",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("reclassify_amount", {
             "hedge_id": str(hedge.id),

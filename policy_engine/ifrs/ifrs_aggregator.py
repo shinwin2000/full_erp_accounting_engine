@@ -134,8 +134,12 @@ class IFRSAggregator:
 
     def get_requirements_summary(self) -> dict[str, Any]:
         """Mendapatkan ringkasan persyaratan semua standar IFRS."""
+        # BUG FIX: IFRS9 (kelas kalkulasi klasifikasi/ECL/hedge accounting)
+        # tidak punya method get_requirements_summary() sama sekali - beda
+        # dari IFRS15/IFRS16 yang memang menyediakannya. Daripada memanggil
+        # method yang tidak ada, IFRS_9 di-skip dari ringkasan ini secara
+        # eksplisit (jujur: tidak ada yang bisa diringkas), bukan dipalsukan.
         return {
-            "IFRS_9": self._ifrs9.get_requirements_summary(),
             "IFRS_15": self._ifrs15.get_requirements_summary(),
             "IFRS_16": self._ifrs16.get_requirements_summary(),
         }
@@ -215,9 +219,17 @@ class IFRSAggregator:
 
     def _assess_ifrs9(self, kwargs: dict) -> Any:
         """Menilai kepatuhan IFRS 9."""
-        hedge = kwargs.get("hedging_relationship")
-        if hedge:
-            return self._ifrs9.validate_hedge_effectiveness(hedge)
+        # BUG FIX: IFRS9 tidak punya validate_hedge_effectiveness(hedge).
+        # Uji efektivitas hedge yang nyata ada adalah hedge_effectiveness_test()
+        # (staticmethod, dollar-offset method) yang menerima dua angka
+        # perubahan nilai, bukan satu objek "hedging_relationship".
+        change_hedged = kwargs.get("change_in_hedged_item")
+        change_instrument = kwargs.get("change_in_hedging_instrument")
+        if change_hedged is not None and change_instrument is not None:
+            status, ratio = self._ifrs9.hedge_effectiveness_test(
+                change_hedged, change_instrument
+            )
+            return {"hedge_effectiveness_status": status, "effectiveness_ratio": ratio}
         # Return a simple compliance result with FULL compliance
         from policy_engine.psak.psak_71_financial_instruments_ifrs9 import PSAK71ValidationResult
 

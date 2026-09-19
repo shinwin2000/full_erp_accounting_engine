@@ -29,23 +29,33 @@ from domain.shared_value_objects.npwp_vo import validate_npwp_string
 logger = logging.getLogger(__name__)
 
 
-def _validate_npwp_checksum(v: str | None) -> str | None:
-    """Validasi NPWP penuh (15 digit + check digit modulo 11), bukan cuma
-    panjang & digit. Sebelumnya schema ini hanya cek isdigit(), jadi NPWP
-    yang lolos panjang tapi salah check digit (mis. '123456789123456')
-    tetap tersimpan ke database — lalu baru "hilang" (jadi None) secara
-    diam-diam saat dibaca lewat repository DDD (lihat _safe_npwp di
-    sqlalchemy_legal_entity_repository_impl.py). Validasi di titik masuk
-    ini supaya data invalid ditolak sejak awal, bukan diterima lalu
-    dibuang belakangan tanpa sepengetahuan user."""
+def _validate_npwp_format(v: str | None) -> str | None:
+    """Validasi format NPWP: 15 digit (format lama) ATAU 16 digit (format
+    standar sejak 1 Juli 2024 - PMK 112/PMK.03/2022 jo. PER-06/PJ/2024).
+
+    FIX (revisi 2026-09-14): validator ini sebelumnya HANYA menerima 15
+    digit dan WAJIB lolos check-digit modulo-11 - dua-duanya salah:
+    1. NPWP 16-digit (format resmi terkini) ditolak mentah-mentah dengan
+       pesan "String should have at most 15 characters", padahal itu
+       NPWP asli yang sah.
+    2. Algoritma check-digit modulo-11 yang dipakai ternyata TIDAK
+       terverifikasi sebagai standar resmi DJP (lihat catatan lengkap di
+       domain/shared_value_objects/npwp_vo.py) - dan terbukti di log
+       produksi menolak NPWP asli yang sah (mis. '127127010100003',
+       '123120010100006'). Enforcement check-digit sudah dihapus dari
+       domain NPWP; validator ini sekarang hanya mengikuti apa yang
+       divalidasi domain (panjang, digit, kode KPP untuk bagian legacy).
+    """
     if v is None:
         return v
     if not v.isdigit():
         raise ValueError("NPWP must contain only digits")
     if not validate_npwp_string(v):
         raise ValueError(
-            f"NPWP '{v}' tidak valid (check digit salah). "
-            "Pastikan NPWP diketik dengan benar (15 digit sesuai kartu NPWP)."
+            f"NPWP '{v}' tidak valid. Harus 15 digit (format lama) atau "
+            "16 digit (format standar sejak Juli 2024), dan untuk format "
+            "badan/instansi kode KPP (2 digit pertama bagian 15-digitnya) "
+            "harus dikenali."
         )
     return v
 
@@ -180,7 +190,7 @@ class LegalEntityCreateSchema(BaseModel):
     trade_name: str | None = None
     entity_type: LegalEntityType
     registration_number: str | None = None
-    npwp: str | None = Field(None, min_length=15, max_length=15)
+    npwp: str | None = Field(None, min_length=15, max_length=16)
     nppp: str | None = None
     address: str | None = None
     city: str | None = None
@@ -205,7 +215,7 @@ class LegalEntityCreateSchema(BaseModel):
     @field_validator("npwp")
     @classmethod
     def validate_npwp(cls, v: str | None) -> str | None:
-        return _validate_npwp_checksum(v)
+        return _validate_npwp_format(v)
 
 
 class LegalEntityUpdateSchema(BaseModel):
@@ -214,7 +224,7 @@ class LegalEntityUpdateSchema(BaseModel):
     trade_name: str | None = None
     entity_type: LegalEntityType | None = None
     registration_number: str | None = None
-    npwp: str | None = Field(None, min_length=15, max_length=15)
+    npwp: str | None = Field(None, min_length=15, max_length=16)
     nppp: str | None = None
     address: str | None = None
     city: str | None = None
@@ -238,7 +248,7 @@ class LegalEntityUpdateSchema(BaseModel):
     @field_validator("npwp")
     @classmethod
     def validate_npwp(cls, v: str | None) -> str | None:
-        return _validate_npwp_checksum(v)
+        return _validate_npwp_format(v)
 
 
 class LegalEntityResponseSchema(BaseModel):

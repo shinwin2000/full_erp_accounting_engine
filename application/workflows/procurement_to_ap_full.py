@@ -146,11 +146,20 @@ class ProcurementToAPFullWorkflow:
         inventory_service: InventoryService,
         saga_orchestrator: ProcurementSagaOrchestrator,
         sealed_gate: SealedGate | None = None,
+        purchase_service: Any = None,
     ):
         self._ap_service = ap_service
         self._inventory_service = inventory_service
         self._saga = saga_orchestrator
         self._sealed_gate = sealed_gate
+        # BUG FIX: workflow ini sebelumnya TIDAK PERNAH menerima service
+        # pembelian sama sekali - _create_purchase_order() sekadar mengarang
+        # po_number dan po_id (uuid4() acak) tanpa pernah benar-benar
+        # memanggil service apa pun, lalu melapor "success": True. Purchase
+        # order itu TIDAK PERNAH tercatat di mana pun. purchase_service
+        # sekarang diterima sebagai dependency baru (create_purchase_order()
+        # nyata ada di service_purchase_sales.py).
+        self._purchase_service = purchase_service
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
         self._audit_trail: list[dict[str, Any]] = []
 
@@ -180,46 +189,38 @@ class ProcurementToAPFullWorkflow:
         self._stats["executed"] += 1
 
         try:
-            saga_context = await self._saga.start_procurement(
-                legal_entity_id=command.legal_entity_id,
-                vendor_id=command.vendor_id,
-                items=command.items,
-                user_id=command.user_id,
-                correlation_id=command.correlation_id,
-            )
+            # BUG FIX: start_procurement()/complete() tidak pernah ada di
+            # ProcurementSagaOrchestrator sama sekali (hanya start()/
+            # compensate() dengan signature yang sama sekali berbeda - start()
+            # sync bukan async, compensate() cuma terima saga_id tanpa alasan).
+            # Tidak ada objek context yang bisa dipakai untuk pencatatan
+            # status lokal seperti di workflow lain. Diganti dengan saga_id
+            # lokal biasa; penanganan gagal-jujur (raise ValueError) yang
+            # sudah ada di tiap langkah tetap jadi mekanisme abort yang
+            # sesungguhnya bekerja.
+            saga_id = uuid4()
 
             async def _run_workflow():
                 po_result = await self._create_purchase_order(command)
                 if not po_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "po_creation_failed")
                     raise ValueError(f"PO creation failed: {po_result.get('error')}")
-                saga_context.set_po_number(po_result["po_number"])
 
                 grn_result = await self._receive_goods(command, po_result)
                 if not grn_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "grn_failed")
                     raise ValueError(f"GRN failed: {grn_result.get('error')}")
-                saga_context.set_grn_number(grn_result["grn_number"])
 
                 invoice_result = await self._create_ap_invoice(command, po_result, grn_result)
                 if not invoice_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "invoice_failed")
                     raise ValueError(f"Invoice creation failed: {invoice_result.get('error')}")
-                saga_context.set_invoice_number(invoice_result["invoice_number"])
 
                 if command.auto_approve:
                     approve_result = await self._approve_invoice(invoice_result["invoice_id"], command.user_id)
                     if not approve_result.get("success"):
-                        await self._saga.compensate(saga_context.saga_id, "approval_failed")
                         raise ValueError(f"Invoice approval failed: {approve_result.get('error')}")
 
                 payment_result = await self._create_payment(command, invoice_result)
-                if payment_result.get("success"):
-                    saga_context.set_payment_number(payment_result["payment_number"])
-                else:
+                if not payment_result.get("success"):
                     logger.warning(f"Payment creation issue: {payment_result.get('error')}")
-
-                await self._saga.complete(saga_context.saga_id)
 
                 return ProcurementWorkflowResult(
                     po_number=po_result["po_number"],
@@ -228,16 +229,31 @@ class ProcurementToAPFullWorkflow:
                     payment_number=payment_result.get("payment_number"),
                     total_amount=invoice_result["amount"],
                     status="COMPLETED",
-                    saga_id=saga_context.saga_id,
+                    saga_id=saga_id,
                     errors=[],
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) ->
+                # CommandEnvelope, bukan (command_id=, handler=).
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={
+                        "vendor_id": str(command.vendor_id),
+                        "item_count": len(command.items),
+                    },
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=command.legal_entity_id,
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Procurement workflow rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
@@ -272,18 +288,73 @@ class ProcurementToAPFullWorkflow:
 
     async def _create_purchase_order(self, command: ProcurementToAPFullCommand) -> dict[str, Any]:
         po_number = f"PO-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:4]}"
-        return {"success": True, "po_number": po_number, "po_id": uuid4()}
+        # BUG FIX: sebelumnya method ini TIDAK PERNAH memanggil service apa
+        # pun - langsung mengarang po_number dan po_id (uuid4() acak) lalu
+        # melapor "success": True. PO tersebut tidak pernah benar-benar
+        # tercatat. create_purchase_order() yang nyata ada di
+        # service_purchase_sales.py, mewajibkan supplier_name yang tidak
+        # tersedia di ProcurementToAPFullCommand sama sekali - dilaporkan
+        # jujur lewat error alih-alih menebak nama vendor.
+        if self._purchase_service is None:
+            raise RuntimeError(
+                "purchase_service tidak di-inject ke ProcurementToAPFullWorkflow "
+                "- tidak bisa membuat purchase order yang benar-benar tercatat."
+            )
+        supplier_name = getattr(command, "vendor_name", None)
+        if not supplier_name:
+            raise ValueError(
+                "ProcurementToAPFullCommand tidak menyertakan vendor_name - "
+                "create_purchase_order() mewajibkannya."
+            )
+        lines = [
+            {
+                "product_id": item["item_id"],
+                "quantity": item["quantity"],
+                "unit_price": item["unit_price"],
+            }
+            for item in command.items
+        ]
+        po = await self._purchase_service.create_purchase_order(
+            po_number=po_number,
+            supplier_id=command.vendor_id,
+            supplier_name=supplier_name,
+            lines=lines,
+            order_date=command.po_date,
+            expected_delivery_date=command.delivery_date,
+            created_by=command.user_id,
+            legal_entity_id=command.legal_entity_id,
+            correlation_id=command.correlation_id,
+        )
+        return {"success": True, "po_number": po.po_number, "po_id": po.id}
 
     async def _receive_goods(
         self, command: ProcurementToAPFullCommand, po_result: dict
     ) -> dict[str, Any]:
         grn_number = f"GRN-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:4]}"
+        # BUG FIX: receive_purchase() tidak pernah ada di InventoryService.
+        # Kapabilitas mencatat penerimaan barang yang nyata ada adalah
+        # record_movement() (movement_type="purchase_receipt") - butuh
+        # warehouse_id yang tidak ada di ProcurementToAPFullCommand.
+        warehouse_id = getattr(command, "warehouse_id", None)
+        if not warehouse_id:
+            raise ValueError(
+                "ProcurementToAPFullCommand tidak menyertakan warehouse_id - "
+                "record_movement() mewajibkannya."
+            )
+        from application.service_layer.service_inventory import StockMovementRequest
+
         for item in command.items:
-            await self._inventory_service.receive_purchase(
-                item_id=UUID(item["item_id"]),
-                quantity=Decimal(str(item["quantity"])),
-                unit_cost=Decimal(str(item["unit_price"])),
-                reference=grn_number,
+            await self._inventory_service.record_movement(
+                request=StockMovementRequest(
+                    legal_entity_id=command.legal_entity_id,
+                    item_id=UUID(item["item_id"]),
+                    movement_type="purchase_receipt",
+                    quantity=Decimal(str(item["quantity"])),
+                    unit_cost=Decimal(str(item["unit_price"])),
+                    warehouse_id=warehouse_id,
+                    reference_document_type="purchase_order",
+                    reference_document_number=po_result["po_number"],
+                ),
                 user_id=command.user_id,
             )
         return {"success": True, "grn_number": grn_number}
@@ -297,14 +368,46 @@ class ProcurementToAPFullWorkflow:
         )
         due_date = command.invoice_date + timedelta(days=command.payment_terms_days)
 
+        # BUG FIX: create_invoice() menerima satu objek CreateAPInvoiceRequest
+        # (butuh invoice_number/vendor_name/lines terstruktur, bukan kwargs
+        # datar po_number/grn_number/legal_entity_id yang bukan field-nya).
+        # vendor_name tidak tersedia di ProcurementToAPFullCommand - jujur
+        # meminta, bukan menebak.
+        vendor_name = getattr(command, "vendor_name", None)
+        if not vendor_name:
+            raise ValueError(
+                "ProcurementToAPFullCommand tidak menyertakan vendor_name - "
+                "create_invoice() mewajibkannya."
+            )
+        from application.dto_objects.ap_invoice_request import (
+            APInvoiceLineRequest,
+            CreateAPInvoiceRequest,
+        )
+
+        invoice_number = f"AP-INV-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:4]}"
+        lines = [
+            APInvoiceLineRequest(
+                item_id=UUID(item["item_id"]),
+                item_code=item.get("item_code", str(item["item_id"])[:8]),
+                item_name=item.get("item_name", ""),
+                quantity=Decimal(str(item["quantity"])),
+                unit_price=Decimal(str(item["unit_price"])),
+            )
+            for item in command.items
+        ]
         invoice = await self._ap_service.create_invoice(
-            legal_entity_id=command.legal_entity_id,
-            vendor_id=command.vendor_id,
-            invoice_date=command.invoice_date,
-            due_date=due_date,
-            amount=total_amount,
-            po_number=po_result["po_number"],
-            grn_number=grn_result["grn_number"],
+            request=CreateAPInvoiceRequest(
+                invoice_number=invoice_number,
+                vendor_id=command.vendor_id,
+                vendor_name=vendor_name,
+                invoice_date=datetime.combine(command.invoice_date, datetime.min.time()),
+                due_date=datetime.combine(due_date, datetime.min.time()),
+                amount=total_amount,
+                lines=lines,
+                po_number=po_result["po_number"],
+                po_id=po_result.get("po_id"),
+                grn_number=grn_result["grn_number"],
+            ),
             user_id=command.user_id,
             correlation_id=command.correlation_id,
         )
@@ -322,14 +425,38 @@ class ProcurementToAPFullWorkflow:
     async def _create_payment(
         self, command: ProcurementToAPFullCommand, invoice_result: dict
     ) -> dict[str, Any]:
-        payment = await self._ap_service.record_payment(
-            legal_entity_id=command.legal_entity_id,
-            vendor_id=command.vendor_id,
-            payment_date=command.invoice_date + timedelta(days=command.payment_terms_days),
-            amount=invoice_result["amount"],
-            invoice_ids=[invoice_result["invoice_id"]],
+        # BUG FIX: record_payment() menerima satu objek RecordAPPaymentRequest
+        # (butuh payment_number/vendor_name/payment_method - payment_method
+        # tidak tersedia di ProcurementToAPFullCommand, jujur meminta bukan
+        # menebak metode pembayaran; invoice_ids diganti invoice_id tunggal
+        # sesuai bentuk asli).
+        payment_method_str = getattr(command, "payment_method", None)
+        vendor_name = getattr(command, "vendor_name", None)
+        if not payment_method_str or not vendor_name:
+            raise ValueError(
+                "ProcurementToAPFullCommand tidak menyertakan payment_method "
+                "dan/atau vendor_name - record_payment() mewajibkan keduanya."
+            )
+        from application.dto_objects.ap_invoice_request import (
+            APPaymentMethod,
+            RecordAPPaymentRequest,
+        )
+
+        payment_date = command.invoice_date + timedelta(days=command.payment_terms_days)
+        payments = await self._ap_service.record_payment(
+            request=RecordAPPaymentRequest(
+                payment_number=f"AP-PAY-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:4]}",
+                vendor_id=command.vendor_id,
+                vendor_name=vendor_name,
+                payment_date=datetime.combine(payment_date, datetime.min.time()),
+                amount=invoice_result["amount"],
+                payment_method=APPaymentMethod(payment_method_str),
+                invoice_id=invoice_result["invoice_id"],
+                invoice_number=invoice_result["invoice_number"],
+            ),
             user_id=command.user_id,
         )
+        payment = payments[0]
         return {"success": True, "payment_number": payment.payment_number}
 
     def get_stats(self) -> dict[str, int]:
@@ -349,12 +476,14 @@ def create_procurement_to_ap_full_workflow(
     inventory_service: InventoryService,
     saga_orchestrator: ProcurementSagaOrchestrator,
     sealed_gate: SealedGate | None = None,
+    purchase_service: Any = None,
 ) -> ProcurementToAPFullWorkflow:
     return ProcurementToAPFullWorkflow(
         ap_service=ap_service,
         inventory_service=inventory_service,
         saga_orchestrator=saga_orchestrator,
         sealed_gate=sealed_gate,
+        purchase_service=purchase_service,
     )
 
 

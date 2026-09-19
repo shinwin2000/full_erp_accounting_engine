@@ -198,6 +198,10 @@ class PayrollToGLFullWorkflow:
         self._stats["executed"] += 1
 
         try:
+            # BUG FIX: PayrollSagaOrchestrator.start_payroll() ada, tapi
+            # .complete() tidak ada di orchestrator manapun, dan compensate()
+            # (kalau dipakai) override base class dengan signature sync yang
+            # berbeda. Baris .complete() yang tidak berfungsi dihapus di bawah.
             saga_context = await self._saga.start_payroll(
                 legal_entity_id=command.legal_entity_id,
                 period_year=command.period_year,
@@ -208,131 +212,39 @@ class PayrollToGLFullWorkflow:
             )
 
             async def _run_workflow():
+                # BUG FIX: create_payroll_run() menerima satu objek
+                # PayrollRunRequest, bukan kwargs datar.
+                from application.service_layer.service_payroll import PayrollRunRequest
+
                 payroll_run = await self._payroll_service.create_payroll_run(
-                    legal_entity_id=command.legal_entity_id,
-                    period_year=command.period_year,
-                    period_month=command.period_month,
-                    employee_ids=command.employee_ids,
-                    user_id=command.user_id,
-                )
-                saga_context.set_payroll_run_id(payroll_run.id)
-
-                if command.employee_ids:
-                    employees = await self._payroll_service.get_employees_by_ids(
-                        command.employee_ids
-                    )
-                else:
-                    employees = await self._payroll_service.get_active_employees(
-                        command.legal_entity_id, date(command.period_year, command.period_month, 1)
-                    )
-
-                total_gross = Decimal("0")
-                total_deductions = Decimal("0")
-                total_net = Decimal("0")
-                total_tax = Decimal("0")
-                payslip_ids = []
-
-                for emp in employees:
-                    structure = await self._payroll_service.get_salary_structure(
-                        emp.id, date(command.period_year, command.period_month, 1)
-                    )
-                    if not structure:
-                        logger.warning(f"No salary structure for employee {emp.id}, skipping")
-                        continue
-
-                    components = await self._payroll_service.calculate_components(
-                        employee_id=emp.id,
-                        structure=structure,
+                    request=PayrollRunRequest(
+                        legal_entity_id=command.legal_entity_id,
                         period_year=command.period_year,
                         period_month=command.period_month,
-                        user_id=command.user_id,
-                    )
-
-                    gross = components.get("gross", Decimal("0"))
-                    deductions = components.get("deductions", Decimal("0"))
-                    tax = components.get("tax", Decimal("0"))
-                    net = gross - deductions
-
-                    total_gross += gross
-                    total_deductions += deductions
-                    total_net += net
-                    total_tax += tax
-
-                    payslip = await self._payroll_service.generate_payslip(
-                        employee_id=emp.id,
-                        payroll_run_id=payroll_run.id,
-                        gross_pay=gross,
-                        deductions=deductions,
-                        net_pay=net,
-                        tax_withheld=tax,
-                        components=components,
-                        user_id=command.user_id,
-                    )
-                    payslip_ids.append(payslip.id)
-
-                await self._payroll_service.update_payroll_run_totals(
-                    payroll_run_id=payroll_run.id,
-                    total_gross=total_gross,
-                    total_deductions=total_deductions,
-                    total_net=total_net,
-                    total_tax=total_tax,
+                        employee_ids=command.employee_ids,
+                    ),
+                    user_id=command.user_id,
                 )
+                saga_context.set_payroll_run_id(payroll_run.payroll_run_id)
 
-                journal_id = None
-                if command.post_to_gl and not command.dry_run and total_net > 0:
-                    journal_id = await self._post_payroll_journal(
-                        command.legal_entity_id,
-                        total_gross,
-                        total_deductions,
-                        total_net,
-                        total_tax,
-                        command.payroll_date,
-                        command.user_id,
-                        command.correlation_id,
-                    )
-                    await self._payroll_service.update_payroll_run_journal(
-                        payroll_run.id, journal_id
-                    )
-
-                bank_file_path = None
-                if command.generate_bank_file and not command.dry_run and total_net > 0:
-                    bank_file_path = await self._generate_bank_file(
-                        employees,
-                        payslip_ids,
-                        total_net,
-                        command.legal_entity_id,
-                        command.payroll_date,
-                        command.user_id,
-                    )
-
-                payslips_sent = 0
-                if command.send_payslip_email and not command.dry_run:
-                    for payslip_id in payslip_ids:
-                        try:
-                            await self._payroll_service.send_payslip_to_employee(
-                                payslip_id=payslip_id, user_id=command.user_id
-                            )
-                            payslips_sent += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to send payslip {payslip_id}: {e}")
-
-                await self._payroll_service.complete_payroll_run(
-                    payroll_run_id=payroll_run.id, user_id=command.user_id
-                )
-
-                await self._saga.complete(saga_context.saga_id)
-
-                return PayrollWorkflowResult(
-                    payroll_run_id=payroll_run.id,
-                    employee_count=len(employees),
-                    total_gross=total_gross,
-                    total_deductions=total_deductions,
-                    total_net=total_net,
-                    total_tax=total_tax,
-                    journal_id=journal_id,
-                    bank_file_path=bank_file_path,
-                    payslips_sent=payslips_sent,
-                    message=f"Payroll completed for {command.period_year}-{command.period_month:02d}",
+                # BUG FIX: get_employees_by_ids()/get_active_employees()/
+                # calculate_components()/generate_payslip()/
+                # update_payroll_run_totals()/update_payroll_run_journal()/
+                # complete_payroll_run() TIDAK ADA di PayrollService manapun -
+                # ini mencakup hampir seluruh inti pemrosesan payroll
+                # (resolusi karyawan, kalkulasi komponen gaji/pajak, generate
+                # slip gaji, penyelesaian run). Ini bukan salah nama parameter
+                # - kapabilitas ini belum pernah dibangun sama sekali di
+                # codebase ini, dan membangunnya berarti menulis aturan
+                # perhitungan payroll/pajak yang sesungguhnya (PPh21, BPJS,
+                # dst) yang tidak bisa saya karang tanpa spesifikasi bisnis
+                # nyata. Dilaporkan gagal jujur di sini.
+                raise NotImplementedError(
+                    "Kalkulasi komponen gaji, generate payslip, dan "
+                    "penyelesaian payroll run belum terimplementasi di "
+                    "PayrollService. payroll_run berhasil dibuat "
+                    f"(id={payroll_run.payroll_run_id}) tapi tidak bisa "
+                    "dilanjutkan ke perhitungan gaji karyawan."
                 )
 
             if command.dry_run:
@@ -342,11 +254,26 @@ class PayrollToGLFullWorkflow:
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) ->
+                # CommandEnvelope, bukan (command_id=, handler=).
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={
+                        "period_year": command.period_year,
+                        "period_month": command.period_month,
+                    },
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=command.legal_entity_id,
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Payroll workflow rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
@@ -431,16 +358,28 @@ class PayrollToGLFullWorkflow:
                 }
             )
 
-        journal_id = await self._journal_service.post_journal(
+                # BUG FIX: post_journal() aslinya memposting jurnal yang SUDAH
+        # ADA berstatus "approved" (butuh journal_id), bukan membuat baru
+        # dari lines/description mentah. create_journal() membuat draft;
+        # lalu submit_journal() supaya siap disetujui - TIDAK di-auto-
+        # approve/post karena approve_journal() menegakkan prinsip 4-eyes
+        # (creator != approver). Approval final tetap perlu manusia lain
+        # lewat alur normal.
+        journal = await self._journal_service.create_journal(
             legal_entity_id=legal_entity_id,
             journal_date=journal_date,
-            period=f"{journal_date.year}-{journal_date.month:02d}",
             description=f"Payroll for {journal_date.year}-{journal_date.month:02d}",
+            journal_type="general",
             lines=lines,
-            source_system="payroll",
-            user_id=user_id,
-            correlation_id=correlation_id,
+            reference_number=None,
+            source_type="payroll",
+            source_id=None,
+            notes=None,
+            attachment_ids=None,
+            created_by=user_id,
         )
+        await self._journal_service.submit_journal(journal.id, user_id, legal_entity_id)
+        journal_id = journal.id
         return journal_id
 
     # ========================================================================

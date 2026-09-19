@@ -617,10 +617,35 @@ class LegalEntityUpdated(DomainEvent):
     """
     Event yang diterbitkan ketika data Legal Entity diperbarui.
 
+    FIX (audit 2026-09-14): constructor ini sebelumnya hanya menerima
+    (aggregate_id, aggregate_version, updated_fields, ...) - padahal
+    SEMUA (5 dari 5) titik pemanggilan di
+    application/service_layer/service_legal_entity.py (update biasa,
+    activate, update tax profile, add/remove dari consolidation group)
+    secara KONSISTEN memanggilnya dengan set kwarg yang berbeda:
+    entity_id, entity_code, changes (dict {field: {old, new}}),
+    updated_by - selain aggregate_id/aggregate_version/user_id/
+    correlation_id. Akibatnya SETIAP update Legal Entity yang melewati
+    baris `if self._event_publisher:` selalu gagal 500
+    "LegalEntityUpdated.__init__() got an unexpected keyword argument
+    'entity_id'" - bukan cuma satu endpoint PUT, tapi 5 operasi
+    sekaligus. Constructor ini disamakan ke kontrak yang sudah dipakai
+    konsisten di pemanggilnya (bukan sebaliknya), karena itulah yang
+    mencerminkan kebutuhan nyata (audit trail perlu tahu SIAPA yang
+    mengubah APA, bukan cuma daftar nama field).
+
     Attributes:
         aggregate_id: ID agregat Legal Entity.
         aggregate_version: Versi agregat.
-        updated_fields: Daftar field yang diperbarui.
+        entity_id: ID Legal Entity yang diperbarui (sama dengan aggregate_id,
+            dipertahankan terpisah karena begitu polanya di seluruh
+            pemanggil - beberapa event lain di modul ini juga membedakan
+            keduanya).
+        entity_code: Kode/nomor registrasi entitas untuk audit trail yang
+            mudah dibaca manusia (tanpa perlu resolve UUID).
+        changes: Dict {nama_field: {"old": ..., "new": ...}} - detail
+            perubahan tiap field.
+        updated_by: Identitas pengguna/sistem yang melakukan perubahan.
         user_id: (opsional) ID pengguna yang memicu event.
         correlation_id: (opsional) ID korelasi.
         causation_id: (opsional) ID penyebab.
@@ -629,13 +654,22 @@ class LegalEntityUpdated(DomainEvent):
         self,
         aggregate_id: UUID,
         aggregate_version: int,
-        updated_fields: list[str],
+        entity_id: UUID,
+        entity_code: str,
+        changes: dict[str, Any],
+        updated_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ):
         event_data = {
-            "updated_fields": updated_fields,
+            "entity_id": str(entity_id),
+            "entity_code": entity_code,
+            "changes": changes,
+            "updated_by": updated_by,
+            # Dipertahankan untuk konsumen lama yang mengharapkan daftar
+            # nama field saja (lihat docstring versi sebelumnya).
+            "updated_fields": list(changes.keys()) if isinstance(changes, dict) else [],
         }
         super().__init__(
             event_id=uuid4(),

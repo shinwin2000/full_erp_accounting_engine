@@ -45,8 +45,16 @@ FORM_FIELDS = [
     FieldSpec("location", "Lokasi"),
     FieldSpec("responsible_party", "Penanggung Jawab"),
     FieldSpec("serial_number", "No. Seri"),
-    FieldSpec("supplier_id", "ID Supplier"),
-    FieldSpec("invoice_number", "No. Faktur"),
+    FieldSpec("supplier_id", "Supplier (UUID)", FieldType.UUID),
+    # FIX: field ini sebelumnya bernama "invoice_number" (teks bebas),
+    # padahal backend (AssetCreateSchema di fastapi_fixed_asset_router.py)
+    # sama sekali tidak punya field itu - yang ada `invoice_id: UUID`.
+    # Karena Pydantic default mengabaikan field asing yang tidak dikenal,
+    # form ini selama ini SELALU mengirim "invoice_number" dan backend
+    # SELALU diam-diam membuangnya - No. Faktur yang diketik user tidak
+    # pernah benar-benar tersimpan (submit tetap sukses 200/201, jadi
+    # tidak ada indikasi error sama sekali).
+    FieldSpec("invoice_id", "Invoice (UUID)", FieldType.UUID),
 ]
 
 # ---------------------------------------------------------------------------

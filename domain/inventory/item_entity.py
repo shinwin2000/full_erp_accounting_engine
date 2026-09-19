@@ -152,6 +152,17 @@ class ItemEntity:
     selling_price: Decimal = Decimal(0)
     category: str | None = None
     warehouse_code: str | None = None
+    # FIX BUG: field terpisah untuk UUID gudang default (FK sesungguhnya ke
+    # tabel warehouse). Sebelumnya kode di seluruh lapisan (DTO, service,
+    # repository) memaksa UUID gudang yang dipilih user masuk ke
+    # `warehouse_code` (field string bebas yang TIDAK punya kolom database
+    # sama sekali), sementara kolom FK asli `warehouse_id` di tabel item
+    # justru selalu ditulis ulang jadi NULL setiap kali item disimpan.
+    # Akibatnya: pilihan gudang di form terlihat tersimpan (dropdown-nya
+    # sempat menampilkan gudang yang baru dipilih), tapi tidak pernah
+    # benar-benar masuk database - setiap dibuka lagi, baris audit selalu
+    # menunjukkan "old": None walau baru saja disimpan.
+    warehouse_id: UUID | None = None
     created_by: UUID = field(default_factory=uuid.uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime | None = None

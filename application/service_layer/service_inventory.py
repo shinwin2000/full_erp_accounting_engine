@@ -540,7 +540,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -634,7 +645,18 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -685,7 +707,18 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -956,7 +989,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -984,7 +1028,18 @@ class InventoryService:
                     correlation_id=correlation_id,
                 )
                 try:
-                    await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
+                    await self._event_publisher.publish(
+                        adj_event,
+                        # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                        # event_type/aggregate_id/aggregate_type - panggilan lama
+                        # (event, correlation_id=correlation_id) selalu TypeError kalau
+                        # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                        # di signature aslinya).
+                        event_type=str(getattr(adj_event.event_type, "value", adj_event.event_type)),
+                        aggregate_id=adj_event.aggregate_id,
+                        aggregate_type="Inventory",
+                        metadata={"correlation_id": correlation_id} if correlation_id else None,
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to publish event {type(adj_event).__name__}: {e}")
 
@@ -1002,7 +1057,17 @@ class InventoryService:
                     correlation_id=correlation_id,
                 )
                 try:
-                    await self._event_publisher.publish(alert_event, correlation_id=correlation_id)
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (alert_event, correlation_id=correlation_id) selalu
+                    # TypeError kalau benar-benar dieksekusi.
+                    await self._event_publisher.publish(
+                        alert_event,
+                        event_type=str(getattr(alert_event.event_type, "value", alert_event.event_type)),
+                        aggregate_id=alert_event.aggregate_id,
+                        aggregate_type="Inventory",
+                        metadata={"correlation_id": correlation_id} if correlation_id else None,
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to publish event {type(alert_event).__name__}: {e}")
 
@@ -1099,7 +1164,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1180,7 +1256,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1276,7 +1363,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1377,7 +1475,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1431,7 +1540,18 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1479,7 +1599,18 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Inventory",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 

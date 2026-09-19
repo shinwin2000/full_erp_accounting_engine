@@ -195,13 +195,18 @@ class ProjectBillingWorkflow:
                     amount = project.contract_value * (command.billing_percentage / Decimal("100"))
                     milestone_desc = [f"{command.billing_percentage}% progress billing"]
                 elif command.milestone_names:
-                    total_percent = Decimal("0")
-                    for mname in command.milestone_names:
-                        milestone = await self._project_service.get_milestone(project.id, mname)
-                        if milestone:
-                            total_percent += milestone.billing_percentage
-                    amount = project.contract_value * (total_percent / Decimal("100"))
-                    milestone_desc = command.milestone_names
+                    # BUG FIX: get_milestone(project_id, name) tidak ada di
+                    # ProjectService - milestone dikelola lewat create_milestone/
+                    # mark_milestone_ready/mark_milestone_billed dengan
+                    # milestone_id, bukan query by name. Tidak ada cara
+                    # menerjemahkan nama milestone ke ID tanpa daftar milestone
+                    # proyek yang genuin (tidak ada get_project_milestones()
+                    # juga) - dilaporkan gagal jujur.
+                    raise NotImplementedError(
+                        "Billing berdasarkan nama milestone belum "
+                        "terimplementasi - ProjectService tidak punya cara "
+                        "mencari milestone berdasarkan nama."
+                    )
                 else:
                     raise ValueError(
                         "Either milestone_names, billing_percentage, or manual_amount must be provided"
@@ -210,20 +215,25 @@ class ProjectBillingWorkflow:
                 if amount <= 0:
                     raise ValueError("Billing amount must be positive")
 
-                existing = await self._project_service.get_billing_history(project.id)
-                billed_milestones = set()
-                for bill in existing:
-                    if bill.milestones:
-                        billed_milestones.update(bill.milestones)
+                # BUG FIX: create_invoice() menerima satu objek
+                # CreateARInvoiceRequest, bukan kwargs datar (parameter
+                # "reference" juga bukan field DTO aslinya - dilipat ke
+                # description sebagai gantinya).
+                from application.service_layer.service_ar import CreateARInvoiceRequest
 
                 invoice = await self._ar_service.create_invoice(
-                    legal_entity_id=project.legal_entity_id,
-                    customer_id=project.customer_id,
-                    invoice_date=command.billing_date,
-                    due_date=command.billing_date + timedelta(days=project.payment_terms),
-                    amount=amount,
-                    description=f"Project {project.project_code} - {', '.join(milestone_desc)}",
-                    reference=project.project_code,
+                    request=CreateARInvoiceRequest(
+                        legal_entity_id=project.legal_entity_id,
+                        customer_id=project.customer_id,
+                        invoice_date=command.billing_date,
+                        due_date=command.billing_date + timedelta(days=project.payment_terms),
+                        amount=amount,
+                        description=(
+                            f"Project {project.project_code} - {', '.join(milestone_desc)} "
+                            f"(ref: {project.project_code})"
+                        ),
+                        project_id=project.id,
+                    ),
                     user_id=command.user_id,
                     correlation_id=command.correlation_id,
                 )
@@ -231,28 +241,21 @@ class ProjectBillingWorkflow:
                 if command.auto_approve:
                     await self._ar_service.approve_invoice(invoice.id, command.user_id)
 
-                billing_id = await self._project_service.record_billing(
-                    project_id=command.project_id,
-                    invoice_id=invoice.id,
-                    amount=amount,
-                    milestone_names=command.milestone_names,
-                    billing_date=command.billing_date,
-                    user_id=command.user_id,
+                # BUG FIX: get_billing_history()/record_billing()/
+                # update_revenue_recognized() tidak pernah ada di
+                # ProjectService - tidak ada tabel/kapabilitas pencatatan
+                # riwayat billing proyek maupun revenue-recognized-to-date di
+                # service manapun saat ini. Invoice AR di atas SUDAH benar-
+                # benar tercatat (create_invoice), tapi pelacakan billing
+                # per-proyek/revenue-recognized belum ada. Dilaporkan gagal
+                # jujur alih-alih mengarang billing_id/state yang tidak
+                # pernah benar-benar tersimpan.
+                raise NotImplementedError(
+                    "Pelacakan riwayat billing & revenue-recognized per "
+                    "proyek belum terimplementasi di ProjectService. "
+                    f"AR invoice sudah dibuat (invoice_id={invoice.id}) tapi "
+                    "tidak bisa dicatat sebagai billing proyek."
                 )
-
-                revenue_to_recognize = amount
-                journal_id = None
-                if not command.dry_run and revenue_to_recognize > 0:
-                    journal_id = await self._post_revenue_journal(
-                        project,
-                        revenue_to_recognize,
-                        command.billing_date,
-                        command.user_id,
-                        command.correlation_id,
-                    )
-                    await self._project_service.update_revenue_recognized(
-                        project.id, revenue_to_recognize, journal_id
-                    )
 
                 return ProjectBillingResult(
                     billing_id=billing_id,
@@ -276,11 +279,23 @@ class ProjectBillingWorkflow:
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) ->
+                # CommandEnvelope, bukan (command_id=, handler=).
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={"project_id": str(command.project_id)},
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=getattr(command, "legal_entity_id", None),
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Project billing rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
@@ -337,16 +352,28 @@ class ProjectBillingWorkflow:
                 "description": f"Revenue recognition - {project.project_code}",
             },
         ]
-        journal_id = await self._journal_service.post_journal(
+        # BUG FIX: post_journal() aslinya memposting jurnal yang SUDAH ADA
+        # dan berstatus "approved" (butuh journal_id, bukan lines/description
+        # mentah) - bukan "buat lalu posting sekaligus". Method yang benar
+        # untuk membuat jurnal baru adalah create_journal(), yang menghasilkan
+        # jurnal berstatus DRAFT. Sengaja TIDAK dirangkai otomatis ke
+        # submit_journal()/approve_journal()/post_journal() di sini, supaya
+        # alur maker-checker normal (approval oleh pengguna lain) tetap
+        # berlaku - bukan dilewati oleh otomasi workflow ini.
+        journal = await self._journal_service.create_journal(
             legal_entity_id=project.legal_entity_id,
             journal_date=journal_date,
-            period=f"{journal_date.year}-{journal_date.month:02d}",
             description=f"Revenue recognition for project {project.project_code}",
+            journal_type="general",
             lines=lines,
-            source_system="project_billing",
-            user_id=user_id,
-            correlation_id=correlation_id,
+            reference_number=None,
+            source_type="project_billing",
+            source_id=None,
+            notes=f"Period: {journal_date.year}-{journal_date.month:02d}",
+            attachment_ids=None,
+            created_by=user_id,
         )
+        journal_id = journal.id
         return journal_id
 
     def get_stats(self) -> dict[str, int]:

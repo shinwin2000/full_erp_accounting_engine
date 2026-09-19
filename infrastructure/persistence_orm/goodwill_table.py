@@ -124,6 +124,15 @@ class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Disposal (FIX 2026-09-15: sebelumnya dispose() cuma ubah status,
+    # proceeds/gain-loss tidak ada tempat tersimpan sama sekali - lihat
+    # migrations/versions/goodwill_disposal_fields_001.py)
+    disposal_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    disposal_proceeds: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    disposal_gain_loss: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    disposal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    disposed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
@@ -197,11 +206,31 @@ class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             self.status = "partially_impaired" if self.impairment_accumulated > 0 else "active"
         self.increment_version()
 
-    def dispose(self, disposal_date: date) -> None:
-        """Mark goodwill as disposed (e.g., sale of CGU)."""
+    def dispose(
+        self,
+        disposal_date: date,
+        proceeds: Decimal = Decimal("0"),
+        reason: str | None = None,
+        disposed_by: uuid.UUID | None = None,
+    ) -> Decimal:
+        """Mark goodwill as disposed (e.g., sale of CGU).
+
+        FIX 2026-09-15: sebelumnya method ini cuma ubah status, tidak
+        pernah mencatat proceeds atau gain/loss disposal sama sekali
+        (datanya hilang begitu request selesai). Sekarang dihitung dan
+        disimpan ke kolom disposal_* (lihat migrasi
+        goodwill_disposal_fields_001). Return: gain/loss disposal.
+        """
+        gain_loss = proceeds - self.carrying_amount
         self.status = "disposed"
         self.is_active = False
+        self.disposal_date = disposal_date
+        self.disposal_proceeds = proceeds
+        self.disposal_gain_loss = gain_loss
+        self.disposal_reason = reason
+        self.disposed_by = disposed_by
         self.increment_version()
+        return gain_loss
 
     def approve(self, approved_by: uuid.UUID) -> None:
         """Approve goodwill recognition."""
@@ -227,6 +256,10 @@ class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "cash_generating_unit": self.cash_generating_unit,
             "legal_entity_id": str(self.legal_entity_id),
             "version": self.version,
+            "disposal_date": self.disposal_date.isoformat() if self.disposal_date else None,
+            "disposal_proceeds": float(self.disposal_proceeds) if self.disposal_proceeds is not None else None,
+            "disposal_gain_loss": float(self.disposal_gain_loss) if self.disposal_gain_loss is not None else None,
+            "disposal_reason": self.disposal_reason,
         }
 
 

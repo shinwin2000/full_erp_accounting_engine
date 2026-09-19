@@ -501,16 +501,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -550,16 +583,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -601,16 +667,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -652,16 +751,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -703,16 +835,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -754,16 +919,49 @@ class InventoryAggregate:
             selling_price=selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -803,16 +1001,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             ItemUpdated(
                 aggregate_id=self.id,
@@ -859,16 +1090,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=datetime.now(UTC),
             deactivated_by=user_id,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._is_active = False
         self._add_event(
             ItemDeactivated(
@@ -927,13 +1191,36 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
 
@@ -946,7 +1233,17 @@ class InventoryAggregate:
             }
         )
 
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             StockMovementCreated(
                 aggregate_id=self.id,
@@ -1010,13 +1307,36 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
 
@@ -1031,7 +1351,17 @@ class InventoryAggregate:
                 remaining_qty -= consume
         self._fifo_layers = [layer for layer in self._fifo_layers if layer["remaining_quantity"] > 0]
 
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             StockMovementCreated(
                 aggregate_id=self.id,
@@ -1096,13 +1426,36 @@ class InventoryAggregate:
                 selling_price=item.selling_price,
                 category=item.category,
                 warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
                 created_by=item.created_by,
                 created_at=item.created_at,
                 updated_at=datetime.now(UTC),
                 updated_by=user_id,
                 deactivated_at=item.deactivated_at,
                 deactivated_by=item.deactivated_by,
-                version=item.version + 1,
+                            # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
             )
             self._item = new_item
             self._fifo_layers.append(
@@ -1143,13 +1496,36 @@ class InventoryAggregate:
                 selling_price=item.selling_price,
                 category=item.category,
                 warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
                 created_by=item.created_by,
                 created_at=item.created_at,
                 updated_at=datetime.now(UTC),
                 updated_by=user_id,
                 deactivated_at=item.deactivated_at,
                 deactivated_by=item.deactivated_by,
-                version=item.version + 1,
+                            # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
             )
             self._item = new_item
 
@@ -1182,7 +1558,17 @@ class InventoryAggregate:
             legal_entity_id=self.legal_entity_id,
         )
 
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._add_event(
             StockAdjusted(
                 aggregate_id=self.id,
@@ -1232,16 +1618,49 @@ class InventoryAggregate:
             selling_price=item.selling_price,
             category=item.category,
             warehouse_code=item.warehouse_code,
+            # FIX BUG REGRESI: sebelum ini, warehouse_id (FK gudang default
+            # yang benar - lihat catatan di domain/inventory/item_entity.py)
+            # tidak pernah ikut disalin di sini. Karena semua method di
+            # bawah membangun objek Item BARU dari nol setiap kali dipanggil,
+            # field apa pun yang tidak eksplisit disalin otomatis kembali ke
+            # default (None) - jadi gudang default sebuah item akan hilang
+            # lagi setiap kali ada mutasi stok, opname disetujui, transfer
+            # selesai, atau reversal - walau sudah diperbaiki di form edit.
+            warehouse_id=item.warehouse_id,
             created_by=item.created_by,
             created_at=item.created_at,
             updated_at=datetime.now(UTC),
             updated_by=user_id,
             deactivated_at=item.deactivated_at,
             deactivated_by=item.deactivated_by,
-            version=item.version + 1,
+                        # FIX BUG KRITIS: sebelumnya di sini SELALU item.version + 1 -
+            # yaitu versi BARU (setelah increment) - lalu dipakai juga oleh
+            # repository sebagai versi yang "diharapkan sama dengan versi di
+            # database" untuk deteksi konflik optimistic locking. Karena versi
+            # di database masih versi LAMA (belum di-+1), pengecekan itu PASTI
+            # gagal setiap kali - bukan hanya saat benar-benar ada konflik.
+            # Terbukti dari log: setiap panggilan update_stock() (dipakai di
+            # SETIAP mutasi stok, approve stock opname, penyelesaian transfer,
+            # dan reversal mutasi) selalu error "Version mismatch: expected
+            # 9, got 8" - stok tidak pernah bisa diisi sama sekali lewat jalur
+            # mana pun. Version yang benar untuk disimpan di objek Item ini
+            # adalah versi SAAT INI (belum di-+1) - repository yang bertanggung
+            # jawab menaikkan +1 saat benar-benar menulis ke database, SETELAH
+            # verifikasi versi lama cocok (lihat sqlalchemy_inventory_repository_impl.py).
+            version=item.version,
         )
         self._item = new_item
-        self.increment_version()
+        # FIX BUG KRITIS #2 (v7 tidak lengkap): baris ini SEBELUMNYA memanggil
+        # self.increment_version() yang menaikkan self._version - VERSI TERPISAH
+        # milik aggregate wrapper (lihat property `version` di atas), BUKAN
+        # versi milik self._item yang sudah diperbaiki di v7. Repository
+        # (sqlalchemy_inventory_repository_impl.py update_item()) membaca versi
+        # untuk optimistic-lock lewat `item.version` di mana `item` adalah
+        # AGGREGATE ini sendiri - jadi walau versi di self._item sudah benar,
+        # version aggregate ini tetap ke-increment duluan di sini, membuat
+        # pengecekan repo tetap SELALU gagal ("Version mismatch") persis seperti
+        # sebelum v7. Version aggregate ini sekarang TIDAK di-pre-increment -
+        # repository tetap satu-satunya pihak yang menaikkan versi saat menulis.
         self._record_audit_trail("update_stock", {"user_id": str(user_id)})
 
     def pop_domain_events(self) -> list[Any]:

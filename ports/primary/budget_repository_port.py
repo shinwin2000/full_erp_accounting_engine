@@ -93,6 +93,7 @@ class BudgetEntity:
         currency: str,
         total_amount: Decimal,
         notes: str | None = None,
+        description: str | None = None,
         tags: list[str] | None = None,
         is_locked: bool = False,
         created_at: datetime | None = None,
@@ -123,6 +124,7 @@ class BudgetEntity:
         self.currency = currency
         self.total_amount = total_amount
         self.notes = notes
+        self.description = description
         self.tags = tags or []
         self.is_locked = is_locked
         self.created_at = created_at or datetime.utcnow()
@@ -155,6 +157,7 @@ class BudgetEntity:
             "currency": self.currency,
             "total_amount": str(self.total_amount),
             "notes": self.notes,
+            "description": self.description,
             "tags": self.tags.copy() if self.tags else [],
             "is_locked": self.is_locked,
             "created_at": self.created_at.isoformat(),
@@ -190,6 +193,7 @@ class BudgetEntity:
             currency=data["currency"],
             total_amount=Decimal(data["total_amount"]),
             notes=data.get("notes"),
+            description=data.get("description"),
             tags=data.get("tags", []),
             is_locked=data.get("is_locked", False),
             created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else None,
@@ -258,6 +262,29 @@ class BudgetRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def delete(self, budget_id: UUID) -> bool:
         """Hapus budget (soft delete)."""
+        raise NotImplementedError
+
+    async def get_actual_amounts_by_account(
+        self,
+        legal_entity_id: UUID,
+        account_ids: list[UUID],
+        fiscal_year: int,
+        period_month: int,
+        ytd: bool = False,
+    ) -> dict[UUID, Any]:
+        """
+        [FITUR] Realisasi (actual) per account_id dari ledger yang sudah
+        diposting. Bukan `@abstractmethod` (default raise) supaya
+        implementasi lama yang belum sempat menambahkan ini tidak langsung
+        pecah -- tapi tanpa ini fitur alert & vs-actual budget tidak bisa
+        menampilkan angka realisasi sungguhan.
+        """
+        raise NotImplementedError
+
+    async def get_revision_history(
+        self, legal_entity_id: UUID, budget_code: str
+    ) -> list[dict[str, Any]]:
+        """[FITUR] Riwayat versi/revisi budget untuk tab 'Versi Budget'."""
         raise NotImplementedError
 
 

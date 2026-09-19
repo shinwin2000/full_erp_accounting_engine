@@ -32,7 +32,11 @@ from application.dto_objects.budget_request import (
     BudgetUpdateRequest,
     BudgetVsActualResponse,
 )
-from application.service_layer.service_budget import BudgetService
+from application.service_layer.service_budget import (
+    BudgetNotFoundError,
+    BudgetService,
+    BudgetServiceError,
+)
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,7 @@ class BudgetCreateSchema(BaseModel):
     currency: str = "IDR"
     lines: list[BudgetLineSchema] = Field(..., min_length=1)
     notes: str | None = None
+    description: str | None = Field(None, max_length=2000, description="Deskripsi panjang budget (beda dari budget_name)")
     tags: list[str] | None = None
 
 
@@ -70,6 +75,7 @@ class BudgetUpdateSchema(BaseModel):
     effective_date: date | None = None
     expiry_date: date | None = None
     notes: str | None = None
+    description: str | None = Field(None, max_length=2000)
     tags: list[str] | None = None
 
 
@@ -77,6 +83,22 @@ class BudgetLineUpdateSchema(BaseModel):
     line_id: UUID
     amount: Decimal = Field(..., ge=0, decimal_places=2)
     note: str | None = None
+
+
+class BudgetTransferSchema(BaseModel):
+    """[FITUR] Request untuk transfer/realokasi anggaran antar akun."""
+    from_account_id: UUID
+    to_account_id: UUID
+    amount: Decimal = Field(..., gt=0, decimal_places=2)
+    reason: str = Field(..., min_length=3)
+    fiscal_year: int = Field(..., ge=2000, le=2100)
+
+
+class RollingForecastSchema(BaseModel):
+    """[FITUR] Request untuk membuat rolling forecast dari budget dasar."""
+    base_budget_id: UUID
+    forecast_months: int = Field(12, ge=1, le=36)
+    notes: str | None = None
 
 
 class BudgetResponseSchema(BaseModel):
@@ -100,6 +122,7 @@ class BudgetResponseSchema(BaseModel):
     variance_percent: float = 0.0
     consumption_percent: float = 0.0
     notes: str | None
+    description: str | None = None
     tags: list[str] | None
     is_locked: bool = False
     created_at: datetime
@@ -229,6 +252,94 @@ async def export_budgets(
 
 
 @router.get(
+    "/versions/{budget_code}",
+    summary="Riwayat versi budget",
+    operation_id="get_budget_version_history",
+)
+async def get_budget_version_history(
+    budget_code: str,
+    _permission: None = Depends(require_permission("budget:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: BudgetService = Depends(get_budget_service),
+) -> list[dict[str, Any]]:
+    # [FITUR] Sebelumnya endpoint ini tidak ada sama sekali (404 selalu) --
+    # tab "Versi Budget" di frontend memanggil ini tapi tidak pernah
+    # dibuatkan backend-nya.
+    try:
+        return await service.get_budget_version_history(legal_entity_id, budget_code)
+    except Exception as e:
+        logger.exception(f"Failed to get budget version history: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/transfer",
+    summary="Transfer/realokasi anggaran antar akun",
+    operation_id="transfer_budget_amount",
+)
+async def transfer_budget_amount(
+    request: BudgetTransferSchema,
+    _permission: None = Depends(require_permission("budget:write")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: BudgetService = Depends(get_budget_service),
+) -> dict[str, Any]:
+    # [FITUR] Sebelumnya endpoint ini tidak ada sama sekali (404 selalu) --
+    # tab "Transfer Anggaran" di frontend memanggil ini tapi tidak pernah
+    # dibuatkan backend-nya. Lihat docstring service.transfer_budget_amount
+    # untuk batasan desain (hanya dalam satu budget yang sama).
+    try:
+        return await service.transfer_budget_amount(
+            legal_entity_id=legal_entity_id,
+            fiscal_year=request.fiscal_year,
+            from_account_id=request.from_account_id,
+            to_account_id=request.to_account_id,
+            amount=request.amount,
+            reason=request.reason,
+            requested_by=current_user.user_id,
+        )
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to transfer budget amount: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/rolling-forecast",
+    response_model=BudgetResponseSchema,
+    summary="Buat rolling forecast dari budget dasar",
+    operation_id="create_rolling_forecast",
+)
+async def create_rolling_forecast(
+    request: RollingForecastSchema,
+    _permission: None = Depends(require_permission("budget:write")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: BudgetService = Depends(get_budget_service),
+) -> BudgetResponseSchema:
+    # [FITUR] Sebelumnya endpoint ini tidak ada sama sekali (404 selalu).
+    try:
+        result = await service.create_rolling_forecast(
+            legal_entity_id=legal_entity_id,
+            base_budget_id=request.base_budget_id,
+            forecast_months=request.forecast_months,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+        return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to create rolling forecast: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
     "/{budget_id}/vs-actual",
     response_model=BudgetVsActualResponse | None,
     summary="Get budget vs actual for a specific period",
@@ -336,6 +447,7 @@ async def create_budget(
                 for line in request.lines
             ],
             notes=request.notes,
+            description=request.description,
             tags=request.tags,
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -387,6 +499,7 @@ async def update_budget(
             effective_date=request.effective_date,
             expiry_date=request.expiry_date,
             notes=request.notes,
+            description=request.description,
             tags=request.tags,
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,

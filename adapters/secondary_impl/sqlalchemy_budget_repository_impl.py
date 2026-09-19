@@ -14,10 +14,14 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.persistence_orm.account_table import AccountTable
+from infrastructure.persistence_orm.budget_revision_history_table import BudgetRevisionHistoryTable
+from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
 
 from infrastructure.persistence_orm.budget_table import BudgetLineTable, BudgetTable
 from infrastructure.telemetry import get_logger
@@ -68,6 +72,7 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             currency=entity.currency,
             is_locked=entity.is_locked,
             notes=entity.notes,
+            description=entity.description,
             tags=entity.tags,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
@@ -102,6 +107,7 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             currency=header.currency,
             total_amount=sum(line.amount for line in lines),
             notes=header.notes,
+            description=header.description,
             tags=header.tags,
             is_locked=header.is_locked,
             created_at=header.created_at,
@@ -152,6 +158,66 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
         if len(self._audit_log) > 10000:
             self._audit_log = self._audit_log[-5000:]
 
+    async def _record_revision_history(self, budget: BudgetEntity, change_type: str) -> None:
+        """
+        [FITUR] Tulis satu snapshot ringkas ke `budget_revision_history`
+        setiap kali budget dibuat/diperbarui, supaya tab "Versi Budget"
+        punya riwayat sungguhan untuk ditampilkan (sebelumnya endpoint ini
+        tidak ada sama sekali, dan tidak ada mekanisme persisten apapun
+        yang menyimpan histori perubahan budget).
+        """
+        session = await self._get_session()
+        changed_by = (
+            budget.updated_by or budget.submitted_by or budget.approved_by
+            or budget.rejected_by or budget.created_by
+        )
+        session.add(
+            BudgetRevisionHistoryTable(
+                id=uuid4(),
+                budget_id=budget.id,
+                legal_entity_id=budget.legal_entity_id,
+                budget_code=budget.budget_code,
+                version_label=budget.version,
+                version_number=budget.version_number,
+                status=budget.status,
+                total_amount=budget.total_amount,
+                effective_date=budget.effective_date,
+                change_type=change_type,
+                changed_by=changed_by,
+                changed_at=datetime.utcnow(),
+            )
+        )
+        await session.flush()
+
+    async def get_revision_history(
+        self, legal_entity_id: UUID, budget_code: str
+    ) -> list[dict[str, Any]]:
+        """[FITUR] Ambil riwayat versi budget untuk tab 'Versi Budget'."""
+        session = await self._get_session()
+        stmt = (
+            select(BudgetRevisionHistoryTable)
+            .where(
+                BudgetRevisionHistoryTable.legal_entity_id == legal_entity_id,
+                BudgetRevisionHistoryTable.budget_code == budget_code,
+            )
+            .order_by(BudgetRevisionHistoryTable.changed_at.desc())
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [
+            {
+                "version": row.version_label,
+                "version_number": row.version_number,
+                "status": row.status,
+                "total_amount": str(row.total_amount),
+                "effective_date": row.effective_date.isoformat(),
+                "change_type": row.change_type,
+                "changed_by": str(row.changed_by) if row.changed_by else None,
+                "changed_at": row.changed_at.isoformat(),
+            }
+            for row in rows
+        ]
+
     # ========================================================================
     # CRUD METHODS (dari port)
     # ========================================================================
@@ -165,59 +231,146 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             line_orm = self._line_entity_to_orm(line, budget.id)
             session.add(line_orm)
         await session.flush()
+        await self._record_revision_history(budget, "CREATE")
         await self._log_audit("SAVE", budget.id, {"budget_code": budget.budget_code})
         logger.info(f"Budget saved: {budget.budget_code}")
 
     async def update(self, budget: BudgetEntity) -> None:
         """Update budget yang sudah ada (dengan pessimistic locking)."""
         session = await self._get_session()
-        async with session.begin():
-            # Lock header untuk mencegah race condition
-            stmt = select(BudgetTable).where(BudgetTable.id == budget.id).with_for_update()
-            result = await session.execute(stmt)
-            header = result.scalar_one_or_none()
-            if not header:
-                raise ValueError(f"Budget {budget.id} not found")
+        # [FIX] Session ini request-scoped (dipakai bersama sepanjang satu
+        # request lewat `get_async_session()`), dan AsyncSession SQLAlchemy
+        # otomatis "autobegin" transaksi begitu statement pertama dijalankan
+        # (mis. `get_by_id` yang dipanggil `_get_aggregate()` sebelum
+        # `update()` ini). `async with session.begin():` di sini mencoba
+        # memulai transaksi BARU di atas transaksi yang sudah otomatis aktif
+        # -> selalu meledak "A transaction is already begun on this Session"
+        # begitu update dipanggil dalam request yang sebelumnya sudah
+        # membaca data lain lewat session yang sama (yang mana SELALU
+        # terjadi, karena workflow update/submit/approve/dst. semuanya
+        # baca dulu lewat `_get_aggregate()` sebelum menulis). Perbaikan:
+        # jangan buka transaksi baru -- langsung pakai transaksi yang sudah
+        # otomatis aktif, sama seperti pola yang dipakai `save()`. Commit
+        # sesungguhnya tetap ditangani oleh `get_async_session()` di akhir
+        # request.
+        # Lock header untuk mencegah race condition
+        stmt = select(BudgetTable).where(BudgetTable.id == budget.id).with_for_update()
+        result = await session.execute(stmt)
+        header = result.scalar_one_or_none()
+        if not header:
+            raise ValueError(f"Budget {budget.id} not found")
 
-            # Update header fields
-            header.budget_code = budget.budget_code
-            header.budget_name = budget.budget_name
-            header.budget_type = budget.budget_type
-            header.fiscal_year = budget.fiscal_year
-            header.period = budget.period
-            # [FIX] Baris ini sebelumnya menulis label string ke kolom
-            # `version` (int, langsung ditimpa oleh baris di bawah), dan
-            # `version_label` tidak pernah di-update sama sekali.
-            header.version_label = budget.version
-            header.status = budget.status
-            header.effective_date = budget.effective_date
-            header.expiry_date = budget.expiry_date
-            header.currency = budget.currency
-            header.is_locked = budget.is_locked
-            header.notes = budget.notes
-            header.tags = budget.tags
-            header.updated_at = budget.updated_at
-            header.updated_by = budget.updated_by
-            header.approved_at = budget.approved_at
-            header.approved_by = budget.approved_by
-            header.submitted_at = budget.submitted_at
-            header.submitted_by = budget.submitted_by
-            header.rejected_at = budget.rejected_at
-            header.rejected_by = budget.rejected_by
-            header.rejection_reason = budget.rejection_reason
-            header.version = budget.version_number
+        # Update header fields
+        header.budget_code = budget.budget_code
+        header.budget_name = budget.budget_name
+        header.budget_type = budget.budget_type
+        header.fiscal_year = budget.fiscal_year
+        header.period = budget.period
+        # [FIX] Baris ini sebelumnya menulis label string ke kolom
+        # `version` (int, langsung ditimpa oleh baris di bawah), dan
+        # `version_label` tidak pernah di-update sama sekali.
+        header.version_label = budget.version
+        header.status = budget.status
+        header.effective_date = budget.effective_date
+        header.expiry_date = budget.expiry_date
+        header.currency = budget.currency
+        header.is_locked = budget.is_locked
+        header.notes = budget.notes
+        header.description = budget.description
+        header.tags = budget.tags
+        header.updated_at = budget.updated_at
+        header.updated_by = budget.updated_by
+        header.approved_at = budget.approved_at
+        header.approved_by = budget.approved_by
+        header.submitted_at = budget.submitted_at
+        header.submitted_by = budget.submitted_by
+        header.rejected_at = budget.rejected_at
+        header.rejected_by = budget.rejected_by
+        header.rejection_reason = budget.rejection_reason
+        header.version = budget.version_number
 
-            # Update lines: delete old, insert new
-            await session.execute(
-                BudgetLineTable.__table__.delete().where(BudgetLineTable.budget_id == budget.id)
+        # Update lines: delete old, insert new
+        await session.execute(
+            BudgetLineTable.__table__.delete().where(BudgetLineTable.budget_id == budget.id)
+        )
+        for line in budget.lines:
+            line_orm = self._line_entity_to_orm(line, budget.id)
+            session.add(line_orm)
+
+        await session.flush()
+        await self._record_revision_history(budget, f"UPDATE ({budget.status})")
+        await self._log_audit("UPDATE", budget.id, {"budget_code": budget.budget_code})
+        logger.info(f"Budget updated: {budget.budget_code}")
+
+    # ========================================================================
+    # [FITUR] REALISASI (ACTUAL) DARI GENERAL LEDGER
+    # ========================================================================
+    # Sebelumnya `get_budget_alerts()` dan `get_budget_vs_actual()` di
+    # service layer selalu hardcode `actual = Decimal(0)` (placeholder,
+    # komentar aslinya: "Ganti dengan query nyata"). Method ini
+    # menggantikannya dengan query sungguhan ke `ledger_entry` (tabel yang
+    # benar-benar diisi oleh posting jurnal -- `general_ledger_table.py`
+    # ternyata tidak dipakai di manapun / tabel yatim, jadi TIDAK dipakai
+    # di sini).
+    #
+    # Arah (sign) realisasi disesuaikan dengan `normal_balance` akun
+    # (debit/credit) dari `AccountTable`, supaya akun expense (normal
+    # debit) dan akun revenue (normal credit) sama-sama menghasilkan angka
+    # "realisasi" yang position (bukan negatif) ketika aktivitasnya sesuai
+    # arah normalnya.
+    async def get_actual_amounts_by_account(
+        self,
+        legal_entity_id: UUID,
+        account_ids: list[UUID],
+        fiscal_year: int,
+        period_month: int,
+        ytd: bool = False,
+    ) -> dict[UUID, Decimal]:
+        """
+        Hitung realisasi (actual) per account_id dari `ledger_entry` yang
+        sudah diposting, untuk satu bulan (`ytd=False`) atau akumulasi
+        Januari..`period_month` (`ytd=True`) pada `fiscal_year` tertentu.
+
+        Return dict {account_id: Decimal} -- account yang tidak punya
+        aktivitas sama sekali tidak akan muncul sebagai key (biarkan
+        caller default-kan ke 0).
+        """
+        if not account_ids:
+            return {}
+
+        period_filter = (
+            LedgerEntryTable.period_month <= period_month
+            if ytd
+            else LedgerEntryTable.period_month == period_month
+        )
+        stmt = (
+            select(
+                LedgerEntryTable.account_id,
+                AccountTable.normal_balance,
+                func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("total_debit"),
+                func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("total_credit"),
             )
-            for line in budget.lines:
-                line_orm = self._line_entity_to_orm(line, budget.id)
-                session.add(line_orm)
+            .join(AccountTable, AccountTable.id == LedgerEntryTable.account_id)
+            .where(
+                LedgerEntryTable.legal_entity_id == legal_entity_id,
+                LedgerEntryTable.account_id.in_(account_ids),
+                LedgerEntryTable.fiscal_year == fiscal_year,
+                period_filter,
+            )
+            .group_by(LedgerEntryTable.account_id, AccountTable.normal_balance)
+        )
+        session = await self._get_session()
+        rows = (await session.execute(stmt)).all()
 
-            await session.flush()
-            await self._log_audit("UPDATE", budget.id, {"budget_code": budget.budget_code})
-            logger.info(f"Budget updated: {budget.budget_code}")
+        actuals: dict[UUID, Decimal] = {}
+        for account_id, normal_balance, total_debit, total_credit in rows:
+            total_debit = Decimal(str(total_debit))
+            total_credit = Decimal(str(total_credit))
+            if normal_balance == "debit":
+                actuals[account_id] = total_debit - total_credit
+            else:
+                actuals[account_id] = total_credit - total_debit
+        return actuals
 
     async def get_by_id(self, budget_id: UUID) -> BudgetEntity | None:
         """Ambil budget berdasarkan ID."""
@@ -318,18 +471,19 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
     async def delete(self, budget_id: UUID) -> bool:
         """Hapus budget (soft delete)."""
         session = await self._get_session()
-        async with session.begin():
-            stmt = select(BudgetTable).where(BudgetTable.id == budget_id).with_for_update()
-            result = await session.execute(stmt)
-            header = result.scalar_one_or_none()
-            if not header:
-                return False
+        # [FIX] Sama seperti `update()` -- jangan buka transaksi baru di atas
+        # transaksi yang sudah autobegin pada session request-scoped ini.
+        stmt = select(BudgetTable).where(BudgetTable.id == budget_id).with_for_update()
+        result = await session.execute(stmt)
+        header = result.scalar_one_or_none()
+        if not header:
+            return False
 
-            header.deleted_at = datetime.utcnow()
-            await session.flush()
-            await self._log_audit("DELETE", budget_id, {})
-            logger.info(f"Budget {budget_id} soft deleted")
-            return True
+        header.deleted_at = datetime.utcnow()
+        await session.flush()
+        await self._log_audit("DELETE", budget_id, {})
+        logger.info(f"Budget {budget_id} soft deleted")
+        return True
 
     # ========================================================================
     # METODE TAMBAHAN (untuk kompatibilitas dengan kode lama)

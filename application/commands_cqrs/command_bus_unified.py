@@ -36,11 +36,13 @@ from application.commands_cqrs.command_handler_registry import (
 from application.commands_cqrs.command_result_envelope import CommandResult
 from application.commands_cqrs.command_validator import CommandValidator, get_command_validator
 from kernel.audit_hook_injector import AuditHookInjector
-from kernel.context_holder import ContextHolder
+from kernel.command_envelope import CommandStatus as GateCommandStatus
+from kernel.context_holder import ContextHolder, ExecutionContext
 
 # Kernel imports
 from kernel.sealed_gate import SealedGate, get_sealed_gate
 from kernel.transactional_executor import TransactionalExecutor
+from constitution.supreme_law import ConstitutionalViolationError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -497,18 +499,39 @@ class AuditMiddleware(Middleware):
         handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
-        # Catat command mulai
+        # BUG FIX: AuditHookInjector tidak punya record_command_start/_end/
+        # _error(); API publiknya (before_execution/after_execution/on_error)
+        # butuh objek CommandEnvelope yang belum ada di titik middleware ini
+        # (envelope baru dibuat nanti di dalam sealed_gate.execute()). Dipakai
+        # _record_audit() - method generik yang sama-sama nyata dan tidak
+        # butuh CommandEnvelope - untuk mencatat mulai/selesai/gagalnya
+        # command di level bus ini.
+        performed_by = str(command.user_id) if command.user_id else "system"
         start_time = time.perf_counter()
-        self._audit_hook.record_command_start(command)
+        self._audit_hook._record_audit(
+            "command_dispatch_start", performed_by, {"command_type": command.command_type}
+        )
 
         try:
             result = await handler(command)
             duration_ms = (time.perf_counter() - start_time) * 1000
-            self._audit_hook.record_command_end(command, result, duration_ms)
+            self._audit_hook._record_audit(
+                "command_dispatch_end",
+                performed_by,
+                {
+                    "command_type": command.command_type,
+                    "duration_ms": duration_ms,
+                    "success": result.is_success() if hasattr(result, "is_success") else None,
+                },
+            )
             return result
         except Exception as e:
             duration_ms = (time.perf_counter() - start_time) * 1000
-            self._audit_hook.record_command_error(command, e, duration_ms)
+            self._audit_hook._record_audit(
+                "command_dispatch_error",
+                performed_by,
+                {"command_type": command.command_type, "duration_ms": duration_ms, "error": str(e)},
+            )
             raise
 
 
@@ -580,7 +603,10 @@ class TransactionMiddleware(Middleware):
         async def _transactional_handler():
             return await handler(command)
 
-        return await self._executor.execute(_transactional_handler)
+        # BUG FIX: execute() adalah versi SYNC dan sengaja menolak operation
+        # async (RuntimeError "Use execute_async() instead") - handler di
+        # bus ini semuanya async, jadi harus lewat execute_async().
+        return await self._executor.execute_async(_transactional_handler)
 
 
 class TimeoutMiddleware(Middleware):
@@ -810,11 +836,20 @@ class UnifiedCommandBus:
         self._metrics.inc_commands_dispatched(command.command_type)
         self._stats["total_dispatched"] = self._stats.get("total_dispatched", 0) + 1
 
-        # Set context
-        ContextHolder.set("command_id", str(command.command_id))
-        ContextHolder.set("correlation_id", command.correlation_id)
-        ContextHolder.set("user_id", str(command.user_id) if command.user_id else None)
-        ContextHolder.set("tenant_id", str(command.tenant_id) if command.tenant_id else None)
+        # BUG FIX: ContextHolder tidak punya method generik set(key, value)/
+        # clear() - API aslinya berbasis objek ExecutionContext lewat
+        # set_context()/get_context() (dipakai juga di kernel/sealed_gate.py).
+        # Panggilan lama selalu AttributeError di titik ini, sebelum command
+        # apa pun sempat sampai ke sealed gate sama sekali.
+        ContextHolder().set_context(
+            ExecutionContext(
+                user_id=str(command.user_id) if command.user_id else "system",
+                legal_entity_id=command.tenant_id,
+                correlation_id=command.correlation_id,
+                command_id=command.command_id,
+                tenant_id=str(command.tenant_id) if command.tenant_id else None,
+            )
+        )
 
         span = self._tracer.start_span(f"command_{command.command_type}")
         span.set_attribute("command.type", command.command_type)
@@ -847,12 +882,68 @@ class UnifiedCommandBus:
 
             # Build middleware chain
             async def final_handler(cmd: BaseCommand) -> CommandResult:
-                # Execute through sealed gate
-                result = await self._sealed_gate.execute(
-                    command_type=cmd.command_type,
-                    command_id=cmd.command_id,
-                    handler=lambda: handler(cmd),
-                )
+                # BUG FIX: sealed_gate.execute() punya signature (command_type,
+                # command_data, user_id, legal_entity_id, idempotency_key,
+                # correlation_id, causation_id) -> CommandEnvelope. Panggilan
+                # lama (command_id=, handler=) tidak cocok sama sekali dengan
+                # signature aslinya -> selalu TypeError, tertangkap oleh
+                # except Exception generik di dispatch() -> SETIAP command
+                # yang lewat bus ini selalu gagal "Internal error", sejak awal.
+                #
+                # sealed_gate di sini dipakai murni untuk tahap validate+
+                # enforce (axioms/constitution/invariants/forbidden-states/
+                # guards/immutable-laws) lewat handler no-op yang didaftarkan
+                # di register_handler(); eksekusi bisnis SESUNGGUHNYA tetap
+                # dijalankan oleh `handler` asli (kontrak BaseCommand ->
+                # CommandResult), karena kontrak handler SealedGate sendiri
+                # (command_data, ctx, uow) tidak kompatibel dengan itu.
+                if cmd.tenant_id is None:
+                    result = CommandResult.failure(
+                        command_id=cmd.command_id,
+                        error="tenant_id (dipakai sebagai legal_entity_id) wajib diisi "
+                        "agar command bisa melewati sealed gate",
+                        error_code="MISSING_LEGAL_ENTITY",
+                    )
+                    cmd.set_result(result)
+                    return result
+
+                try:
+                    envelope = await self._sealed_gate.execute(
+                        command_type=cmd.command_type,
+                        command_data=cmd.to_dict(),
+                        user_id=str(cmd.user_id) if cmd.user_id else "system",
+                        legal_entity_id=cmd.tenant_id,
+                        idempotency_key=cmd.idempotency_key,
+                        correlation_id=cmd.correlation_id,
+                    )
+                except (ValueError, ConstitutionalViolationError, RuntimeError) as e:
+                    # sealed_gate.execute() RAISE (bukan mengembalikan status
+                    # gagal) saat validasi/enforcement/circuit-breaker
+                    # menolak. Ditangkap di sini dan dikonversi jadi
+                    # CommandResult.failure supaya RetryMiddleware (yang
+                    # default meretry SEMUA Exception) tidak asal mencoba
+                    # ulang penolakan aturan bisnis yang memang permanen.
+                    result = CommandResult.failure(
+                        command_id=cmd.command_id,
+                        error=str(e),
+                        error_code="GATE_REJECTED",
+                    )
+                    cmd.set_result(result)
+                    return result
+
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    result = CommandResult.failure(
+                        command_id=cmd.command_id,
+                        error=envelope.error or "Rejected by sealed gate",
+                        error_code="GATE_REJECTED",
+                    )
+                    cmd.set_result(result)
+                    return result
+
+                # Gate lolos (axioms/constitution/invariants/forbidden-states/
+                # guards/immutable-laws semua PASS) -> jalankan business
+                # handler yang sesungguhnya.
+                result = await handler(cmd)
                 cmd.set_result(result)
                 return result
 
@@ -934,13 +1025,24 @@ class UnifiedCommandBus:
             )
         finally:
             span.end()
-            ContextHolder.clear()
+            ContextHolder().set_context(None)
 
     def register_handler(
         self, command_type: str, handler: Callable[[BaseCommand], Awaitable[CommandResult]]
     ) -> None:
         """Register command handler."""
         self._registry.register_handler(command_type, handler)
+        # BUG FIX: SealedGate.execute() menolak command dengan "No handler for
+        # {command_type}" kalau tidak ada handler terdaftar DI DALAM registry
+        # miliknya sendiri (self._command_handlers), terpisah dari registry
+        # bus ini. Sebelumnya tidak pernah didaftarkan sama sekali di sini,
+        # jadi ini didaftarkan sebagai no-op adapter: sealed_gate dipakai
+        # murni untuk tahap validate+enforce (axioms/constitution/guards/laws),
+        # sedangkan eksekusi bisnis sesungguhnya tetap dijalankan oleh handler
+        # asli lewat final_handler() di bawah, karena signature handler
+        # SealedGate (command_data, ctx, uow) tidak kompatibel dengan
+        # signature handler bus ini (BaseCommand -> CommandResult).
+        self._sealed_gate.register_handler(command_type, lambda data, ctx, uow: None)
 
     def register_middleware(self, middleware: Middleware, position: int | None = None) -> None:
         """Register middleware pada posisi tertentu."""

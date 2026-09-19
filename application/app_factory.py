@@ -663,10 +663,16 @@ class ApplicationFactory:
 
     def _setup_buses(self) -> None:
         """Setup command and query buses dan registrasi handler ke registry global."""
+        # BUG FIX: UnifiedCommandBus.__init__() tidak punya parameter gate=,
+        # uow=, atau circuit_breaker= sama sekali (constructor aslinya hanya
+        # menerima sealed_gate=, bukan gate=; uow dan circuit breaker sudah
+        # ditangani di dalam SealedGate/TransactionalExecutor sendiri, bukan
+        # oleh bus). Panggilan lama selalu TypeError begitu ApplicationFactory
+        # dijalankan - tidak pernah terpakai sejauh ini karena tidak ada
+        # pemanggil lain untuk modul ini, tapi ini titik wiring resmi yang
+        # dimaksudkan untuk menghubungkan seluruh 28 use case ke command bus.
         self._command_bus = UnifiedCommandBus(
-            gate=self._sealed_gate,
-            uow=self._uow,
-            circuit_breaker=self._circuit_breaker_registry,
+            sealed_gate=self._sealed_gate,
         )
 
         self._query_bus = UnifiedQueryBus()

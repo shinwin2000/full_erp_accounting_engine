@@ -17,7 +17,13 @@ from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
-from constitution.enforcement_engine import EnforcementResult, get_enforcement_engine
+from constitution.enforcement_engine import (
+    EnforcementCatastrophicError,
+    EnforcementContext,
+    EnforcementRejectedError,
+    EnforcementResult,
+    get_enforcement_engine,
+)
 from constitution.supreme_law import (
     ConstitutionalPrinciple,
     ConstitutionalSeverity,
@@ -257,14 +263,38 @@ class SealedGate(BaseSealedGate):
                 )
                 raise ValueError(f"Validation failed: {pipeline_result.rejection_reason}")
 
-            enforcement_report = self._enforcement_engine.enforce(
-                operation_id=envelope.command_id,
-                operation_type=command_type,
-                context=command_data,
-                user_roles=[user_id],
-                legal_entity_id=legal_entity_id,
-                raise_on_violation=False,
-            )
+            # BUG FIX: EnforcementEngine.enforce() menerima satu objek
+            # EnforcementContext, bukan keyword-args longgar (signature lama
+            # yang dipakai di sini tidak pernah cocok dengan implementasi
+            # aslinya -> selalu TypeError setiap command lewat gate ini).
+            # enforce() juga RAISE (bukan mengembalikan status gagal) saat
+            # hasilnya REJECTED/CATASTROPHIC, jadi ditangkap eksplisit di sini.
+            try:
+                enforcement_ctx = EnforcementContext(
+                    operation_id=envelope.command_id,
+                    operation_type=command_type,
+                    user_id=user_id,
+                    user_roles=[user_id] if user_id else [],
+                    legal_entity_id=legal_entity_id,
+                    period_id=command_data.get("period_id"),
+                    transaction_id=command_data.get("transaction_id", envelope.command_id),
+                    source="internal_api",
+                    data=command_data,
+                )
+                enforcement_report = self._enforcement_engine.enforce(enforcement_ctx)
+            except (EnforcementRejectedError, EnforcementCatastrophicError) as e:
+                envelope.status = CommandStatus.REJECTED
+                envelope.error = str(e)
+                self._record_history(envelope)
+                self._metric_collector.increment_counter(
+                    "gate_rejected_total", {"reason": "enforcement_failed"}
+                )
+                raise ConstitutionalViolationError(
+                    principle=ConstitutionalPrinciple.DOUBLE_ENTRY,
+                    message=str(e),
+                    severity=ConstitutionalSeverity.HIGH,
+                    offending_module="sealed_gate",
+                ) from e
             if enforcement_report.final_result != EnforcementResult.PASS:
                 envelope.status = CommandStatus.REJECTED
                 envelope.error = enforcement_report.rejection_reason

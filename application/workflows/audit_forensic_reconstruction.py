@@ -326,19 +326,36 @@ class AuditForensicReconstructionWorkflow:
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) ->
+                # CommandEnvelope, bukan (command_id=, handler=).
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={
+                        "from_date": command.from_date.isoformat(),
+                        "to_date": command.to_date.isoformat(),
+                    },
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=getattr(command, "legal_entity_id", None),
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Audit forensic reconstruction rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
             self._stats["succeeded"] += 1
 
-            await self._audit_service.log_action(
-                user_id=command.user_id,
-                action="FORENSIC_RECONSTRUCTION",
+            # BUG FIX: AuditService tidak punya method generik log_action() -
+            # dipakai _record_audit() lokal yang sudah ada di kelas ini
+            # (signature persis sama: action, details).
+            self._record_audit(
+                "FORENSIC_RECONSTRUCTION",
                 details={
                     "aggregate_id": str(result.aggregate_id) if result.aggregate_id else None,
                     "from_date": command.from_date.isoformat(),

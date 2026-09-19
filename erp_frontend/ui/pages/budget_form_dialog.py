@@ -17,6 +17,11 @@ LATAR BELAKANG (bug yang diperbaiki):
     Akun (COA) -- bukan input teks bebas -- supaya pengguna tinggal pilih
     dan `account_id` selalu valid (tidak mungkin salah ketik / akun tidak
     ditemukan).
+
+    Juga menyertakan field "Deskripsi" dan "Tags" yang sebelumnya tidak ada
+    di UI manapun meski sudah didukung penuh oleh backend (`description`
+    bahkan sudah ada sebagai kolom di tabel `budget` sejak awal, cuma tidak
+    pernah disambungkan ke domain/DTO/API sampai perbaikan modul budget ini).
 """
 from __future__ import annotations
 
@@ -72,6 +77,16 @@ class BudgetFormDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # [FIX/FITUR] QDialog secara default tidak menampilkan tombol
+        # minimize/maximize di title bar (cuma close). Set Qt.Window supaya
+        # dialog ini berperilaku seperti jendela biasa dengan tombol
+        # minimize & maximize, sesuai permintaan.
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self._accounts: list[dict[str, str]] = []  # [{"code":..., "name":..., "id":...}, ...]
         self.setWindowTitle("Tambah Budget / Anggaran")
         self.resize(760, 620)
@@ -125,6 +140,10 @@ class BudgetFormDialog(QDialog):
         self.currency_edit = QLineEdit("IDR")
         form.addRow("Mata Uang", self.currency_edit)
 
+        self.description_edit = QLineEdit()
+        self.description_edit.setPlaceholderText("Deskripsi panjang budget ini (opsional, beda dari Nama Budget)")
+        form.addRow("Deskripsi", self.description_edit)
+
         outer.addLayout(form)
 
         outer.addWidget(QLabel("Baris Anggaran (minimal 1 baris):"))
@@ -150,6 +169,10 @@ class BudgetFormDialog(QDialog):
         self.notes_edit.setPlaceholderText("Catatan tambahan (opsional)")
         self.notes_edit.setFixedHeight(50)
         outer.addWidget(self.notes_edit)
+
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText("Tags, pisahkan dengan koma (mis. capex, mendesak, kantor-pusat)")
+        outer.addWidget(self.tags_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("Simpan")
@@ -308,6 +331,8 @@ class BudgetFormDialog(QDialog):
             "currency": self.currency_edit.text().strip() or "IDR",
             "lines": lines,
             "notes": self.notes_edit.toPlainText().strip() or None,
+            "description": self.description_edit.text().strip() or None,
+            "tags": [t.strip() for t in self.tags_edit.text().split(",") if t.strip()] or None,
         }
         self.accept()
 

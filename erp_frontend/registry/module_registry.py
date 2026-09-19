@@ -66,6 +66,19 @@ class FieldSpec:
     lookup_path: str = ""
     lookup_value_field: str = "id"
     lookup_label_fields: tuple = ()
+    # --- Khusus FieldType.NUMBER / FieldType.DECIMAL ---
+    # min_value: nilai minimum yang diterima backend. Dipakai supaya
+    #   validasi terjadi di form (pesan bahasa Indonesia yang jelas)
+    #   sebelum request dikirim, bukan baru ketahuan sebagai 422
+    #   "Input should be greater than 0" dari pydantic.
+    # omit_if_zero: kalau True dan field TIDAK wajib, nilai 0 dianggap
+    #   "tidak diisi" dan tidak ikut dikirim ke backend. Dibutuhkan untuk
+    #   field opsional yang backend-nya memberi batasan gt=0 (mis.
+    #   unit_cost pada mutasi stok): spinbox selalu punya nilai awal 0,
+    #   dan sebelumnya 0 itu ikut terkirim sehingga request ditolak
+    #   padahal user memang sengaja mengosongkannya.
+    min_value: float | None = None
+    omit_if_zero: bool = False
 
     def __post_init__(self):
         if not self.label:
@@ -406,9 +419,7 @@ _reg(ModuleConfig(
     key="legal_entities", label="Entitas Legal", category="Master Data", icon="🏢",
     base_path="/legal-entities/legal-entities", list_path="/",
     columns=[("legal_name", "Nama Legal"), ("trade_name", "Nama Dagang"),
-             ("entity_type", "Tipe"), ("registration_number", "No. Registrasi (NIB)"),
-             ("npwp", "NPWP"), ("is_taxable", "PKP"), ("city", "Kota"),
-             ("province", "Provinsi"), ("status", "Status")],
+             ("entity_type", "Tipe"), ("npwp", "NPWP"), ("city", "Kota")],
     form_fields=[
         FieldSpec("legal_name", "Nama Legal (min. 3 karakter)", required=True),
         FieldSpec("trade_name", "Nama Dagang"),

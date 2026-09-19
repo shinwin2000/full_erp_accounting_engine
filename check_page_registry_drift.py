@@ -62,13 +62,18 @@ PAGES_DIR = REPO_ROOT / "erp_frontend" / "ui" / "pages"
 # (begitu juga cara app sungguhan dijalankan - lihat erp_frontend/main.py).
 sys.path.insert(0, str(REPO_ROOT / "erp_frontend"))
 
-from registry.module_registry import (  # noqa: E402
-    MODULES,
-    ActionSpec,
-    FieldSpec,
-    FieldType,
-    ModuleConfig,
-)
+import registry.module_registry as _registry_module  # noqa: E402
+from registry.module_registry import MODULES, ModuleConfig  # noqa: E402
+
+# Beberapa halaman (mis. umm_page.py) mengimpor konstanta tambahan dari
+# registry.py sendiri (mis. UMKM_ACCOUNT_CHOICES) selain FieldSpec/
+# FieldType/ActionSpec/ModuleConfig. Supaya blok deklaratifnya bisa
+# di-exec tanpa "NameError", namespace awal diisi SEMUA nama publik yang
+# ada di module registry.py itu sendiri, bukan cuma 4 nama inti.
+_BASE_NAMESPACE = {
+    name: value for name, value in vars(_registry_module).items()
+    if not name.startswith("_")
+}
 
 
 def _extract_declarative_block(source: str) -> str | None:
@@ -101,12 +106,7 @@ def _load_page_config(page_path: Path) -> ModuleConfig | None:
     block = _extract_declarative_block(source)
     if block is None:
         return None
-    namespace = {
-        "FieldSpec": FieldSpec,
-        "FieldType": FieldType,
-        "ActionSpec": ActionSpec,
-        "ModuleConfig": ModuleConfig,
-    }
+    namespace = dict(_BASE_NAMESPACE)
     exec(compile(block, str(page_path), "exec"), namespace)  # noqa: S102
     return namespace.get("CONFIG")
 
@@ -123,6 +123,15 @@ def main() -> int:
         if not page_path.exists():
             print(f"[SKIP] {key}: tidak ada {page_path.relative_to(REPO_ROOT)} "
                   f"(modul baru belum ada UI generiknya, atau seharusnya custom_page=True)")
+            continue
+
+        source = page_path.read_text(encoding="utf-8")
+        if re.search(rf'^CONFIG\s*=\s*MODULES\[\s*["\']{re.escape(key)}["\']\s*\]', source, re.MULTILINE):
+            # Pola terbaik: halaman langsung mengambil CONFIG dari
+            # registry.py (mis. customers_page.py: `CONFIG = MODULES["customers"]`)
+            # alih-alih menyalin ulang COLUMNS/FORM_FIELDS/dst. Drift jadi
+            # mustahil karena cuma ada SATU definisi - anggap otomatis sinkron.
+            checked += 1
             continue
 
         page_cfg = None

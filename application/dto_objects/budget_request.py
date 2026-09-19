@@ -41,6 +41,7 @@ class BudgetCreateRequest:
     currency: str = "IDR"
     lines: list[BudgetLineCreateRequest]
     notes: str | None = None
+    description: str | None = None
     tags: list[str] | None = None
     created_by: UUID
     legal_entity_id: UUID
@@ -54,6 +55,7 @@ class BudgetUpdateRequest:
     effective_date: date | None = None
     expiry_date: date | None = None
     notes: str | None = None
+    description: str | None = None
     tags: list[str] | None = None
     status: str | None = None
     updated_by: UUID
@@ -147,6 +149,7 @@ class BudgetResponse:
     currency: str
     total_amount: Decimal
     notes: str | None
+    description: str | None
     tags: list[str] | None
     is_locked: bool
     created_at: datetime

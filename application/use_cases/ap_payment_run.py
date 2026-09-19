@@ -31,7 +31,9 @@ from application.commands_cqrs.command_bus_unified import BaseCommand, CommandRe
 from application.service_layer.service_ap import APService
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_journal import JournalService
-from kernel.sealed_gate import SealedGate
+from constitution.supreme_law import ConstitutionalViolationError
+from kernel.command_envelope import CommandStatus as GateCommandStatus
+from kernel.sealed_gate import SealedGate, get_sealed_gate
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
@@ -151,7 +153,11 @@ class APPaymentRunUseCase:
         self._bank_service = bank_cash_service
         self._journal_service = journal_service
         self._uow = uow
-        self._sealed_gate = sealed_gate
+        # BUG FIX: sealed_gate diterima tapi tidak pernah dipanggil - dan
+        # rute HTTP AP payment run (setelah nama method-nya diperbaiki
+        # nanti) memanggil use case ini tanpa lewat UnifiedCommandBus.
+        self._sealed_gate = sealed_gate or get_sealed_gate()
+        self._sealed_gate.register_handler("AP_PAYMENT_CREATE", lambda data, ctx, uow: None)
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
         self._audit_trail: list[dict[str, Any]] = []
 
@@ -180,6 +186,27 @@ class APPaymentRunUseCase:
     @audit
     async def execute(self, command: APPaymentRunCommand) -> CommandResult:
         self._check_authority(command.user_id, "ap_payment_run_execute")
+
+        # BUG FIX: gate enforcement yang sebelumnya tidak pernah ditegakkan.
+        try:
+            envelope = await self._sealed_gate.execute(
+                command_type="AP_PAYMENT_CREATE",
+                command_data={
+                    "payment_date": str(command.payment_date),
+                    "payment_method": command.payment_method,
+                    "vendor_id": str(command.vendor_id) if command.vendor_id else None,
+                    "dry_run": command.dry_run,
+                },
+                user_id=str(command.user_id) if command.user_id else "system",
+                legal_entity_id=command.legal_entity_id,
+            )
+        except (ValueError, ConstitutionalViolationError, RuntimeError) as e:
+            raise ValueError(f"AP payment run rejected by sealed gate: {e}") from e
+        if envelope.status != GateCommandStatus.SUCCESS:
+            raise ValueError(
+                f"AP payment run rejected by sealed gate: {envelope.error or 'unknown reason'}"
+            )
+
         self._stats["executed"] += 1
 
         try:

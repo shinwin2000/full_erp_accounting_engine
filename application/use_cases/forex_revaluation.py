@@ -21,7 +21,9 @@ from application.commands_cqrs.command_bus_unified import BaseCommand, CommandRe
 from application.service_layer.service_forex import ForexService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_ledger import LedgerService
-from kernel.sealed_gate import SealedGate
+from constitution.supreme_law import ConstitutionalViolationError
+from kernel.command_envelope import CommandStatus as GateCommandStatus
+from kernel.sealed_gate import SealedGate, get_sealed_gate
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,11 @@ class ForexRevaluationUseCase:
         self._forex_service = forex_service
         self._ledger_service = ledger_service
         self._journal_service = journal_service
-        self._sealed_gate = sealed_gate
+        # BUG FIX: sealed_gate diterima tapi tidak pernah dipanggil, dan use
+        # case ini dipanggil langsung dari fastapi_forex_router.py tanpa
+        # lewat UnifiedCommandBus.
+        self._sealed_gate = sealed_gate or get_sealed_gate()
+        self._sealed_gate.register_handler("FOREX_REVALUATION_CREATE", lambda data, ctx, uow: None)
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
         self._audit_trail: list[dict[str, Any]] = []
 
@@ -203,6 +209,28 @@ class ForexRevaluationUseCase:
             raise TypeError("dry_run must be a boolean")
 
         self._check_authority(command.user_id, "forex_revaluation_execute")
+
+        # BUG FIX: gate enforcement yang sebelumnya tidak pernah ditegakkan.
+        try:
+            envelope = await self._sealed_gate.execute(
+                command_type="FOREX_REVALUATION_CREATE",
+                command_data={
+                    "as_of_date": str(command.as_of_date),
+                    "functional_currency": command.functional_currency,
+                    "revaluation_method": command.revaluation_method,
+                    "post_to_gl": command.post_to_gl,
+                    "dry_run": command.dry_run,
+                },
+                user_id=str(command.user_id) if command.user_id else "system",
+                legal_entity_id=command.legal_entity_id,
+            )
+        except (ValueError, ConstitutionalViolationError, RuntimeError) as e:
+            raise ValueError(f"Forex revaluation rejected by sealed gate: {e}") from e
+        if envelope.status != GateCommandStatus.SUCCESS:
+            raise ValueError(
+                f"Forex revaluation rejected by sealed gate: {envelope.error or 'unknown reason'}"
+            )
+
         self._stats["executed"] += 1
 
         try:

@@ -40,16 +40,28 @@ _LAZY_MAP = {
     "get_legal_entity_boundary_guard": ("kernel.guards.legal_entity_boundary", "get_legal_entity_boundary_guard"),
     "AuthorityMatrixGuard": ("kernel.guards.authority_matrix", "AuthorityMatrixGuard"),
     "get_authority_matrix_guard": ("kernel.guards.authority_matrix", "get_authority_matrix_guard"),
-    "EvidenceAttacher": ("kernel.guards.evidence_attacher", "EvidenceAttacher"),
-    "get_evidence_attacher": ("kernel.guards.evidence_attacher", "get_evidence_attacher"),
+    # BUG FIX: kelas nyata bernama "EvidenceAttacherGuard", bukan "EvidenceAttacher".
+    # Nama lama dipertahankan sebagai alias supaya kode existing yang sudah
+    # memakainya tidak patah, tapi keduanya sekarang menunjuk ke kelas yang benar.
+    "EvidenceAttacher": ("kernel.guards.evidence_attacher", "EvidenceAttacherGuard"),
+    "EvidenceAttacherGuard": ("kernel.guards.evidence_attacher", "EvidenceAttacherGuard"),
+    # BUG FIX: fungsi getter yang benar adalah get_evidence_attacher_guard().
+    "get_evidence_attacher": ("kernel.guards.evidence_attacher", "get_evidence_attacher_guard"),
+    "get_evidence_attacher_guard": ("kernel.guards.evidence_attacher", "get_evidence_attacher_guard"),
     "RegulatoryComplianceGuard": ("kernel.guards.regulatory_compliance", "RegulatoryComplianceGuard"),
     "get_regulatory_compliance_guard": ("kernel.guards.regulatory_compliance", "get_regulatory_compliance_guard"),
     "TemporalConsistencyGuard": ("kernel.guards.temporal_consistency", "TemporalConsistencyGuard"),
     "get_temporal_consistency_guard": ("kernel.guards.temporal_consistency", "get_temporal_consistency_guard"),
     "EmergencyFreezeGuard": ("kernel.guards.emergency_freeze", "EmergencyFreezeGuard"),
     "get_emergency_freeze_guard": ("kernel.guards.emergency_freeze", "get_emergency_freeze_guard"),
+    # CoretaxFormatValidator (kumpulan staticmethod format NPWP/NTPN/dll) tetap ada,
+    # tapi guard yang benar-benar dipakai kernel adalah CoretaxFormatGuard.
     "CoretaxFormatValidator": ("kernel.guards.coretax_format_validator", "CoretaxFormatValidator"),
-    "get_coretax_format_validator": ("kernel.guards.coretax_format_validator", "get_coretax_format_validator"),
+    "CoretaxFormatGuard": ("kernel.guards.coretax_format_validator", "CoretaxFormatGuard"),
+    "get_coretax_format_guard": ("kernel.guards.coretax_format_validator", "get_coretax_format_guard"),
+    # BUG FIX: get_coretax_format_validator() sebelumnya tidak ada sama sekali di
+    # modulnya (AttributeError). Diarahkan ke getter guard yang nyata.
+    "get_coretax_format_validator": ("kernel.guards.coretax_format_validator", "get_coretax_format_guard"),
     "SodEnforcer": ("kernel.guards.sod_enforcer", "SodEnforcer"),
     "get_sod_enforcer": ("kernel.guards.sod_enforcer", "get_sod_enforcer"),
     "BudgetAvailabilityGuard": ("kernel.guards.budget_availability", "BudgetAvailabilityGuard"),
@@ -88,6 +100,8 @@ __all__ = [
     "CurrencyValidator",
     "EmergencyFreezeGuard",
     "EvidenceAttacher",
+    "EvidenceAttacherGuard",
+    "CoretaxFormatGuard",
     "GuardException",
     "GuardViolationError",
     "LegalEntityBoundaryGuard",
@@ -100,10 +114,12 @@ __all__ = [
     "get_balance_checker",
     "get_budget_availability_guard",
     "get_coretax_format_validator",
+    "get_coretax_format_guard",
     "get_credit_limit_enforcer",
     "get_currency_validator",
     "get_emergency_freeze_guard",
     "get_evidence_attacher",
+    "get_evidence_attacher_guard",
     "get_legal_entity_boundary_guard",
     "get_period_lock_guard",
     "get_regulatory_compliance_guard",

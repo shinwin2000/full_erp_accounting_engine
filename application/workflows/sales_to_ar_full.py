@@ -176,6 +176,17 @@ class SalesToARFullWorkflow:
         self._stats["executed"] += 1
 
         try:
+            # BUG FIX: start_sales() mengembalikan SalesSagaContext lokal
+            # (objek pencatat status sederhana) yang TERPISAH dari
+            # SagaContext internal milik SagaOrchestratorBase - keduanya
+            # tidak terhubung. compensate()/complete() yang dipanggil di
+            # bawah sebelumnya selalu salah parameter (compensate() asli
+            # butuh objek SagaContext generik, bukan (saga_id, reason); dan
+            # complete() tidak ada sama sekali di orchestrator manapun).
+            # Baris kompensasi/complete yang tidak berfungsi ini dihapus;
+            # penanganan gagal-jujur (raise ValueError) yang sudah ada di
+            # tiap langkah tetap dipertahankan sebagai mekanisme abort yang
+            # sesungguhnya bekerja.
             saga_context = await self._saga.start_sales(
                 legal_entity_id=command.legal_entity_id,
                 customer_id=command.customer_id,
@@ -187,26 +198,22 @@ class SalesToARFullWorkflow:
             async def _run_workflow():
                 so_result = await self._create_sales_order(command)
                 if not so_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "so_creation_failed")
                     raise ValueError(f"SO creation failed: {so_result.get('error')}")
                 saga_context.set_so_number(so_result["so_number"])
 
                 delivery_result = await self._create_delivery(command, so_result)
                 if not delivery_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "delivery_failed")
                     raise ValueError(f"Delivery creation failed: {delivery_result.get('error')}")
                 saga_context.set_delivery_number(delivery_result["delivery_number"])
 
                 invoice_result = await self._create_ar_invoice(command, so_result, delivery_result)
                 if not invoice_result.get("success"):
-                    await self._saga.compensate(saga_context.saga_id, "invoice_failed")
                     raise ValueError(f"Invoice creation failed: {invoice_result.get('error')}")
                 saga_context.set_invoice_number(invoice_result["invoice_number"])
 
                 if command.auto_approve:
                     approve_result = await self._approve_invoice(invoice_result["invoice_id"], command.user_id)
                     if not approve_result.get("success"):
-                        await self._saga.compensate(saga_context.saga_id, "approval_failed")
                         raise ValueError(f"Invoice approval failed: {approve_result.get('error')}")
 
                 payment_result = await self._record_payment(command, invoice_result)
@@ -215,15 +222,32 @@ class SalesToARFullWorkflow:
                 else:
                     logger.warning(f"Payment recording issue: {payment_result.get('error')}")
 
+                # BUG FIX: issue_sales() tidak pernah ada di InventoryService.
+                # Kapabilitas mencatat pengeluaran barang untuk penjualan yang
+                # nyata ada adalah record_movement() (movement_type=
+                # "sales_issue") - butuh warehouse_id yang tidak ada di
+                # SalesToARFullCommand.
+                warehouse_id = getattr(command, "warehouse_id", None)
+                if not warehouse_id:
+                    raise ValueError(
+                        "SalesToARFullCommand tidak menyertakan warehouse_id - "
+                        "record_movement() mewajibkannya."
+                    )
+                from application.service_layer.service_inventory import StockMovementRequest
+
                 for item in command.items:
-                    await self._inventory_service.issue_sales(
-                        item_id=UUID(item["item_id"]),
-                        quantity=Decimal(str(item["quantity"])),
-                        reference=delivery_result["delivery_number"],
+                    await self._inventory_service.record_movement(
+                        request=StockMovementRequest(
+                            legal_entity_id=command.legal_entity_id,
+                            item_id=UUID(item["item_id"]),
+                            movement_type="sales_issue",
+                            quantity=Decimal(str(item["quantity"])),
+                            warehouse_id=warehouse_id,
+                            reference_document_type="delivery",
+                            reference_document_number=delivery_result["delivery_number"],
+                        ),
                         user_id=command.user_id,
                     )
-
-                await self._saga.complete(saga_context.saga_id)
 
                 return SalesWorkflowResult(
                     so_number=so_result["so_number"],
@@ -237,11 +261,27 @@ class SalesToARFullWorkflow:
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) -> CommandEnvelope,
+                # bukan (command_id=, handler=) yang tidak pernah ada di
+                # signature aslinya.
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={
+                        "customer_id": str(command.customer_id),
+                        "item_count": len(command.items),
+                    },
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=command.legal_entity_id,
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Sales to AR workflow rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
@@ -292,14 +332,22 @@ class SalesToARFullWorkflow:
         )
         due_date = command.invoice_date + timedelta(days=command.payment_terms_days)
 
+        # BUG FIX: create_invoice() menerima satu objek CreateARInvoiceRequest,
+        # bukan kwargs datar (sales_order_number/delivery_number juga bukan
+        # field request-nya - dicatat lewat description sebagai gantinya).
+        from application.service_layer.service_ar import CreateARInvoiceRequest
+
         invoice = await self._ar_service.create_invoice(
-            legal_entity_id=command.legal_entity_id,
-            customer_id=command.customer_id,
-            invoice_date=command.invoice_date,
-            due_date=due_date,
-            amount=total_amount,
-            sales_order_number=so_result["so_number"],
-            delivery_number=delivery_result["delivery_number"],
+            request=CreateARInvoiceRequest(
+                legal_entity_id=command.legal_entity_id,
+                customer_id=command.customer_id,
+                invoice_date=command.invoice_date,
+                due_date=due_date,
+                amount=total_amount,
+                description=(
+                    f"SO {so_result['so_number']} / Delivery {delivery_result['delivery_number']}"
+                ),
+            ),
             user_id=command.user_id,
             correlation_id=command.correlation_id,
         )
@@ -317,14 +365,35 @@ class SalesToARFullWorkflow:
     async def _record_payment(
         self, command: SalesToARFullCommand, invoice_result: dict
     ) -> dict[str, Any]:
-        payment = await self._ar_service.record_payment(
-            legal_entity_id=command.legal_entity_id,
-            customer_id=command.customer_id,
-            payment_date=command.invoice_date + timedelta(days=command.payment_terms_days),
-            amount=invoice_result["amount"],
-            invoice_ids=[invoice_result["invoice_id"]],
+        # BUG FIX: record_payment() menerima satu objek RecordARPaymentRequest
+        # (bukan kwargs datar), butuh payment_method wajib (tidak ada field
+        # payment_method di SalesToARFullCommand sama sekali - workflow ini
+        # TIDAK memiliki informasi metode pembayaran asli, jadi tidak
+        # dipaksakan menebak; harus disediakan lewat command kalau memang
+        # dibutuhkan) dan invoice_ids diganti allocations sesuai bentuk asli.
+        payment_method = getattr(command, "payment_method", None)
+        if not payment_method:
+            raise ValueError(
+                "SalesToARFullCommand tidak menyertakan payment_method - "
+                "tidak bisa merekam pembayaran tanpa metode pembayaran yang jelas."
+            )
+        from application.service_layer.service_ar import RecordARPaymentRequest
+
+        payment_date = command.invoice_date + timedelta(days=command.payment_terms_days)
+        payments = await self._ar_service.record_payment(
+            request=RecordARPaymentRequest(
+                legal_entity_id=command.legal_entity_id,
+                customer_id=command.customer_id,
+                payment_date=payment_date,
+                amount=invoice_result["amount"],
+                payment_method=payment_method,
+                allocations=[
+                    {"invoice_id": invoice_result["invoice_id"], "amount": invoice_result["amount"]}
+                ],
+            ),
             user_id=command.user_id,
         )
+        payment = payments[0]
         return {"success": True, "payment_number": payment.payment_number}
 
     def get_stats(self) -> dict[str, int]:

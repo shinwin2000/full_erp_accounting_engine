@@ -1159,7 +1159,14 @@ class ForbiddenStatesRegistry:
         if not detector:
             logger.error(f"No detector for {category}")
             return False, None, None
-        is_forbidden, details, suggested = detector(**context)
+        # BUG FIX: context dibangun dengan key "current_state" untuk keperluan
+        # audit record ForbiddenStateDetection di bawah, tapi TIDAK SATU PUN
+        # dari 14 fungsi detect_*() menerima parameter current_state -> setiap
+        # kategori forbidden-state selalu TypeError begitu detector dipanggil.
+        # current_state dipisah di sini: tetap tersedia untuk audit record,
+        # tapi tidak ikut di-splat ke detector.
+        detector_kwargs = {k: v for k, v in context.items() if k != "current_state"}
+        is_forbidden, details, suggested = detector(**detector_kwargs)
         if not is_forbidden:
             return False, None, None
         action_taken = suggested or state_def.default_action

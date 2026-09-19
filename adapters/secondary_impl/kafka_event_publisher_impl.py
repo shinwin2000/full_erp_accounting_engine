@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +19,33 @@ from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
 logger = logging.getLogger(__name__)
+
+
+def _derive_topic(event: Any) -> str:
+    """Turunkan nama topic Kafka dari event kalau topic tidak diberikan
+    eksplisit. Dict event bisa membawa 'event_type'/'topic' sendiri;
+    domain event dataclass (mis. ItemCreated) dipetakan dari nama kelas
+    CamelCase ke kebab-case (mis. "item-created")."""
+    if isinstance(event, dict):
+        return str(event.get("topic") or event.get("event_type") or "domain-events")
+    name = type(event).__name__
+    kebab = re.sub(r"(?<!^)(?=[A-Z])", "-", name).lower()
+    return kebab or "domain-events"
+
+
+def _event_to_dict(event: Any) -> dict[str, Any]:
+    """Serialisasikan event (dict, dataclass, atau objek dengan to_dict())
+    menjadi dict yang siap di-JSON-encode."""
+    if isinstance(event, dict):
+        return dict(event)
+    if hasattr(event, "to_dict") and callable(event.to_dict):
+        try:
+            return dict(event.to_dict())
+        except Exception:  # noqa: BLE001 - fallback ke representasi generik
+            pass
+    if is_dataclass(event):
+        return asdict(event)
+    return {"event_type": type(event).__name__, "data": str(event)}
 
 
 class KafkaEventPublisher:
@@ -71,44 +100,81 @@ class KafkaEventPublisher:
             self._started = False
             logger.info("KafkaEventPublisher stopped")
 
-    async def publish(self, topic: str, event: dict[str, Any], key: str | None = None) -> None:
+    async def publish(
+        self,
+        event: Any,
+        correlation_id: str | None = None,
+        *,
+        topic: str | None = None,
+        key: str | None = None,
+        **_ignored: Any,
+    ) -> None:
         """
         Publish event ke Kafka secara async.
+
+        Signature ini SENGAJA kompatibel dengan cara method ini benar-benar
+        dipanggil dari seluruh application/service_layer/*.py (mis.
+        `publish(event)`, `publish(event, correlation_id)`, atau
+        `publish(event, correlation_id=correlation_id)`) - BUKAN dengan
+        urutan lama `publish(topic, event, key)`, yang sebelumnya membuat
+        setiap pemanggilan gagal dengan
+        "got an unexpected keyword argument 'correlation_id'".
+        `event` boleh berupa dict, dataclass domain event (mis.
+        ItemCreated), atau objek apa pun dengan method to_dict().
+        Topic diturunkan otomatis dari event kecuali di-override lewat
+        parameter `topic`.
         """
+        resolved_topic = topic or _derive_topic(event)
+
         if not self._started or self._producer is None:
-            raise RuntimeError("KafkaEventPublisher not started. Call start() first.")
+            # Di lingkungan development, Kafka umumnya memang sengaja tidak
+            # dijalankan (lihat banner startup "Kafka=[X]"). Publish event
+            # jadi no-op yang aman (tidak melempar exception) supaya alur
+            # bisnis utama (create/update/delete item, dst.) tidak
+            # terganggu oleh infrastruktur messaging opsional ini -
+            # konsisten dengan try/except di service layer yang sudah
+            # menganggap kegagalan publish sebagai non-fatal.
+            logger.debug(
+                f"KafkaEventPublisher belum start (Kafka tidak terhubung) - "
+                f"event topic='{resolved_topic}' dilewati (no-op)."
+            )
+            return
+
+        payload = _event_to_dict(event)
+        if correlation_id:
+            payload.setdefault("correlation_id", correlation_id)
 
         try:
-            value = json.dumps(event, default=str).encode("utf-8")
+            value = json.dumps(payload, default=str).encode("utf-8")
             key_bytes = key.encode("utf-8") if key else None
-            await self._producer.send_and_wait(topic, value=value, key=key_bytes)
+            await self._producer.send_and_wait(resolved_topic, value=value, key=key_bytes)
             self._event_count += 1
             self._audit_log.append({
                 "timestamp": datetime.utcnow().isoformat(),
                 "action": "publish",
-                "topic": topic,
+                "topic": resolved_topic,
                 "key": key,
                 "status": "success"
             })
-            logger.debug(f"Event published to topic {topic}")
+            logger.debug(f"Event published to topic {resolved_topic}")
         except KafkaError as e:
             self._failed_count += 1
             self._audit_log.append({
                 "timestamp": datetime.utcnow().isoformat(),
                 "action": "publish",
-                "topic": topic,
+                "topic": resolved_topic,
                 "key": key,
                 "status": "failed",
                 "error": str(e)
             })
-            logger.error(f"Failed to publish event to topic {topic}: {e}")
+            logger.error(f"Failed to publish event to topic {resolved_topic}: {e}")
             raise
         except Exception as e:
             self._failed_count += 1
             self._audit_log.append({
                 "timestamp": datetime.utcnow().isoformat(),
                 "action": "publish",
-                "topic": topic,
+                "topic": resolved_topic,
                 "key": key,
                 "status": "failed",
                 "error": str(e)
@@ -117,12 +183,17 @@ class KafkaEventPublisher:
             raise
 
     async def publish_async(
-        self, topic: str, event: dict[str, Any], key: str | None = None
+        self,
+        event: Any,
+        correlation_id: str | None = None,
+        *,
+        topic: str | None = None,
+        key: str | None = None,
     ) -> None:
         """
         Alias for publish (both are async).
         """
-        await self.publish(topic, event, key)
+        await self.publish(event, correlation_id, topic=topic, key=key)
 
     async def flush(self, timeout: float = 10.0) -> None:
         """

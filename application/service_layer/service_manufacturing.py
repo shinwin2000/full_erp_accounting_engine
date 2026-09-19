@@ -344,7 +344,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("create_bom", {
             "bom_id": str(bom.id),
@@ -416,7 +427,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         total_cost = Decimal("0")
         for bom_item in bom.items:
@@ -476,7 +498,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("activate_bom", {
             "bom_id": str(bom_id),
@@ -518,7 +551,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("obsolete_bom", {
             "bom_id": str(bom_id),
@@ -569,7 +613,18 @@ class ManufacturingService:
                 user_id=str(user_id) if user_id else None,
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         total_cost = Decimal("0")
         for bom_item in bom.items:
@@ -582,6 +637,42 @@ class ManufacturingService:
             "component_id": str(component_id),
             "user_id": str(user_id) if user_id else None,
         })
+
+        return BOMResponse(
+            bom_id=bom.id,
+            product_id=bom.product_id,
+            version=bom.version,
+            items=[
+                {"component_id": i.component_id, "quantity": i.quantity, "scrap_percentage": i.scrap_percentage}
+                for i in bom.items
+            ],
+            total_material_cost=total_cost,
+            effective_date=bom.effective_date,
+            is_active=bom.is_active,
+        )
+
+    # BUG FIX (thin wrapper baru): get_work_order()/get_bom_by_work_order()
+    # sebelumnya tidak diekspos sama sekali di ManufacturingService (dipanggil
+    # dari application/workflows/manufacturing_cost_flow.py yang mengasumsikan
+    # method ini ada). Kapabilitasnya sendiri SUDAH ADA dan nyata di level
+    # repository (get_work_order/get_bom_by_id) - ini murni delegasi, bukan
+    # logika bisnis baru.
+    async def get_work_order(self, work_order_id: UUID):
+        return await self._mfg_repo.get_work_order(work_order_id)
+
+    async def get_bom_by_work_order(self, work_order_id: UUID) -> BOMResponse | None:
+        work_order = await self._mfg_repo.get_work_order(work_order_id)
+        if not work_order:
+            return None
+        bom = await self._mfg_repo.get_bom_by_id(work_order.bom_id)
+        if not bom:
+            return None
+
+        total_cost = Decimal("0")
+        for item in bom.items:
+            component = await self._inventory_repo.get_item_by_id(item.component_id)
+            if component:
+                total_cost += component.item.average_cost * item.quantity
 
         return BOMResponse(
             bom_id=bom.id,
@@ -669,7 +760,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("create_work_order", {
             "work_order_id": str(work_order.id),
@@ -720,7 +822,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("approve_work_order", {
             "work_order_id": str(work_order_id),
@@ -782,7 +895,18 @@ class ManufacturingService:
                     user_id=str(user_id),
                     correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(
+                    event,
+                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                    # event_type/aggregate_id/aggregate_type - panggilan lama
+                    # (event, correlation_id=correlation_id) selalu TypeError kalau
+                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                    # di signature aslinya).
+                    event_type=str(getattr(event.event_type, "value", event.event_type)),
+                    aggregate_id=event.aggregate_id,
+                    aggregate_type="Manufacturing",
+                    metadata={"correlation_id": correlation_id} if correlation_id else None,
+                )
 
         work_order.status = WorkOrderStatus.IN_PROGRESS
         work_order.started_at = datetime.utcnow()
@@ -801,7 +925,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("start_work_order", {
             "work_order_id": str(work_order_id),
@@ -864,7 +999,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("post_labor", {
             "work_order_id": str(request.work_order_id),
@@ -920,7 +1066,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("apply_overhead", {
             "work_order_id": str(request.work_order_id),
@@ -1071,7 +1228,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("cancel_work_order", {
             "work_order_id": str(work_order_id),
@@ -1129,7 +1297,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("create_standard_cost", {
             "standard_cost_id": str(standard_cost_id),
@@ -1174,7 +1353,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("activate_standard_cost", {
             "standard_cost_id": str(standard_cost_id),
@@ -1233,7 +1423,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("calculate_hpp", {
             "product_id": str(request.product_id),
@@ -1306,7 +1507,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("analyze_variance", {
             "work_order_id": str(work_order_id),
@@ -1360,7 +1572,18 @@ class ManufacturingService:
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(
+                event,
+                # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
+                # event_type/aggregate_id/aggregate_type - panggilan lama
+                # (event, correlation_id=correlation_id) selalu TypeError kalau
+                # benar-benar dieksekusi (parameter correlation_id juga tidak ada
+                # di signature aslinya).
+                event_type=str(getattr(event.event_type, "value", event.event_type)),
+                aggregate_id=event.aggregate_id,
+                aggregate_type="Manufacturing",
+                metadata={"correlation_id": correlation_id} if correlation_id else None,
+            )
 
         self._record_audit("update_cost_card", {
             "product_id": str(product_id),

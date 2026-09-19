@@ -15,9 +15,12 @@ FITUR:
 """
 from __future__ import annotations
 
+import logging
 from collections import OrderedDict
 from datetime import date, datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QFont
@@ -325,7 +328,17 @@ class FormDialog(QDialog):
         if spec.type == FieldType.DECIMAL:
             w = QDoubleSpinBox()
             w.setMinimumHeight(_INPUT_MIN_HEIGHT)
-            w.setRange(-1_000_000_000_000, 1_000_000_000_000)
+            # FIX: sebelumnya semua field DECIMAL selalu boleh diisi angka
+            # negatif (range -1 triliun s/d +1 triliun) tanpa kecuali -
+            # termasuk field yang secara bisnis tidak masuk akal negatif
+            # (harga, HPP, stok minimum/maksimum, dst). Akibatnya tombol
+            # panah bawah pada spinner bisa membuat "Harga Jual" turun
+            # sampai minus tanpa ada yang mencegah. Kalau field mendefinisikan
+            # `min_value`, batas bawah spinner sendiri mengikuti nilai itu -
+            # jadi mencegah nilai tidak valid sejak dari UI, bukan baru
+            # ketahuan setelah tombol Simpan ditekan.
+            lower_bound = spec.min_value if spec.min_value is not None else -1_000_000_000_000
+            w.setRange(lower_bound, 1_000_000_000_000)
             w.setDecimals(2)
             w.setGroupSeparatorShown(True)
             if value is not None:
@@ -399,13 +412,30 @@ class FormDialog(QDialog):
         def _on_error(message: str) -> None:
             try:
                 combo.clear()
-                combo.addItem("(gagal memuat, isi manual tidak tersedia)", None)
+                # FIX: sebelumnya `message` (alasan sebenarnya kenapa lookup
+                # gagal - mis. 401 token kedaluwarsa, 422 param salah, koneksi
+                # putus) dibuang begitu saja dan diganti pesan generik
+                # "gagal memuat, isi manual tidak tersedia" - membuat masalah
+                # ini MUSTAHIL didiagnosis dari sisi user maupun developer.
+                # Sekarang pesan errornya ditampilkan apa adanya (dipotong
+                # kalau kepanjangan) supaya kelihatan jelas di dropdown.
+                short = (message or "tidak diketahui").strip()
+                if len(short) > 80:
+                    short = short[:77] + "..."
+                combo.addItem(f"(gagal memuat: {short})", None)
                 combo.setEnabled(False)
+                logger.warning("Lookup %s gagal dimuat: %s", spec.lookup_path, message)
             except RuntimeError:
                 pass
 
+        # FIX: page_size sebelumnya 500, padahal backend membatasi
+        # page_size <= 200 (Query(..., le=200) di router). Akibatnya setiap
+        # dropdown LOOKUP ke endpoint yang menerapkan batas itu (mis.
+        # /inventory/inventory/items) selalu gagal 422 Unprocessable Entity
+        # "Input should be less than or equal to 200" dan comboboxnya
+        # kosong. Diturunkan ke 200 (batas maksimum yang diterima backend).
         run_task(api_client.get, on_success=_on_loaded, on_error=_on_error, path=spec.lookup_path,
-                  params={"page": 1, "page_size": 500, "limit": 500})
+                  params={"page": 1, "page_size": 200, "limit": 200})
 
     # ------------------------------------------------------------------
     def _on_accept(self) -> None:
@@ -421,8 +451,27 @@ class FormDialog(QDialog):
         for spec in self.fields:
             widget = self._inputs[spec.name]
             value = _extract_value(spec, widget)
+
+            is_number = spec.type in (FieldType.NUMBER, FieldType.DECIMAL)
+
+            # FIX: sebelumnya field angka yang wajib diisi TIDAK pernah
+            # tertangkap validasi ini, karena nilai 0 bukan None dan bukan
+            # "" - sehingga form lolos, lalu backend menolak dengan 422
+            # "Input should be greater than 0" yang tidak ramah dibaca user.
+            if is_number and getattr(spec, "omit_if_zero", False) and value == 0:
+                if spec.required:
+                    return {}, f"Field '{spec.label}' wajib diisi."
+                continue  # dianggap kosong, tidak dikirim ke backend
+
             if spec.required and (value is None or value == ""):
                 return {}, f"Field '{spec.label}' wajib diisi."
+
+            min_value = getattr(spec, "min_value", None)
+            if is_number and min_value is not None and value is not None and value < min_value:
+                return {}, (
+                    f"Field '{spec.label}' harus bernilai minimal {min_value:g}."
+                )
+
             if value is not None and value != "":
                 payload[spec.name] = value
         return payload, ""

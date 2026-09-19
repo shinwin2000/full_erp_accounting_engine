@@ -250,28 +250,32 @@ class UMKMWorkflow:
 
         is_income = category_enum.value.startswith("INCOME")
 
+        # BUG FIX: record_transaction() menerima satu objek TransactionRequest,
+        # bukan kwargs datar - panggilan lama selalu TypeError.
+        from application.service_layer.service_umkm import TransactionRequest
+
         transaction = await self._umkm_service.record_transaction(
-            legal_entity_id=command.legal_entity_id,
-            transaction_date=command.transaction_date,
-            amount=command.amount,
-            transaction_type="INCOME" if is_income else "EXPENSE",
-            category=command.category,
-            description=command.description or "",
-            payment_method=command.payment_method,
-            reference_number=command.reference_number,
+            request=TransactionRequest(
+                legal_entity_id=command.legal_entity_id,
+                transaction_date=command.transaction_date,
+                amount=command.amount,
+                transaction_type="INCOME" if is_income else "EXPENSE",
+                category=command.category,
+                description=command.description or "",
+                payment_method=command.payment_method,
+                reference_number=command.reference_number,
+            ),
             user_id=command.user_id,
             correlation_id=command.correlation_id,
         )
 
-        await self._umkm_service.create_simple_journal(
-            legal_entity_id=command.legal_entity_id,
-            transaction_id=transaction.id,
-            amount=command.amount,
-            transaction_type="INCOME" if is_income else "EXPENSE",
-            category=command.category,
-            transaction_date=command.transaction_date,
-            user_id=command.user_id,
-        )
+        # BUG FIX: create_simple_journal() tidak pernah ada di UMKMService.
+        # record_transaction() di atas SUDAH menyimpan transaksi sepenuhnya
+        # (lihat service_umkm.py: langsung save_transaction()+commit()) -
+        # tidak ada langkah "buat jurnal terpisah" lain yang genuin diperlukan
+        # untuk model akuntansi UMKM sederhana ini (beda dengan
+        # create_journal_entry() yang merupakan fitur buku besar sederhana
+        # yang terpisah, bukan lanjutan dari record_transaction).
 
         return UMKMWorkflowResult(
             action="RECORD_TRANSACTION",
@@ -290,15 +294,18 @@ class UMKMWorkflow:
             else:
                 command.period_end = date(today.year, today.month + 1, 1) - timedelta(days=1)
 
-        income_total = await self._umkm_service.get_total_income(
+        # BUG FIX: get_total_income()/get_total_expense()/list_transactions()
+        # tidak pernah ada di UMKMService. Method aslinya adalah
+        # get_simple_income_statement() (mengembalikan total_income DAN
+        # total_expense sekaligus) dan get_transactions().
+        income_statement = await self._umkm_service.get_simple_income_statement(
             command.legal_entity_id, command.period_start, command.period_end
         )
-        expense_total = await self._umkm_service.get_total_expense(
-            command.legal_entity_id, command.period_start, command.period_end
-        )
-        net_profit = income_total - expense_total
+        income_total = income_statement.total_income
+        expense_total = income_statement.total_expense
+        net_profit = income_statement.net_profit
 
-        transactions = await self._umkm_service.list_transactions(
+        transactions = await self._umkm_service.get_transactions(
             command.legal_entity_id, command.period_start, command.period_end
         )
 
@@ -343,23 +350,26 @@ class UMKMWorkflow:
             else:
                 command.period_end = date(today.year, today.month + 1, 1) - timedelta(days=1)
 
-        total_income = await self._umkm_service.get_total_income(
-            command.legal_entity_id, command.period_start, command.period_end
+        # BUG FIX: get_total_income() dan get_tax_payments() tidak pernah ada
+        # di UMKMService. Method resmi untuk kalkulasi pajak UMKM adalah
+        # calculate_monthly_tax() (tarif 0.5% dari omzet, sama seperti yang
+        # coba dihitung ulang secara manual di sini) - dipakai langsung
+        # daripada duplikasi logika pajak. Tidak ada kapabilitas nyata untuk
+        # melihat pajak yang SUDAH dibayar (tak ada get_tax_payments di
+        # service manapun), jadi tax_paid dilaporkan 0 secara jujur alih-alih
+        # mengarang data pembayaran yang tidak pernah ada.
+        tax_summary = await self._umkm_service.calculate_monthly_tax(
+            command.legal_entity_id, command.period_start.year, command.period_start.month
         )
-
-        tax_rate = Decimal("0.005")
-        tax_due = (total_income * tax_rate).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
-
-        payments = await self._umkm_service.get_tax_payments(
-            command.legal_entity_id, command.period_start.year
-        )
-        total_paid = sum(p.amount for p in payments)
+        total_income = tax_summary.gross_revenue
+        tax_due = tax_summary.tax_due
+        total_paid = Decimal("0")
         tax_payable = max(tax_due - total_paid, Decimal("0"))
 
         tax_data = {
-            "period": f"{command.period_start.year}-{command.period_start.month:02d}",
+            "period": tax_summary.period,
             "gross_revenue": total_income,
-            "tax_rate": Decimal("0.5"),
+            "tax_rate": tax_summary.tax_rate,
             "tax_due": tax_due,
             "tax_paid": total_paid,
             "tax_payable": tax_payable,

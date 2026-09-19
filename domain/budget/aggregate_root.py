@@ -261,6 +261,12 @@ class Budget:
     currency: str
     lines: list[BudgetLineItem]
     notes: str | None = None
+    # [FIX/FITUR] `description` sudah ada sebagai kolom di BudgetTable ORM
+    # (infrastructure/persistence_orm/budget_table.py) tapi tidak pernah
+    # disambungkan ke domain/DTO/API manapun -- kolom yatim yang tidak bisa
+    # diisi lewat jalur apapun. Disambungkan di sini supaya bisa dipakai
+    # untuk deskripsi panjang budget (beda dari `budget_name` yang pendek).
+    description: str | None = None
     tags: list[str] = field(default_factory=list)
     is_locked: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -322,6 +328,7 @@ class Budget:
             "currency": self.currency,
             "total_amount": str(self.total_amount),
             "notes": self.notes,
+            "description": self.description,
             "tags": self.tags.copy() if self.tags else [],
             "is_locked": self.is_locked,
             "created_at": self.created_at.isoformat(),
@@ -357,6 +364,7 @@ class Budget:
             currency=data["currency"],
             lines=lines,
             notes=data.get("notes"),
+            description=data.get("description"),
             tags=data.get("tags", []),
             is_locked=data.get("is_locked", False),
             created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(UTC),
@@ -455,6 +463,7 @@ class BudgetAggregate:
         lines: list[BudgetLine],
         created_by: UUID,
         notes: str | None = None,
+        description: str | None = None,
         tags: list[str] | None = None,
         version: str = "1.0",
     ) -> Self:
@@ -478,6 +487,7 @@ class BudgetAggregate:
             currency=currency,
             lines=line_items,
             notes=notes,
+            description=description,
             tags=tags or [],
             is_locked=False,
             created_by=created_by,
@@ -917,6 +927,7 @@ class BudgetAggregate:
         effective_date: date | None = None,
         expiry_date: date | None = None,
         notes: str | None = None,
+        description: str | None = None,
         tags: list[str] | None = None,
     ) -> None:
         if not self.is_editable():
@@ -931,6 +942,8 @@ class BudgetAggregate:
             data["expiry_date"] = expiry_date.isoformat()
         if notes is not None:
             data["notes"] = notes
+        if description is not None:
+            data["description"] = description
         if tags is not None:
             data["tags"] = tags
         data["updated_at"] = datetime.now(UTC).isoformat()
@@ -999,6 +1012,99 @@ class BudgetAggregate:
         )
 
         return new_line
+
+    def transfer_line_amount(
+        self,
+        user_id: UUID,
+        from_account_id: UUID,
+        to_account_id: UUID,
+        amount: Decimal,
+        reason: str,
+    ) -> None:
+        """
+        [FITUR] Transfer/realokasi sebagian anggaran dari satu baris akun ke
+        baris akun lain DALAM budget yang sama, tanpa mengubah total_amount
+        keseluruhan budget. Berbeda dari `update_line()` yang cuma boleh
+        dipakai saat status DRAFT/REJECTED -- transfer ini justru dipakai
+        pada budget yang sudah APPROVED/ACTIVE (kasus nyata: realokasi
+        anggaran di tengah tahun berjalan), jadi memakai aturan status
+        sendiri, bukan `is_editable()`.
+        """
+        if self._budget.status not in (BudgetStatus.APPROVED, BudgetStatus.ACTIVE):
+            raise ValueError(
+                f"Transfer hanya diperbolehkan pada budget berstatus approved/active, "
+                f"status saat ini: {self._budget.status.value}"
+            )
+        if amount <= 0:
+            raise ValueError("Jumlah transfer harus lebih besar dari 0")
+        if from_account_id == to_account_id:
+            raise ValueError("Akun sumber dan akun tujuan tidak boleh sama")
+
+        from_line = next((l for l in self._budget.lines if l.account_id == from_account_id), None)
+        to_line = next((l for l in self._budget.lines if l.account_id == to_account_id), None)
+        if from_line is None:
+            raise ValueError(f"Akun sumber {from_account_id} tidak ada di baris anggaran budget ini")
+        if to_line is None:
+            raise ValueError(f"Akun tujuan {to_account_id} tidak ada di baris anggaran budget ini")
+        if from_line.amount < amount:
+            raise ValueError(
+                f"Saldo anggaran akun sumber ({from_line.account_code}) tidak cukup: "
+                f"tersedia {from_line.amount}, diminta {amount}"
+            )
+
+        now = datetime.now(UTC)
+        new_lines = []
+        for line in self._budget.lines:
+            if line.id == from_line.id:
+                new_lines.append(BudgetLineItem(
+                    id=line.id, account_id=line.account_id, account_code=line.account_code,
+                    amount=line.amount - amount, note=line.note,
+                    created_at=line.created_at, updated_at=now,
+                ))
+            elif line.id == to_line.id:
+                new_lines.append(BudgetLineItem(
+                    id=line.id, account_id=line.account_id, account_code=line.account_code,
+                    amount=line.amount + amount, note=line.note,
+                    created_at=line.created_at, updated_at=now,
+                ))
+            else:
+                new_lines.append(line)
+
+        data = self._budget.to_dict()
+        data["lines"] = [line_item.to_dict() for line_item in new_lines]
+        data["updated_at"] = now.isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+        note_addition = (
+            f"[Transfer {amount} dari {from_line.account_code} ke "
+            f"{to_line.account_code} pada {now.date().isoformat()}: {reason}]"
+        )
+        existing_notes = data.get("notes") or ""
+        data["notes"] = (existing_notes + "\n" + note_addition).strip()
+
+        self._budget = Budget.from_dict(data)
+        self._version += 1
+        self._take_snapshot()
+
+        self._record_audit("TRANSFER_LINE_AMOUNT", str(user_id), {
+            "from_account_id": str(from_account_id),
+            "to_account_id": str(to_account_id),
+            "amount": str(amount),
+            "reason": reason,
+        })
+        self._register_event(
+            BudgetLineAdjustedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                account_code=f"{from_line.account_code}->{to_line.account_code}",
+                old_amount=from_line.amount,
+                new_amount=from_line.amount - amount,
+                adjusted_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
 
     def update_line(self, user_id: UUID, line_id: UUID, amount: Decimal, note: str | None = None) -> None:
         if not self.is_editable():

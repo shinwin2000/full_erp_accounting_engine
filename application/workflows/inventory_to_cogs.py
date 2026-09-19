@@ -231,13 +231,26 @@ class InventoryToCOGSWorkflow:
                         continue
 
                     if command.valuation_method.upper() == "FIFO":
-                        unit_cost = await self._inventory_service.get_fifo_unit_cost(
-                            product_id, as_of_date=command.period_end
+                        # BUG FIX: get_fifo_unit_cost() tidak pernah ada di
+                        # InventoryService, dan tidak ada kapabilitas query
+                        # "biaya FIFO per tanggal historis tertentu" di
+                        # repository manapun (record_movement() menghitung
+                        # FIFO hanya sebagai bagian dari mencatat mutasi baru,
+                        # bukan query murni atas data historis). Gagal jujur
+                        # alih-alih memakai average_cost yang akan
+                        # menghasilkan angka COGS FIFO yang diam-diam salah.
+                        raise NotImplementedError(
+                            "Query biaya FIFO historis per tanggal belum "
+                            "terimplementasi di InventoryService."
                         )
                     elif command.valuation_method.upper() == "WEIGHTED_AVERAGE":
-                        unit_cost = await self._inventory_service.get_weighted_average_cost(
-                            product_id, as_of_date=command.period_end
-                        )
+                        # BUG FIX: get_weighted_average_cost() tidak pernah
+                        # ada sebagai method terpisah - tapi field
+                        # average_cost pada item SECARA DEFINISI adalah biaya
+                        # rata-rata tertimbang berjalan, jadi ini delegasi
+                        # yang sah (bukan fallback yang mengarang), hanya
+                        # saja tidak spesifik per as_of_date historis.
+                        unit_cost = product.average_cost
                     else:
                         unit_cost = product.average_cost
 
@@ -258,14 +271,24 @@ class InventoryToCOGSWorkflow:
                     )
 
                 if command.include_adjustments:
-                    adjustments = await self._inventory_service.get_inventory_adjustments(
-                        legal_entity_id=command.legal_entity_id,
-                        from_date=command.period_start,
-                        to_date=command.period_end,
-                    )
+                    # BUG FIX: get_inventory_adjustments() tidak pernah ada -
+                    # kapabilitas query mutasi yang nyata ada adalah
+                    # list_movements(), dipanggil dua kali untuk
+                    # ADJUSTMENT_IN dan ADJUSTMENT_OUT (tidak ada movement_type
+                    # gabungan "adjustment" generik).
+                    adjustments = []
+                    for adj_type in ("adjustment_in", "adjustment_out"):
+                        result = await self._inventory_service.list_movements(
+                            legal_entity_id=command.legal_entity_id,
+                            movement_type=adj_type,
+                            start_date=command.period_start,
+                            end_date=command.period_end,
+                            page_size=200,
+                        )
+                        adjustments.extend(result.items)
                     for adj in adjustments:
-                        total_cogs += adj.amount
-                        logger.info(f"Included adjustment {adj.id}: {adj.amount}")
+                        total_cogs += adj.total_value
+                        logger.info(f"Included adjustment {adj.id}: {adj.total_value}")
 
                 journal_id = None
                 if command.post_to_gl and not command.dry_run and total_cogs != 0:
@@ -312,11 +335,27 @@ class InventoryToCOGSWorkflow:
                 )
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                # BUG FIX: SealedGate.execute() menerima (command_type,
+                # command_data, user_id, legal_entity_id, ...) ->
+                # CommandEnvelope, bukan (command_id=, handler=).
+                from kernel.command_envelope import CommandStatus as GateCommandStatus
+
+                envelope = await self._sealed_gate.execute(
                     command_type=command.command_type,
-                    command_id=command.command_id,
-                    handler=_run_workflow,
+                    command_data={
+                        "period_start": str(command.period_start),
+                        "period_end": str(command.period_end),
+                        "valuation_method": command.valuation_method,
+                    },
+                    user_id=str(command.user_id) if command.user_id else "system",
+                    legal_entity_id=command.legal_entity_id,
                 )
+                if envelope.status != GateCommandStatus.SUCCESS:
+                    raise ValueError(
+                        f"Inventory to COGS workflow rejected by sealed gate: "
+                        f"{envelope.error or 'unknown reason'}"
+                    )
+                result = await _run_workflow()
             else:
                 result = await _run_workflow()
 
@@ -383,16 +422,28 @@ class InventoryToCOGSWorkflow:
             },
         ]
 
-        journal_id = await self._journal_service.post_journal(
+                # BUG FIX: post_journal() aslinya memposting jurnal yang SUDAH
+        # ADA berstatus "approved" (butuh journal_id), bukan membuat baru
+        # dari lines/description mentah. create_journal() membuat draft;
+        # lalu submit_journal() supaya siap disetujui - TIDAK di-auto-
+        # approve/post karena approve_journal() menegakkan prinsip 4-eyes
+        # (creator != approver). Approval final tetap perlu manusia lain
+        # lewat alur normal.
+        journal = await self._journal_service.create_journal(
             legal_entity_id=legal_entity_id,
             journal_date=period_end,
-            period=f"{period_end.year}-{period_end.month:02d}",
             description=f"COGS calculation {period_start} to {period_end}",
+            journal_type="general",
             lines=lines,
-            source_system="inventory_cogs",
-            user_id=user_id,
-            correlation_id=correlation_id,
+            reference_number=None,
+            source_type="inventory",
+            source_id=None,
+            notes=None,
+            attachment_ids=None,
+            created_by=user_id,
         )
+        await self._journal_service.submit_journal(journal.id, user_id, legal_entity_id)
+        journal_id = journal.id
         return journal_id
 
     async def _save_calculation_result(

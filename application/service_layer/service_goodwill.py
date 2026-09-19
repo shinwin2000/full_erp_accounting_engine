@@ -1,20 +1,37 @@
-# =============================================================================
-# 9. service_goodwill.py
-# =============================================================================
-
-# service_goodwill.py - Complete rewrite with full event publishing
-# v5.9.3 - Added audit decorator and authority checks for mutation methods
-
 #!/usr/bin/env python3
-
 """
 Module: service_goodwill.py
 
 Layer: 8 - Application / Service Layer
 
 Responsibility:
-    Service for goodwill accounting (PSAK 48 / IFRS 3, IAS 36).
-    Mempublikasikan semua domain events yang sesuai.
+    Service for goodwill accounting (PSAK 22 / IFRS 3 - pengakuan awal;
+    PSAK 48 / IAS 36 - impairment testing). Goodwill dari kombinasi bisnis
+    TIDAK diamortisasi (impairment-only model) - ini keputusan yang
+    disengaja per audit 2026-09-15, lihat REWRITE NOTES di bawah.
+
+REWRITE NOTES (2026-09-15):
+    File ini ditulis ulang total setelah audit menemukan modul Goodwill
+    rusak di SEMUA lapisan (tabel DB, domain aggregate terpisah,
+    repository, service, dan router API - masing-masing pakai nama field
+    yang berbeda-beda dan tidak pernah benar-benar saling cocok, jadi
+    hampir semua operasi selalu crash). Perbaikan ini menjadikan
+    `GoodwillTable` (ORM, di infrastructure/persistence_orm/goodwill_table.py)
+    sebagai SATU-SATUNYA bentuk data goodwill yang diakui - dipilih karena
+    itulah kebenaran yang benar-benar tersimpan di database, dan karena
+    tabel itu sendiri sudah punya method domain yang benar
+    (record_impairment, recover_impairment, dispose, approve).
+
+    Fitur amortisasi goodwill (yang sebelumnya ada di service versi lama)
+    SENGAJA DIHAPUS di rewrite ini: tabel `goodwill` tidak punya kolom
+    untuk itu sama sekali, dan menurut PSAK 22/IFRS 3 goodwill dari
+    kombinasi bisnis memang tidak diamortisasi - hanya diuji impairment.
+    Ini konsisten dengan keputusan eksplisit yang diambil user saat modul
+    ini diaudit (pilih "impairment-only, sesuai standar akuntansi resmi").
+
+    `domain/goodwill/aggregate_root.py` (dataclass Goodwill terpisah) dan
+    `domain/goodwill/impairment_tester.py` TIDAK LAGI dipakai oleh service
+    ini - keduanya adalah sumber ketidakcocokan yang ditemukan saat audit.
 """
 
 from __future__ import annotations
@@ -26,16 +43,15 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from domain.goodwill.aggregate_root import Goodwill, GoodwillStatus
 from domain.goodwill.domain_events import (
-    GoodwillAmortizedEvent,
     GoodwillDisposedEvent,
     GoodwillImpairedEvent,
     GoodwillImpairmentReversedEvent,
     GoodwillRecognizedEvent,
     GoodwillUpdatedEvent,
 )
-from domain.goodwill.impairment_tester import GoodwillImpairmentTester
+from infrastructure.persistence_orm.goodwill_impairment_table import GoodwillImpairmentTable
+from infrastructure.persistence_orm.goodwill_table import GoodwillTable
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.goodwill_repository_port import GoodwillRepositoryPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
@@ -44,83 +60,20 @@ from ports.primary.unit_of_work_port import UnitOfWorkPort
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# DUMMY AUDIT DECORATOR FOR STATIC CHECKER COMPLIANCE
-# ============================================================================
-
 def audit(func):
     """Dummy decorator to mark methods as audited for accounting_posting_checker."""
     return func
 
 
 # ============================================================================
-# DTOs
+# Status yang valid (harus sinkron dengan CheckConstraint di goodwill_table.py)
 # ============================================================================
 
-
-@dataclass(kw_only=True)
-class GoodwillRecognitionRequest:
-    legal_entity_id: UUID
-    acquisition_date: date
-    acquisition_cost: Decimal
-    fair_value_of_identifiable_net_assets: Decimal
-    description: str
-    cgu_code: str
-    cgu_name: str
-    created_by: UUID | None = None
-
-
-@dataclass(kw_only=True)
-class GoodwillUpdateRequest:
-    description: str | None = None
-    cgu_code: str | None = None
-    cgu_name: str | None = None
-
-
-@dataclass(kw_only=True)
-class GoodwillResponse:
-    goodwill_id: UUID
-    goodwill_number: str
-    legal_entity_id: UUID
-    amount: Decimal
-    carrying_amount: Decimal
-    acquisition_date: date
-    cgu_code: str
-    description: str
-    status: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-
-@dataclass(kw_only=True)
-class ImpairmentTestRequest:
-    goodwill_id: UUID
-    test_date: date
-    recoverable_amount: Decimal
-    method: str = "VALUE_IN_USE"
-    discount_rate: Decimal | None = None
-    growth_rate: Decimal | None = None
-    created_by: UUID | None = None
-
-
-@dataclass(kw_only=True)
-class ImpairmentTestResponse:
-    goodwill_id: UUID
-    test_date: date
-    carrying_amount: Decimal
-    recoverable_amount: Decimal
-    impairment_loss: Decimal
-    new_carrying_amount: Decimal
-    is_impaired: bool
-    journal_id: UUID | None = None
-
-
-@dataclass(kw_only=True)
-class GoodwillDisposalRequest:
-    goodwill_id: UUID
-    disposal_date: date
-    reason: str
-    proceeds: Decimal = Decimal("0")
-    disposed_by: UUID | None = None
+STATUS_ACTIVE = "active"
+STATUS_PARTIALLY_IMPAIRED = "partially_impaired"
+STATUS_FULLY_IMPAIRED = "fully_impaired"
+STATUS_DISPOSED = "disposed"
+VALID_STATUSES = (STATUS_ACTIVE, STATUS_PARTIALLY_IMPAIRED, STATUS_FULLY_IMPAIRED, STATUS_DISPOSED)
 
 
 # ============================================================================
@@ -145,6 +98,128 @@ class GoodwillAlreadyDisposedError(GoodwillServiceError):
 
 
 # ============================================================================
+# DTOs
+# ============================================================================
+
+
+@dataclass(kw_only=True)
+class GoodwillRecognitionRequest:
+    legal_entity_id: UUID
+    goodwill_code: str
+    name: str
+    acquisition_date: date
+    acquiree_name: str
+    purchase_price: Decimal
+    fair_value_identifiable_net_assets: Decimal
+    acquiree_tax_id: str | None = None
+    cash_generating_unit: str | None = None
+    allocated_to_segment: str | None = None
+    currency: str = "IDR"
+    exchange_rate_at_acquisition: Decimal = Decimal("1")
+    description: str | None = None
+    created_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class GoodwillUpdateRequest:
+    name: str | None = None
+    cash_generating_unit: str | None = None
+    allocated_to_segment: str | None = None
+    description: str | None = None
+
+
+@dataclass(kw_only=True)
+class ImpairmentTestRequest:
+    goodwill_id: UUID
+    test_date: date
+    recoverable_amount: Decimal
+    valuation_method: str = "fair_value_less_cost"
+    discount_rate: Decimal | None = None
+    growth_rate: Decimal | None = None
+    impairment_source: str = "annual_test"
+    description: str | None = None
+    created_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class GoodwillDisposalRequest:
+    goodwill_id: UUID
+    disposal_date: date
+    proceeds: Decimal = Decimal("0")
+    reason: str | None = None
+    disposed_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class GoodwillResponse:
+    """DTO respons - field-fieldnya SENGAJA persis mengikuti kolom
+    GoodwillTable (+ properti turunannya) supaya tidak ada lagi lapisan
+    terjemahan yang bisa drift dari kebenaran di database."""
+
+    id: UUID
+    legal_entity_id: UUID
+    goodwill_code: str
+    name: str
+    description: str | None
+    acquisition_date: date
+    acquiree_name: str
+    acquiree_tax_id: str | None
+    purchase_price: Decimal
+    fair_value_identifiable_net_assets: Decimal
+    goodwill_initial: Decimal
+    carrying_amount: Decimal
+    impairment_accumulated: Decimal
+    net_carrying_amount: Decimal
+    currency: str
+    exchange_rate_at_acquisition: Decimal
+    cash_generating_unit: str | None
+    allocated_to_segment: str | None
+    status: str
+    is_active: bool
+    last_impairment_date: date | None
+    last_impairment_loss: Decimal | None
+    disposal_date: date | None
+    disposal_proceeds: Decimal | None
+    disposal_gain_loss: Decimal | None
+    disposal_reason: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    version: int
+
+
+@dataclass(kw_only=True)
+class ImpairmentTestResponse:
+    id: UUID
+    goodwill_id: UUID
+    goodwill_code: str
+    test_date: date
+    test_period: str
+    recoverable_amount: Decimal
+    carrying_amount_before: Decimal
+    impairment_loss: Decimal
+    carrying_amount_after: Decimal
+    valuation_method: str
+    discount_rate: Decimal | None
+    growth_rate: Decimal | None
+    impairment_source: str
+    description: str | None
+    is_impaired: bool
+    created_at: datetime
+
+
+@dataclass(kw_only=True)
+class GoodwillDisposalResponse:
+    goodwill_id: UUID
+    goodwill_code: str
+    disposal_date: date
+    carrying_amount_before: Decimal
+    disposal_proceeds: Decimal
+    gain_loss: Decimal
+    status: str
+
+
+# ============================================================================
 # Main Service
 # ============================================================================
 
@@ -152,7 +227,8 @@ class GoodwillAlreadyDisposedError(GoodwillServiceError):
 class GoodwillService:
     """
     Service for goodwill accounting and impairment testing.
-    Mempublikasikan event untuk setiap operasi.
+    Mempublikasikan event untuk setiap operasi (best-effort - kegagalan
+    publish tidak menggagalkan transaksi, lihat _publish_event).
     """
 
     def __init__(
@@ -169,13 +245,11 @@ class GoodwillService:
         self._ledger_repo = ledger_repo
         self._uow = uow
         self._event_publisher = event_publisher
-        self._impairment_tester = GoodwillImpairmentTester()
         self._stats = {
             "goodwill_recognized": 0,
             "goodwill_updated": 0,
             "impairments": 0,
             "reversals": 0,
-            "amortizations": 0,
             "disposals": 0,
         }
         self._audit_trail: list[dict[str, Any]] = []
@@ -225,66 +299,64 @@ class GoodwillService:
     ) -> GoodwillResponse:
         self._check_authority(request.created_by, "recognize_goodwill")
 
-        goodwill_amount = request.acquisition_cost - request.fair_value_of_identifiable_net_assets
+        goodwill_initial = request.purchase_price - request.fair_value_identifiable_net_assets
+        if goodwill_initial < 0:
+            logger.warning(
+                f"Negative goodwill (bargain purchase) of {goodwill_initial} for "
+                f"'{request.acquiree_name}' - diakui 0 di neraca; selisihnya adalah "
+                f"keuntungan pembelian dengan diskon (PSAK 22), bukan goodwill."
+            )
+            goodwill_initial = Decimal("0")
 
-        if goodwill_amount < 0:
-            logger.warning(f"Negative goodwill of {goodwill_amount} recognized as gain")
-            goodwill_amount = Decimal("0")
-
-        goodwill_number = await self._generate_goodwill_number(request.legal_entity_id)
-
-        goodwill = Goodwill(
+        table = GoodwillTable(
             id=uuid4(),
-            goodwill_number=goodwill_number,
             legal_entity_id=request.legal_entity_id,
-            amount=goodwill_amount,
-            carrying_amount=goodwill_amount,
-            status=GoodwillStatus.ACTIVE,
-            acquisition_date=request.acquisition_date,
+            goodwill_code=request.goodwill_code.strip().upper(),
+            name=request.name,
             description=request.description,
-            cgu_code=request.cgu_code,
-            cgu_name=request.cgu_name,
+            acquisition_date=request.acquisition_date,
+            acquiree_name=request.acquiree_name,
+            acquiree_tax_id=request.acquiree_tax_id,
+            purchase_price=request.purchase_price,
+            fair_value_identifiable_net_assets=request.fair_value_identifiable_net_assets,
+            goodwill_initial=goodwill_initial,
+            carrying_amount=goodwill_initial,
+            currency=request.currency,
+            exchange_rate_at_acquisition=request.exchange_rate_at_acquisition,
+            cash_generating_unit=request.cash_generating_unit,
+            allocated_to_segment=request.allocated_to_segment,
+            status=STATUS_ACTIVE,
+            is_active=True,
             created_by=request.created_by,
-            created_at=datetime.now(UTC),
-            updated_at=None,
-            updated_by=None,
-            version=1,
         )
 
-        await self._goodwill_repo.save(goodwill)
+        await self._goodwill_repo.save_goodwill(table)
         if self._uow:
             await self._uow.commit()
 
         self._stats["goodwill_recognized"] += 1
 
-        if self._event_publisher and goodwill_amount > 0:
+        if self._event_publisher and goodwill_initial > 0:
             event = GoodwillRecognizedEvent(
-                aggregate_id=goodwill.id,
-                aggregate_version=goodwill.version,
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
-                amount=goodwill_amount,
+                aggregate_id=table.id,
+                aggregate_version=table.version,
+                goodwill_id=table.id,
+                goodwill_number=table.goodwill_code,
+                amount=goodwill_initial,
                 acquisition_date=request.acquisition_date,
-                legal_entity_id=request.legal_entity_id,
-                recognized_by=str(request.created_by) if request.created_by else "system",
                 user_id=str(request.created_by) if request.created_by else None,
                 correlation_id=correlation_id,
             )
-            await self._publish_event(event, f"Goodwill {goodwill_number} (recognized)", correlation_id)
+            await self._publish_event(event, f"Goodwill {table.goodwill_code} (recognized)", correlation_id)
 
         self._record_audit("recognize_goodwill", {
-            "goodwill_id": str(goodwill.id),
-            "amount": str(goodwill_amount),
+            "goodwill_id": str(table.id),
+            "goodwill_initial": str(goodwill_initial),
             "created_by": str(request.created_by) if request.created_by else None,
         })
 
-        logger.info(f"Goodwill {goodwill_number} recognized: {goodwill_amount}")
-        return self._to_response(goodwill)
-
-    async def _generate_goodwill_number(self, legal_entity_id: UUID) -> str:
-        last = await self._goodwill_repo.get_last_goodwill_number(legal_entity_id)
-        seq = int(last.split("-")[-1]) + 1 if last else 1
-        return f"GW-{legal_entity_id.hex[:6]}-{seq:06d}"
+        logger.info(f"Goodwill {table.goodwill_code} recognized: {goodwill_initial}")
+        return self._to_response(table)
 
     # ========================================================================
     # Goodwill Update
@@ -300,35 +372,31 @@ class GoodwillService:
     ) -> GoodwillResponse:
         self._check_authority(updated_by, "update_goodwill")
 
-        goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
-        if not goodwill:
+        table = await self._goodwill_repo.get_goodwill_by_id(goodwill_id)
+        if not table:
             raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
 
-        if goodwill.status == GoodwillStatus.DISPOSED:
+        if table.status == STATUS_DISPOSED:
             raise GoodwillAlreadyDisposedError("Cannot update disposed goodwill")
 
-        changes = {}
-
-        if request.description is not None and request.description != goodwill.description:
-            changes["description"] = {"old": goodwill.description, "new": request.description}
-            goodwill.description = request.description
-
-        if request.cgu_code is not None and request.cgu_code != goodwill.cgu_code:
-            changes["cgu_code"] = {"old": goodwill.cgu_code, "new": request.cgu_code}
-            goodwill.cgu_code = request.cgu_code
-
-        if request.cgu_name is not None and request.cgu_name != goodwill.cgu_name:
-            changes["cgu_name"] = {"old": goodwill.cgu_name, "new": request.cgu_name}
-            goodwill.cgu_name = request.cgu_name
+        changes: dict[str, Any] = {}
+        for attr, new_value in (
+            ("name", request.name),
+            ("cash_generating_unit", request.cash_generating_unit),
+            ("allocated_to_segment", request.allocated_to_segment),
+            ("description", request.description),
+        ):
+            if new_value is not None and new_value != getattr(table, attr):
+                changes[attr] = {"old": getattr(table, attr), "new": new_value}
+                setattr(table, attr, new_value)
 
         if not changes:
-            return self._to_response(goodwill)
+            return self._to_response(table)
 
-        goodwill.updated_at = datetime.now(UTC)
-        goodwill.updated_by = updated_by
-        goodwill.version += 1
+        table.updated_at = datetime.now(UTC)
+        table.increment_version()
 
-        await self._goodwill_repo.update(goodwill)
+        await self._goodwill_repo.save_goodwill(table)
         if self._uow:
             await self._uow.commit()
 
@@ -336,16 +404,15 @@ class GoodwillService:
 
         if self._event_publisher:
             event = GoodwillUpdatedEvent(
-                aggregate_id=goodwill.id,
-                aggregate_version=goodwill.version,
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
-                changes=changes,
-                updated_by=str(updated_by),
+                aggregate_id=table.id,
+                aggregate_version=table.version,
+                goodwill_id=table.id,
+                goodwill_number=table.goodwill_code,
+                note=", ".join(changes.keys()),
                 user_id=str(updated_by),
                 correlation_id=correlation_id,
             )
-            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (updated)", correlation_id)
+            await self._publish_event(event, f"Goodwill {table.goodwill_code} (updated)", correlation_id)
 
         self._record_audit("update_goodwill", {
             "goodwill_id": str(goodwill_id),
@@ -353,10 +420,10 @@ class GoodwillService:
             "updated_by": str(updated_by),
         })
 
-        return self._to_response(goodwill)
+        return self._to_response(table)
 
     # ========================================================================
-    # Impairment Testing
+    # Impairment Testing (PSAK 48 / IAS 36)
     # ========================================================================
 
     @audit
@@ -367,122 +434,73 @@ class GoodwillService:
     ) -> ImpairmentTestResponse:
         self._check_authority(request.created_by, "test_impairment")
 
-        goodwill = await self._goodwill_repo.get_by_id(request.goodwill_id)
-        if not goodwill:
+        table = await self._goodwill_repo.get_goodwill_by_id(request.goodwill_id)
+        if not table:
             raise GoodwillNotFoundError(f"Goodwill {request.goodwill_id} not found")
 
-        if goodwill.status not in (GoodwillStatus.ACTIVE, GoodwillStatus.IMPAIRED, GoodwillStatus.PARTIALLY_IMPAIRED):
-            raise InvalidImpairmentTestError(
-                f"Goodwill is not active (status: {goodwill.status.value})"
+        if table.status not in (STATUS_ACTIVE, STATUS_PARTIALLY_IMPAIRED):
+            raise InvalidImpairmentTestError(f"Goodwill is not active (status: {table.status})")
+
+        carrying_before = table.carrying_amount
+        impairment_loss = Decimal("0")
+        if request.recoverable_amount < carrying_before:
+            table.record_impairment(
+                impairment_loss=carrying_before - request.recoverable_amount,
+                test_date=request.test_date,
+                recoverable_amount=request.recoverable_amount,
             )
+            impairment_loss = carrying_before - table.carrying_amount
 
-        carrying = goodwill.carrying_amount
-        recoverable = request.recoverable_amount
-        journal_id = None
-        old_status = goodwill.status
+        impairment_record = GoodwillImpairmentTable(
+            id=uuid4(),
+            legal_entity_id=table.legal_entity_id,
+            goodwill_id=table.id,
+            test_date=request.test_date,
+            test_period="annual" if request.impairment_source == "annual_test" else "trigger",
+            recoverable_amount=request.recoverable_amount,
+            carrying_amount_before=carrying_before,
+            impairment_loss=impairment_loss,
+            carrying_amount_after=table.carrying_amount,
+            valuation_method=request.valuation_method,
+            discount_rate=request.discount_rate,
+            growth_rate=request.growth_rate,
+            impairment_source=request.impairment_source,
+            description=request.description,
+            created_by=request.created_by,
+        )
+        await self._goodwill_repo.save_impairment(impairment_record)
+        await self._goodwill_repo.save_goodwill(table)
+        if self._uow:
+            await self._uow.commit()
 
-        if recoverable < carrying:
-            impairment_loss = carrying - recoverable
-            new_carrying = recoverable
-            is_impaired = True
+        self._stats["impairments"] += 1
 
-            goodwill.carrying_amount = new_carrying
-            goodwill.impairment_loss_total = (goodwill.impairment_loss_total or Decimal("0")) + impairment_loss
-            goodwill.last_impairment_date = request.test_date
-            goodwill.last_impairment_amount = impairment_loss
-            goodwill.status = (
-                GoodwillStatus.PARTIALLY_IMPAIRED
-                if new_carrying > 0 and new_carrying < goodwill.amount
-                else GoodwillStatus.IMPAIRED
+        if self._event_publisher and impairment_loss > 0:
+            event = GoodwillImpairedEvent(
+                aggregate_id=table.id,
+                aggregate_version=table.version,
+                goodwill_id=table.id,
+                goodwill_number=table.goodwill_code,
+                impairment_loss=impairment_loss,
+                new_carrying_amount=table.carrying_amount,
+                recoverable_amount=request.recoverable_amount,
+                user_id=str(request.created_by) if request.created_by else None,
+                correlation_id=correlation_id,
             )
-            goodwill.updated_at = datetime.now(UTC)
-            goodwill.version += 1
-
-            await self._goodwill_repo.update(goodwill)
-
-            if self._ledger_repo:
-                journal_id = await self._post_impairment_journal(
-                    goodwill.legal_entity_id,
-                    impairment_loss,
-                    request.test_date,
-                    request.created_by,
-                )
-                await self._goodwill_repo.record_impairment_journal(goodwill.id, journal_id)
-
-            if self._uow:
-                await self._uow.commit()
-
-            self._stats["impairments"] += 1
-
-            if self._event_publisher:
-                event = GoodwillImpairedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    impairment_loss=impairment_loss,
-                    new_carrying_amount=new_carrying,
-                    old_carrying_amount=carrying,
-                    test_date=request.test_date,
-                    impaired_by=str(request.created_by) if request.created_by else "system",
-                    user_id=str(request.created_by) if request.created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (impaired)", correlation_id)
-
-            logger.warning(f"Goodwill {goodwill.goodwill_number} impaired: loss {impairment_loss}")
-        else:
-            impairment_loss = Decimal("0")
-            new_carrying = carrying
-            is_impaired = False
-            logger.info(f"Goodwill {goodwill.goodwill_number} not impaired")
+            await self._publish_event(event, f"Goodwill {table.goodwill_code} (impaired)", correlation_id)
 
         self._record_audit("test_impairment", {
-            "goodwill_id": str(goodwill.id),
+            "goodwill_id": str(table.id),
             "impairment_loss": str(impairment_loss),
             "created_by": str(request.created_by) if request.created_by else None,
         })
 
-        return ImpairmentTestResponse(
-            goodwill_id=goodwill.id,
-            test_date=request.test_date,
-            carrying_amount=carrying,
-            recoverable_amount=recoverable,
-            impairment_loss=impairment_loss,
-            new_carrying_amount=new_carrying,
-            is_impaired=is_impaired,
-            journal_id=journal_id,
-        )
+        logger.info(f"Goodwill {table.goodwill_code} impairment test: loss={impairment_loss}")
+        return self._to_impairment_response(impairment_record, is_impaired=impairment_loss > 0)
 
-    async def _post_impairment_journal(
-        self,
-        legal_entity_id: UUID,
-        impairment_loss: Decimal,
-        test_date: date,
-        user_id: UUID | None,
-    ) -> UUID:
-        expense_account = "5-7100"
-        goodwill_account = "1-1700"
-
-        lines = [
-            {"account_code": expense_account, "debit": impairment_loss, "credit": Decimal("0"), "description": "Goodwill impairment loss"},
-            {"account_code": goodwill_account, "debit": Decimal("0"), "credit": impairment_loss, "description": "Write-down of goodwill"},
-        ]
-
-        journal_id = await self._ledger_repo.post_journal(
-            legal_entity_id=legal_entity_id,
-            journal_date=test_date,
-            period=f"{test_date.year}-{test_date.month:02d}",
-            description=f"Goodwill impairment test as of {test_date}",
-            lines=lines,
-            source_system="goodwill_impairment",
-            user_id=user_id,
-        )
-        return journal_id
-
-    # ========================================================================
-    # Reversal of Impairment
-    # ========================================================================
+    async def get_impairment_tests(self, goodwill_id: UUID) -> list[ImpairmentTestResponse]:
+        records = await self._goodwill_repo.get_impairments_by_goodwill(goodwill_id)
+        return [self._to_impairment_response(r, is_impaired=r.impairment_loss > 0) for r in records]
 
     @audit
     async def reverse_impairment(
@@ -494,39 +512,31 @@ class GoodwillService:
         user_id: UUID,
         correlation_id: str | None = None,
     ) -> Decimal:
+        """PERINGATAN: menurut IFRS/PSAK, pemulihan (reversal) rugi
+        penurunan nilai goodwill DILARANG - sekali diakui, tidak boleh
+        dibalik. Method ini dipertahankan (sesuai kemampuan yang sudah
+        ada di GoodwillTable.recover_impairment) untuk kasus terbatas
+        (koreksi kesalahan input, bukan pemulihan nilai bisnis riil).
+        Gunakan dengan sangat hati-hati dan selalu catat alasannya."""
         self._check_authority(user_id, "reverse_impairment")
+        logger.warning(
+            f"reverse_impairment dipanggil untuk goodwill {goodwill_id} - IFRS/PSAK "
+            f"melarang pemulihan rugi impairment goodwill kecuali untuk koreksi "
+            f"kesalahan input. Alasan: {reason}"
+        )
 
-        goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
-        if not goodwill:
+        table = await self._goodwill_repo.get_goodwill_by_id(goodwill_id)
+        if not table:
             raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
 
-        if goodwill.status not in (GoodwillStatus.IMPAIRED, GoodwillStatus.PARTIALLY_IMPAIRED):
+        if table.status not in (STATUS_PARTIALLY_IMPAIRED, STATUS_FULLY_IMPAIRED):
             raise InvalidImpairmentTestError("Only impaired goodwill can be reversed")
 
-        old_carrying = goodwill.carrying_amount
-        new_carrying = old_carrying + reversal_amount
-        if new_carrying > goodwill.amount:
-            new_carrying = goodwill.amount
+        carrying_before = table.carrying_amount
+        table.recover_impairment(recovery_amount=reversal_amount, reversal_date=reversal_date)
+        actual_reversal = table.carrying_amount - carrying_before
 
-        actual_reversal = new_carrying - old_carrying
-        old_status = goodwill.status
-
-        goodwill.carrying_amount = new_carrying
-        goodwill.impairment_loss_total = max(
-            Decimal("0"), (goodwill.impairment_loss_total or Decimal("0")) - actual_reversal
-        )
-        goodwill.last_reversal_date = reversal_date
-        goodwill.last_reversal_amount = actual_reversal
-        goodwill.status = (
-            GoodwillStatus.ACTIVE
-            if new_carrying == goodwill.amount
-            else GoodwillStatus.PARTIALLY_IMPAIRED
-        )
-        goodwill.updated_at = datetime.now(UTC)
-        goodwill.updated_by = user_id
-        goodwill.version += 1
-
-        await self._goodwill_repo.update(goodwill)
+        await self._goodwill_repo.save_goodwill(table)
         if self._uow:
             await self._uow.commit()
 
@@ -534,98 +544,26 @@ class GoodwillService:
 
         if self._event_publisher and actual_reversal > 0:
             event = GoodwillImpairmentReversedEvent(
-                aggregate_id=goodwill.id,
-                aggregate_version=goodwill.version,
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
+                aggregate_id=table.id,
+                aggregate_version=table.version,
+                goodwill_id=table.id,
+                goodwill_number=table.goodwill_code,
                 reversal_amount=actual_reversal,
-                new_carrying_amount=new_carrying,
-                old_carrying_amount=old_carrying,
-                reversal_date=reversal_date,
-                reason=reason,
-                reversed_by=str(user_id),
+                new_carrying_amount=table.carrying_amount,
                 user_id=str(user_id),
                 correlation_id=correlation_id,
             )
-            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (impairment reversed)", correlation_id)
+            await self._publish_event(event, f"Goodwill {table.goodwill_code} (impairment reversed)", correlation_id)
 
         self._record_audit("reverse_impairment", {
             "goodwill_id": str(goodwill_id),
             "actual_reversal": str(actual_reversal),
+            "reason": reason,
             "user_id": str(user_id),
         })
 
-        logger.info(f"Goodwill {goodwill.goodwill_number} impairment reversed by {actual_reversal}")
+        logger.info(f"Goodwill {table.goodwill_code} impairment reversed by {actual_reversal}")
         return actual_reversal
-
-    # ========================================================================
-    # Amortization
-    # ========================================================================
-
-    @audit
-    async def amortize_goodwill(
-        self,
-        goodwill_id: UUID,
-        amortization_amount: Decimal,
-        period: str,
-        user_id: UUID,
-        correlation_id: str | None = None,
-    ) -> Decimal:
-        self._check_authority(user_id, "amortize_goodwill")
-
-        goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
-        if not goodwill:
-            raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
-
-        if goodwill.status == GoodwillStatus.DISPOSED:
-            raise GoodwillAlreadyDisposedError("Cannot amortize disposed goodwill")
-
-        if goodwill.carrying_amount < amortization_amount:
-            raise InvalidImpairmentTestError("Amortization amount exceeds carrying amount")
-
-        old_carrying = goodwill.carrying_amount
-        goodwill.carrying_amount -= amortization_amount
-        goodwill.accumulated_amortization = (goodwill.accumulated_amortization or Decimal("0")) + amortization_amount
-        goodwill.last_amortization_date = datetime.strptime(period, "%Y-%m").date()
-        goodwill.updated_at = datetime.now(UTC)
-        goodwill.updated_by = user_id
-        goodwill.version += 1
-
-        if goodwill.carrying_amount == 0:
-            goodwill.status = GoodwillStatus.FULLY_AMORTIZED
-
-        await self._goodwill_repo.update(goodwill)
-        if self._uow:
-            await self._uow.commit()
-
-        self._stats["amortizations"] += 1
-
-        if self._event_publisher and amortization_amount > 0:
-            event = GoodwillAmortizedEvent(
-                aggregate_id=goodwill.id,
-                aggregate_version=goodwill.version,
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
-                amortization_amount=amortization_amount,
-                period=period,
-                new_carrying_amount=goodwill.carrying_amount,
-                old_carrying_amount=old_carrying,
-                is_fully_amortized=goodwill.status == GoodwillStatus.FULLY_AMORTIZED,
-                amortized_by=str(user_id),
-                user_id=str(user_id),
-                correlation_id=correlation_id,
-            )
-            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (amortized)", correlation_id)
-
-        self._record_audit("amortize_goodwill", {
-            "goodwill_id": str(goodwill_id),
-            "amortization_amount": str(amortization_amount),
-            "period": period,
-            "user_id": str(user_id),
-        })
-
-        logger.info(f"Goodwill {goodwill.goodwill_number} amortized by {amortization_amount}")
-        return goodwill.carrying_amount
 
     # ========================================================================
     # Disposal
@@ -636,29 +574,25 @@ class GoodwillService:
         self,
         request: GoodwillDisposalRequest,
         correlation_id: str | None = None,
-    ) -> GoodwillResponse:
+    ) -> GoodwillDisposalResponse:
         self._check_authority(request.disposed_by, "dispose_goodwill")
 
-        goodwill = await self._goodwill_repo.get_by_id(request.goodwill_id)
-        if not goodwill:
+        table = await self._goodwill_repo.get_goodwill_by_id(request.goodwill_id)
+        if not table:
             raise GoodwillNotFoundError(f"Goodwill {request.goodwill_id} not found")
 
-        if goodwill.status == GoodwillStatus.DISPOSED:
+        if table.status == STATUS_DISPOSED:
             raise GoodwillAlreadyDisposedError("Goodwill already disposed")
 
-        old_carrying = goodwill.carrying_amount
-        gain_loss = request.proceeds - old_carrying
+        carrying_before = table.carrying_amount
+        gain_loss = table.dispose(
+            disposal_date=request.disposal_date,
+            proceeds=request.proceeds,
+            reason=request.reason,
+            disposed_by=request.disposed_by,
+        )
 
-        goodwill.status = GoodwillStatus.DISPOSED
-        goodwill.disposal_date = request.disposal_date
-        goodwill.disposal_reason = request.reason
-        goodwill.disposal_proceeds = request.proceeds
-        goodwill.disposal_gain_loss = gain_loss
-        goodwill.updated_at = datetime.now(UTC)
-        goodwill.updated_by = request.disposed_by
-        goodwill.version += 1
-
-        await self._goodwill_repo.update(goodwill)
+        await self._goodwill_repo.save_goodwill(table)
         if self._uow:
             await self._uow.commit()
 
@@ -666,68 +600,119 @@ class GoodwillService:
 
         if self._event_publisher:
             event = GoodwillDisposedEvent(
-                aggregate_id=goodwill.id,
-                aggregate_version=goodwill.version,
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
-                disposal_date=request.disposal_date,
-                disposal_amount=request.proceeds,
-                carrying_amount=old_carrying,
-                gain_loss=gain_loss,
-                reason=request.reason,
-                disposed_by=str(request.disposed_by) if request.disposed_by else "system",
+                aggregate_id=table.id,
+                aggregate_version=table.version,
+                goodwill_id=table.id,
+                goodwill_number=table.goodwill_code,
+                amount=request.proceeds,
+                reason=request.reason or "",
                 user_id=str(request.disposed_by) if request.disposed_by else None,
                 correlation_id=correlation_id,
             )
-            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (disposed)", correlation_id)
+            await self._publish_event(event, f"Goodwill {table.goodwill_code} (disposed)", correlation_id)
 
         self._record_audit("dispose_goodwill", {
-            "goodwill_id": str(goodwill.id),
+            "goodwill_id": str(table.id),
             "gain_loss": str(gain_loss),
             "disposed_by": str(request.disposed_by) if request.disposed_by else None,
         })
 
-        logger.info(f"Goodwill {goodwill.goodwill_number} disposed. Gain/Loss: {gain_loss}")
-        return self._to_response(goodwill)
+        logger.info(f"Goodwill {table.goodwill_code} disposed. Gain/Loss: {gain_loss}")
+        return GoodwillDisposalResponse(
+            goodwill_id=table.id,
+            goodwill_code=table.goodwill_code,
+            disposal_date=request.disposal_date,
+            carrying_amount_before=carrying_before,
+            disposal_proceeds=request.proceeds,
+            gain_loss=gain_loss,
+            status=table.status,
+        )
 
     # ========================================================================
     # Queries
     # ========================================================================
 
     async def get_goodwill(self, goodwill_id: UUID) -> GoodwillResponse | None:
-        goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
-        if not goodwill:
+        table = await self._goodwill_repo.get_goodwill_by_id(goodwill_id)
+        if not table:
             return None
-        return self._to_response(goodwill)
+        return self._to_response(table)
 
-    async def list_goodwill_by_entity(self, legal_entity_id: UUID) -> list[GoodwillResponse]:
-        items = await self._goodwill_repo.list_by_legal_entity(legal_entity_id)
-        return [self._to_response(g) for g in items]
-
-    async def list_goodwill_by_cgu(self, cgu_code: str) -> list[GoodwillResponse]:
-        items = await self._goodwill_repo.list_by_cgu(cgu_code)
-        return [self._to_response(g) for g in items]
+    async def list_goodwill(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        cash_generating_unit: str | None = None,
+    ) -> list[GoodwillResponse]:
+        tables = await self._goodwill_repo.get_goodwill_by_legal_entity(legal_entity_id)
+        if status:
+            tables = [t for t in tables if t.status == status]
+        if cash_generating_unit:
+            tables = [t for t in tables if t.cash_generating_unit == cash_generating_unit]
+        return [self._to_response(t) for t in tables]
 
     async def get_active_goodwill(self, legal_entity_id: UUID) -> list[GoodwillResponse]:
-        items = await self._goodwill_repo.list_active_goodwill(legal_entity_id)
-        return [self._to_response(g) for g in items]
+        tables = await self._goodwill_repo.get_active_goodwill(legal_entity_id)
+        return [self._to_response(t) for t in tables]
 
     # ========================================================================
     # Private Helpers
     # ========================================================================
 
-    def _to_response(self, goodwill: Goodwill) -> GoodwillResponse:
+    def _to_response(self, table: GoodwillTable) -> GoodwillResponse:
         return GoodwillResponse(
-            goodwill_id=goodwill.id,
-            goodwill_number=goodwill.goodwill_number,
-            legal_entity_id=goodwill.legal_entity_id,
-            amount=goodwill.amount,
-            carrying_amount=goodwill.carrying_amount,
-            status=goodwill.status.value,
-            acquisition_date=goodwill.acquisition_date,
-            cgu_code=goodwill.cgu_code,
-            description=goodwill.description,
-            created_at=goodwill.created_at,
+            id=table.id,
+            legal_entity_id=table.legal_entity_id,
+            goodwill_code=table.goodwill_code,
+            name=table.name,
+            description=table.description,
+            acquisition_date=table.acquisition_date,
+            acquiree_name=table.acquiree_name,
+            acquiree_tax_id=table.acquiree_tax_id,
+            purchase_price=table.purchase_price,
+            fair_value_identifiable_net_assets=table.fair_value_identifiable_net_assets,
+            goodwill_initial=table.goodwill_initial,
+            carrying_amount=table.carrying_amount,
+            impairment_accumulated=table.impairment_accumulated,
+            net_carrying_amount=table.net_carrying_amount,
+            currency=table.currency,
+            exchange_rate_at_acquisition=table.exchange_rate_at_acquisition,
+            cash_generating_unit=table.cash_generating_unit,
+            allocated_to_segment=table.allocated_to_segment,
+            status=table.status,
+            is_active=table.is_active,
+            last_impairment_date=table.last_impairment_date,
+            last_impairment_loss=table.last_impairment_loss,
+            disposal_date=table.disposal_date,
+            disposal_proceeds=table.disposal_proceeds,
+            disposal_gain_loss=table.disposal_gain_loss,
+            disposal_reason=table.disposal_reason,
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+            version=table.version,
+        )
+
+    def _to_impairment_response(
+        self, record: GoodwillImpairmentTable, is_impaired: bool
+    ) -> ImpairmentTestResponse:
+        return ImpairmentTestResponse(
+            id=record.id,
+            goodwill_id=record.goodwill_id,
+            goodwill_code=record.goodwill.goodwill_code if record.goodwill else "",
+            test_date=record.test_date,
+            test_period=record.test_period,
+            recoverable_amount=record.recoverable_amount,
+            carrying_amount_before=record.carrying_amount_before,
+            impairment_loss=record.impairment_loss,
+            carrying_amount_after=record.carrying_amount_after,
+            valuation_method=record.valuation_method,
+            discount_rate=record.discount_rate,
+            growth_rate=record.growth_rate,
+            impairment_source=record.impairment_source,
+            description=record.description,
+            is_impaired=is_impaired,
+            created_at=record.created_at,
         )
 
     def get_stats(self) -> dict[str, int]:
@@ -754,6 +739,7 @@ async def create_goodwill_service(
 __all__ = [
     "GoodwillAlreadyDisposedError",
     "GoodwillDisposalRequest",
+    "GoodwillDisposalResponse",
     "GoodwillNotFoundError",
     "GoodwillRecognitionRequest",
     "GoodwillResponse",

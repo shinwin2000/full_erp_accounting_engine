@@ -21,6 +21,9 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_intangible_asset import IntangibleAssetService
 from application.service_layer.service_journal import JournalService
+from constitution.supreme_law import ConstitutionalViolationError
+from kernel.command_envelope import CommandStatus as GateCommandStatus
+from kernel.sealed_gate import SealedGate, get_sealed_gate
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +151,19 @@ class AmortizationMonthlyRunUseCase:
         self,
         intangible_asset_service: IntangibleAssetService,
         journal_service: JournalService,
+        sealed_gate: SealedGate | None = None,
     ):
         self._asset_service = intangible_asset_service
         self._journal_service = journal_service
+        # BUG FIX: use case ini dipanggil langsung dari
+        # fastapi_intangible_asset_router.py (use_case.execute(dto)) tanpa
+        # pernah melewati UnifiedCommandBus/SealedGate sama sekali - artinya
+        # axioms/constitution/guards/immutable-laws tidak pernah ditegakkan
+        # untuk amortisasi yang dipicu lewat HTTP. sealed_gate sekarang
+        # ditegakkan langsung di dalam execute() di bawah supaya jalur bus
+        # maupun jalur router-langsung sama-sama terlindungi.
+        self._sealed_gate = sealed_gate or get_sealed_gate()
+        self._sealed_gate.register_handler("AMORTIZATION_CREATE", lambda data, ctx, uow: None)
         self._stats: dict[str, Any] = {
             "runs": 0,
             "assets_amortized": 0,
@@ -197,6 +210,27 @@ class AmortizationMonthlyRunUseCase:
                     raise TypeError(f"Invalid asset_id: {aid} (must be UUID)")
 
         self._check_authority(command.user_id, "amortization_execute")
+
+        # BUG FIX: gate enforcement yang sebelumnya tidak pernah ada di jalur
+        # ini sama sekali (lihat catatan di __init__).
+        try:
+            envelope = await self._sealed_gate.execute(
+                command_type="AMORTIZATION_CREATE",
+                command_data={
+                    "as_of_date": str(command.as_of_date),
+                    "post_to_ledger": command.post_to_ledger,
+                    "asset_ids": [str(a) for a in command.asset_ids] if command.asset_ids else None,
+                },
+                user_id=str(command.user_id) if command.user_id else "system",
+                legal_entity_id=command.legal_entity_id,
+            )
+        except (ValueError, ConstitutionalViolationError, RuntimeError) as e:
+            raise ValueError(f"Amortization run rejected by sealed gate: {e}") from e
+        if envelope.status != GateCommandStatus.SUCCESS:
+            raise ValueError(
+                f"Amortization run rejected by sealed gate: {envelope.error or 'unknown reason'}"
+            )
+
         logger.info(f"Starting amortization run for {command.as_of_date}")
 
         # Convert command to request

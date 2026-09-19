@@ -315,25 +315,47 @@ class EnforcementPipeline:
             "PERIOD_CLOSE": SovereigntyDomain.PERIOD_CONTROL,
             "PERIOD_REOPEN": SovereigntyDomain.PERIOD_CONTROL,
             "AR_PAYMENT": SovereigntyDomain.SUBLEDGER_AR,
+            "AR_COLLECTION": SovereigntyDomain.SUBLEDGER_AR,
             "AP_PAYMENT": SovereigntyDomain.SUBLEDGER_AP,
             "GOODS_ISSUE": SovereigntyDomain.INVENTORY,
             "GOODS_RECEIPT": SovereigntyDomain.INVENTORY,
             "TAX_SUBMISSION": SovereigntyDomain.TAX,
             "CORETAX_SUBMIT": SovereigntyDomain.TAX,
+            "CORETAX_BULK": SovereigntyDomain.CORETAX,
+            "DEPRECIATION": SovereigntyDomain.FIXED_ASSET,
+            "AMORTIZATION": SovereigntyDomain.FIXED_ASSET,
+            "FOREX_REVALUATION": SovereigntyDomain.GENERAL_LEDGER,
             "USER_LOGIN": SovereigntyDomain.USER_ACCESS,
             "ROLE_ASSIGN": SovereigntyDomain.USER_ACCESS,
             "PERMISSION_CHANGE": SovereigntyDomain.USER_ACCESS,
             "CONSTITUTION_AMENDMENT": SovereigntyDomain.CONSITUTION_ITSELF,
             "VERSION_UPGRADE": SovereigntyDomain.CONSITUTION_ITSELF,
         }
-        return mapping.get(operation_type, SovereigntyDomain.GENERAL_LEDGER)
+        # BUG FIX: sebelumnya pakai exact-match (mapping.get(operation_type)),
+        # padahal _infer_operation_type() di bawah ini memakai substring match.
+        # Akibatnya command_type apa pun yang bukan persis sama dengan salah
+        # satu key di atas (mis. "AP_PAYMENT_RUN", "AMORTIZATION_MONTHLY_RUN")
+        # selalu jatuh ke default GENERAL_LEDGER yang paling restriktif,
+        # walau namanya jelas menunjukkan domain lain. Diganti jadi substring
+        # match yang konsisten dengan _infer_operation_type().
+        for key, domain in mapping.items():
+            if key in operation_type:
+                return domain
+        return SovereigntyDomain.GENERAL_LEDGER
 
     def _infer_operation_type(self, operation_type: str) -> str:
         if "POST" in operation_type or "CREATE" in operation_type or "SUBMIT" in operation_type:
             return "CREATE"
-        elif (
-            "REVERSE" in operation_type or "MODIFY" in operation_type or "UPDATE" in operation_type
-        ):
+        elif "REVERSE" in operation_type:
+            # BUG FIX: SovereigntyBoundary GENERAL_LEDGER hanya mengizinkan
+            # operasi granular "UPDATE_VIA_REVERSAL_ONLY" (lihat
+            # sovereignty_declaration.py), bukan "UPDATE" generik. Sebelumnya
+            # semua operation_type yang mengandung REVERSE dipetakan ke
+            # "UPDATE" biasa, yang tidak pernah ada di allowed_operations
+            # domain manapun -> setiap JOURNAL_REVERSE selalu ditolak
+            # sovereignty check, permanen, apapun konteksnya.
+            return "UPDATE_VIA_REVERSAL_ONLY"
+        elif "MODIFY" in operation_type or "UPDATE" in operation_type:
             return "UPDATE"
         elif "DELETE" in operation_type or "REPEAL" in operation_type:
             return "DELETE"

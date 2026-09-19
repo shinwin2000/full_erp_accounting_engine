@@ -22,7 +22,9 @@ from uuid import UUID
 from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_fixed_asset import FixedAssetService
 from application.service_layer.service_journal import JournalService
-from kernel.sealed_gate import SealedGate
+from constitution.supreme_law import ConstitutionalViolationError
+from kernel.command_envelope import CommandStatus as GateCommandStatus
+from kernel.sealed_gate import SealedGate, get_sealed_gate
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
@@ -147,7 +149,13 @@ class DepreciationMonthlyRunUseCase:
         self._fa_service = fixed_asset_service
         self._journal_service = journal_service
         self._uow = uow
-        self._sealed_gate = sealed_gate
+        # BUG FIX: sebelumnya sealed_gate diterima tapi tidak pernah
+        # dipanggil sama sekali di execute() - dan use case ini dipanggil
+        # langsung dari fastapi_fixed_asset_router.py (use_case.execute(dto))
+        # tanpa lewat UnifiedCommandBus. Default ke get_sealed_gate() supaya
+        # tetap tertegakkan walau tidak di-inject eksplisit.
+        self._sealed_gate = sealed_gate or get_sealed_gate()
+        self._sealed_gate.register_handler("DEPRECIATION_CREATE", lambda data, ctx, uow: None)
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
         self._idempotency_store: dict[str, CommandResult] = {}
         self._audit_trail: list[dict[str, Any]] = []
@@ -191,6 +199,27 @@ class DepreciationMonthlyRunUseCase:
             raise TypeError("dry_run must be a boolean")
 
         self._check_authority(command.user_id, "depreciation_monthly_run_execute")
+
+        # BUG FIX: gate enforcement yang sebelumnya tidak pernah ditegakkan
+        # (lihat catatan di __init__).
+        try:
+            envelope = await self._sealed_gate.execute(
+                command_type="DEPRECIATION_CREATE",
+                command_data={
+                    "period_year": command.period_year,
+                    "period_month": command.period_month,
+                    "posting_date": str(command.posting_date),
+                    "dry_run": command.dry_run,
+                },
+                user_id=str(command.user_id) if command.user_id else "system",
+                legal_entity_id=command.legal_entity_id,
+            )
+        except (ValueError, ConstitutionalViolationError, RuntimeError) as e:
+            raise ValueError(f"Depreciation run rejected by sealed gate: {e}") from e
+        if envelope.status != GateCommandStatus.SUCCESS:
+            raise ValueError(
+                f"Depreciation run rejected by sealed gate: {envelope.error or 'unknown reason'}"
+            )
 
         cmd_id = getattr(command, "command_id", None)
         if cmd_id is not None and cmd_id in self._idempotency_store:

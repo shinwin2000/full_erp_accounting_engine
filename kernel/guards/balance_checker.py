@@ -41,6 +41,7 @@ Usage (testing):
 from __future__ import annotations
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -781,6 +782,34 @@ class InMemoryAccountBalancePort:
 
 
 # ============================================================================
+# Singleton getter (BUG FIX: modul ini sebelumnya tidak punya get_balance_checker()
+# sama sekali, padahal kernel.guards.__init__ mereferensikannya -> AttributeError
+# setiap kali dipanggil. BalanceChecker mewajibkan account_balance_port di
+# constructor-nya, jadi singleton default dibuat dengan InMemoryAccountBalancePort
+# supaya guard tetap bisa dipakai tanpa wiring eksplisit di kode pemanggil.)
+# ============================================================================
+_balance_checker_instance: BalanceChecker | None = None
+_balance_checker_lock = threading.Lock()
+
+
+def get_balance_checker() -> BalanceChecker:
+    """Mengembalikan singleton BalanceChecker (thread-safe, lazy-init)."""
+    global _balance_checker_instance
+    if _balance_checker_instance is None:
+        with _balance_checker_lock:
+            if _balance_checker_instance is None:
+                _balance_checker_instance = BalanceChecker(InMemoryAccountBalancePort())
+    return _balance_checker_instance
+
+
+def set_balance_checker(instance: BalanceChecker) -> None:
+    """Override singleton (dipakai saat wiring port produksi yang sesungguhnya)."""
+    global _balance_checker_instance
+    with _balance_checker_lock:
+        _balance_checker_instance = instance
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 __all__ = [
@@ -790,4 +819,6 @@ __all__ = [
     "BalanceCheckSeverity",
     "BalanceChecker",
     "InMemoryAccountBalancePort",
+    "get_balance_checker",
+    "set_balance_checker",
 ]

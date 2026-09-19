@@ -2117,18 +2117,34 @@ async def start_collection_workflow(
     LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
-        result = await collection_workflow.start_collection_process(
+        # BUG FIX: collection_workflow.start_collection_process() tidak
+        # pernah ada di ARCollectionWorkflowUseCase manapun (selalu
+        # AttributeError -> HTTP 500 sejak awal). Method nyata adalah
+        # execute(command) dengan action="IDENTIFY_OVERDUE" (default),
+        # yang persis mencocoki maksud endpoint ini (mendata invoice
+        # overdue untuk memulai proses collection).
+        from application.use_cases.ar_collection_workflow import ARCollectionWorkflowCommand
+
+        command = ARCollectionWorkflowCommand(
             legal_entity_id=legal_entity_id,
-            initiated_by=current_user.user_id,
+            as_of_date=date.today(),
+            action="IDENTIFY_OVERDUE",
+            user_id=current_user.user_id,
         )
+        result = await collection_workflow.execute(command)
+        if not result.is_success():
+            raise HTTPException(status_code=422, detail=result.error or "Collection workflow failed")
+        data = result.get_data() or {}
 
         return {
-            "workflow_id": str(result.workflow_id),
-            "invoices_processed": result.invoices_processed,
-            "reminders_sent": result.reminders_sent,
-            "escalated_to_collection": result.escalated_to_collection,
-            "message": result.message,
+            "workflow_id": str(command.command_id),
+            "invoices_processed": data.get("overdue_invoices_count", 0),
+            "reminders_sent": data.get("reminders_sent", 0),
+            "escalated_to_collection": data.get("overdue_invoices_count", 0),
+            "message": data.get("message", ""),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to start collection workflow: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

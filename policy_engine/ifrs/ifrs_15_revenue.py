@@ -113,7 +113,9 @@ class IFRS15Validator:
         contract: ContractWithCustomer,
     ) -> PSAK72ValidationResult:
         """Memvalidasi kepatuhan kontrak terhadap IFRS 15."""
-        return self._psak72_validator.validate_contract_compliance(contract)
+        # BUG FIX: PSAK72Validator tidak punya validate_contract_compliance();
+        # method aslinya bernama validate_contract().
+        return self._psak72_validator.validate_contract(contract)
 
     def get_five_steps(self) -> list[str]:
         """Mendapatkan 5 langkah IFRS 15."""

@@ -1922,37 +1922,50 @@ async def create_payment_run(
     - Dapat dibatasi per vendor
     - LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
     """
-    from application.dto_objects.ap_invoice_request import APPaymentRunRequest
+    from application.use_cases.ap_payment_run import APPaymentRunCommand
 
     try:
-        dto = APPaymentRunRequest(
-            vendor_ids=request.vendor_ids,
-            payment_date=request.payment_date,
-            due_date_up_to=request.due_date_up_to,
-            payment_method=request.payment_method.value,
-            bank_account_id=request.bank_account_id,
-            auto_approve=request.auto_approve,
-            notes=request.notes,
-            created_by=current_user.user_id,
+        # BUG FIX: payment_run_use_case.create_payment_run() tidak pernah ada
+        # di APPaymentRunUseCase manapun (selalu AttributeError -> HTTP 500
+        # sejak awal). Method nyata yang ada adalah execute(command), dan
+        # itu SEKALIGUS mengeksekusi payment run (identifikasi invoice ->
+        # bayar -> posting jurnal) dalam satu langkah - use case ini memang
+        # tidak dirancang sebagai draft dua-fase (create lalu process
+        # terpisah) seperti yang diasumsikan response schema di bawah.
+        # Endpoint ini dipetakan ke perilaku satu-fase yang sesungguhnya ada,
+        # bukan berpura-pura membuat draft yang bisa diproses nanti.
+        command = APPaymentRunCommand(
             legal_entity_id=legal_entity_id,
+            payment_date=request.payment_date,
+            vendor_id=request.vendor_ids[0] if request.vendor_ids else None,
+            bank_account_id=request.bank_account_id,
+            payment_method=request.payment_method.value,
+            auto_approve=request.auto_approve,
+            dry_run=False,
+            user_id=current_user.user_id,
         )
-        result = await payment_run_use_case.create_payment_run(dto)
+        result = await payment_run_use_case.execute(command)
+        if not result.is_success():
+            raise HTTPException(status_code=422, detail=result.error or "Payment run failed")
+        data = result.get_data() or {}
 
         return APPaymentRunResponseSchema(
-            payment_run_id=result.payment_run_id,
-            payment_run_number=result.payment_run_number,
+            payment_run_id=command.command_id,
+            payment_run_number=f"PR-{str(command.command_id)[:8].upper()}",
             payment_date=request.payment_date,
-            total_amount=result.total_amount,
-            number_of_invoices=result.number_of_invoices,
-            status=result.status,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            processed_at=result.processed_at,
-            processed_by=result.processed_by,
+            total_amount=Decimal(data.get("total_amount", "0")),
+            number_of_invoices=data.get("invoice_count", 0),
+            status="COMPLETED",
+            created_at=datetime.now(UTC),
+            created_by=current_user.user_id,
+            created_by_name=None,
+            processed_at=datetime.now(UTC),
+            processed_by=current_user.user_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to create payment run: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1976,21 +1989,25 @@ async def process_payment_run(
     LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
-        result = await payment_run_use_case.process_payment_run(
-            payment_run_id=payment_run_id,
-            processed_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
+        # BUG FIX: payment_run_use_case.process_payment_run() tidak pernah
+        # ada di APPaymentRunUseCase manapun (selalu AttributeError -> HTTP
+        # 500 sejak awal). Use case ini tidak punya konsep "draft payment
+        # run tersimpan yang bisa diproses belakangan dengan ID" - execute()
+        # mengerjakan semuanya sekaligus dan synchronous (lihat
+        # create_payment_run di atas). Endpoint ini jujur menolak alih-alih
+        # berpura-pura memproses draft yang sebenarnya tidak pernah ada.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Payment run ini sudah dieksekusi penuh saat dibuat "
+                "(POST /payment-runs). Tidak ada draft terpisah yang bisa "
+                "diproses ulang lewat endpoint ini."
+            ),
         )
-
-        return {
-            "payment_run_id": str(payment_run_id),
-            "status": result.status,
-            "payments_generated": result.payments_generated,
-            "total_paid": float(result.total_paid),
-            "message": result.message,
-        }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to process payment run: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

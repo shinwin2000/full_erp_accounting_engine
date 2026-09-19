@@ -44,6 +44,7 @@ FORM_FIELDS = [
     FieldSpec("effective_date", "Berlaku Sejak", FieldType.DATE, required=True),
     FieldSpec("expiry_date", "Berlaku Sampai", FieldType.DATE),
     FieldSpec("currency", "Mata Uang", default="IDR"),
+    FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
     FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
 ]
 
