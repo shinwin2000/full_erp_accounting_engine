@@ -447,13 +447,25 @@ class VsActualTab(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
+        self._load_budgets()
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         row = QHBoxLayout()
-        self.budget_id_edit = QLineEdit()
-        self.budget_id_edit.setPlaceholderText("UUID budget")
-        row.addWidget(self.budget_id_edit)
+        # [FIX] Sebelumnya input UUID budget mentah -- pengguna wajar
+        # mengetik kode budget (mis. "OPX-2026-001") ke situ karena itu
+        # yang biasa terlihat di tab lain, tapi endpoint butuh UUID asli
+        # sehingga selalu gagal 422 "Input should be a valid UUID".
+        # Sekarang dropdown pencarian berisi daftar budget, konsisten
+        # dengan Rolling Forecast.
+        self.budget_combo = QComboBox()
+        self.budget_combo.setEditable(True)
+        self.budget_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.budget_combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+        self.budget_combo.completer().setFilterMode(Qt.MatchContains)
+        self.budget_combo.completer().setCaseSensitivity(Qt.CaseInsensitive)
+        self.budget_combo.addItem("— pilih budget —", None)
+        row.addWidget(self.budget_combo, stretch=1)
         # [FIX] Endpoint asli mewajibkan query param period (vs-actual) /
         # as_of_month (vs-actual-ytd), 1-12 -- sebelumnya tidak pernah dikirim
         # sama sekali sehingga request selalu gagal validasi.
@@ -487,10 +499,29 @@ class VsActualTab(QWidget):
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
         outer.addWidget(self.status_label)
 
+    def _load_budgets(self) -> None:
+        run_task(
+            api_client.get, on_success=self._on_budgets_loaded, on_error=lambda _m: None,
+            path=f"{BASE}/", params={"page": 1, "page_size": 200, "limit": 200},
+        )
+
+    def _on_budgets_loaded(self, payload: Any) -> None:
+        budgets = extract_list(payload)
+        current = self.budget_combo.currentData()
+        self.budget_combo.blockSignals(True)
+        self.budget_combo.clear()
+        self.budget_combo.addItem("— pilih budget —", None)
+        for b in sorted(budgets, key=lambda x: x.get("budget_code", "")):
+            label = f"{b.get('budget_code', '')} — {b.get('budget_name', '')} ({b.get('fiscal_year', '')})"
+            self.budget_combo.addItem(label, str(b.get("id")))
+        idx = self.budget_combo.findData(current) if current else -1
+        self.budget_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.budget_combo.blockSignals(False)
+
     def _load(self) -> None:
-        bid = self.budget_id_edit.text().strip()
+        bid = self.budget_combo.currentData()
         if not bid:
-            QMessageBox.information(self, "Info", "Masukkan ID budget.")
+            QMessageBox.information(self, "Info", "Pilih budget dari daftar.")
             return
         # [FIX] Path asli: /{budget_id}/vs-actual (bukan /vs-actual/{budget_id}),
         # plus wajib query param `period`.
@@ -498,9 +529,9 @@ class VsActualTab(QWidget):
                   path=f"{BASE}/{bid}/vs-actual", params={"period": self.period_spin.value()})
 
     def _load_ytd(self) -> None:
-        bid = self.budget_id_edit.text().strip()
+        bid = self.budget_combo.currentData()
         if not bid:
-            QMessageBox.information(self, "Info", "Masukkan ID budget.")
+            QMessageBox.information(self, "Info", "Pilih budget dari daftar.")
             return
         # [FIX] Path asli: /{budget_id}/vs-actual-ytd, plus wajib query
         # param `as_of_month`.

@@ -13,7 +13,7 @@ from core.formatting import format_date, format_money, status_color
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QColor
 
-_MONEY_HINTS = ("amount", "cost", "price", "balance", "total", "dpp", "value", "salary", "limit", "rate")
+_MONEY_HINTS = ("amount", "cost", "price", "balance", "total", "dpp", "value", "salary", "limit", "rate", "initial")
 _DATE_HINTS = ("date", "_at")
 
 

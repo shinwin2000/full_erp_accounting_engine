@@ -279,8 +279,57 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             created_by=table.created_by,
         )
 
+    # FIX BUG KRITIS: kolom `inventory_movement.movement_type` dibatasi
+    # CHECK CONSTRAINT `ck_inventory_movement_type` yang HANYA mengizinkan
+    # 5 nilai flat huruf besar: 'IN', 'OUT', 'ADJUSTMENT', 'TRANSFER_IN',
+    # 'TRANSFER_OUT' (lihat migrations/versions/0013_inventory_item_and_movement.py
+    # dan infrastructure/persistence_orm/inventory_movement_table.py).
+    # Domain MovementType enum (movement_entity.py) punya 17 nilai granular
+    # huruf kecil (purchase_receipt, adjustment_in, sales_issue, dst) yang
+    # TIDAK SATU PUN cocok persis dengan 5 nilai yang diizinkan itu - bahkan
+    # transfer_in/transfer_out pun beda huruf besar/kecil. Akibatnya SETIAP
+    # mutasi stok jenis apa pun SELALU gagal dengan CheckViolationError sejak
+    # awal (bukan cuma tipe tertentu). Mapping ini menerjemahkan nilai
+    # granular ke salah satu dari 5 nilai yang benar-benar diizinkan
+    # database HANYA pada saat disimpan ke kolom ini - logika bisnis lain
+    # (arah stok masuk/keluar via is_inbound(), dst) tetap memakai enum
+    # granular aslinya di memori, tidak terpengaruh.
+    _DB_MOVEMENT_TYPE_MAP = {
+        MovementType.PURCHASE_RECEIPT: "IN",
+        MovementType.PRODUCTION_COMPLETION: "IN",
+        MovementType.RETURN_FROM_CUSTOMER: "IN",
+        MovementType.INITIAL_STOCK: "IN",
+        MovementType.ADJUSTMENT_IN: "ADJUSTMENT",
+        MovementType.ADJUSTMENT_OUT: "ADJUSTMENT",
+        MovementType.PURCHASE_RETURN: "OUT",
+        MovementType.PRODUCTION_ISSUE: "OUT",
+        MovementType.SALES_ISSUE: "OUT",
+        MovementType.SALES_RETURN: "OUT",
+        MovementType.RETURN_TO_SUPPLIER: "OUT",
+        MovementType.DAMAGED: "OUT",
+        MovementType.EXPIRED: "OUT",
+        MovementType.SAMPLE_ISSUE: "OUT",
+        MovementType.DONATION: "OUT",
+        MovementType.WRITE_OFF: "OUT",
+        MovementType.TRANSFER_IN: "TRANSFER_IN",
+        MovementType.TRANSFER_OUT: "TRANSFER_OUT",
+    }
+
+    @classmethod
+    def _db_movement_type(cls, movement_type: Any) -> str:
+        """Terjemahkan MovementType granular ke salah satu dari 5 nilai
+        yang diizinkan CHECK CONSTRAINT ck_inventory_movement_type."""
+        if isinstance(movement_type, MovementType):
+            mapped = cls._DB_MOVEMENT_TYPE_MAP.get(movement_type)
+            if mapped:
+                return mapped
+            return "ADJUSTMENT"
+        raw = str(getattr(movement_type, "value", movement_type)).upper()
+        allowed = {"IN", "OUT", "ADJUSTMENT", "TRANSFER_IN", "TRANSFER_OUT"}
+        return raw if raw in allowed else "ADJUSTMENT"
+
     async def _to_orm_movement(self, movement: StockMovement) -> InventoryMovementTable:
-        movement_type_str = movement.movement_type.value if hasattr(movement.movement_type, "value") else str(movement.movement_type)
+        movement_type_str = self._db_movement_type(movement.movement_type)
         return InventoryMovementTable(
             id=movement.id,
             movement_number=movement.movement_number,
@@ -348,7 +397,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             id=movement.movement_id,
             movement_number=movement.movement_number,
             item_id=movement.item_id,
-            movement_type=movement.movement_type.value,
+            movement_type=self._db_movement_type(movement.movement_type),
             quantity=movement.quantity,
             uom="PCS",  # UoM sudah dikelola di level item, tidak dobel disimpan per-movement
             unit_cost=movement.unit_cost,
@@ -387,28 +436,38 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             await self._flush_and_commit()
             return movement
         except Exception as e:
+            # FIX BUG KRITIS: sebelumnya tidak melakukan rollback saat gagal -
+            # sesi database dibiarkan dalam status "pending rollback" dan
+            # SEMUA request berikutnya yang memakai sesi yang sama (list item,
+            # list gudang, update gudang, dst) ikut gagal terus dengan
+            # PendingRollbackError sampai backend di-restart manual.
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to save movement: {e}") from e
 
     async def get_movement_by_id(
         self, movement_id: UUID, legal_entity_id: UUID | None = None
     ) -> MovementEntity | None:
-        conditions = [InventoryMovementTable.id == movement_id]
-        if legal_entity_id is not None:
-            conditions.append(InventoryMovementTable.legal_entity_id == legal_entity_id)
-        stmt = select(InventoryMovementTable, InventoryItemTable, WarehouseTable).join(
-            InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
-        ).outerjoin(
-            WarehouseTable, WarehouseTable.id == InventoryMovementTable.warehouse_id
-        ).where(*conditions)
-        result = await self.session.execute(stmt)
-        row = result.first()
-        if row is None:
-            return None
-        mov_table, item_table, _wh_table = row
-        entity = self._to_domain_movement_entity(mov_table)
-        entity.item_sku = item_table.item_code if hasattr(item_table, "item_code") else getattr(item_table, "sku", "")
-        entity.item_name = item_table.item_name if hasattr(item_table, "item_name") else getattr(item_table, "name", "")
-        return entity
+        try:
+            conditions = [InventoryMovementTable.id == movement_id]
+            if legal_entity_id is not None:
+                conditions.append(InventoryMovementTable.legal_entity_id == legal_entity_id)
+            stmt = select(InventoryMovementTable, InventoryItemTable, WarehouseTable).join(
+                InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
+            ).outerjoin(
+                WarehouseTable, WarehouseTable.id == InventoryMovementTable.warehouse_id
+            ).where(*conditions)
+            result = await self.session.execute(stmt)
+            row = result.first()
+            if row is None:
+                return None
+            mov_table, item_table, _wh_table = row
+            entity = self._to_domain_movement_entity(mov_table)
+            entity.item_sku = item_table.item_code if hasattr(item_table, "item_code") else getattr(item_table, "sku", "")
+            entity.item_name = item_table.item_name if hasattr(item_table, "item_name") else getattr(item_table, "name", "")
+            return entity
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to get movement by id: {e}") from e
 
     async def list_movements(
         self,
@@ -421,38 +480,49 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[MovementEntity], int]:
-        conditions = [InventoryMovementTable.legal_entity_id == legal_entity_id]
-        if item_id is not None:
-            conditions.append(InventoryMovementTable.item_id == item_id)
-        if movement_type:
-            conditions.append(InventoryMovementTable.movement_type == movement_type)
-        if status:
-            conditions.append(InventoryMovementTable.status == status)
-        if start_date is not None:
-            conditions.append(InventoryMovementTable.movement_date >= start_date)
-        if end_date is not None:
-            conditions.append(InventoryMovementTable.movement_date <= end_date)
+        try:
+            conditions = [InventoryMovementTable.legal_entity_id == legal_entity_id]
+            if item_id is not None:
+                conditions.append(InventoryMovementTable.item_id == item_id)
+            if movement_type:
+                conditions.append(InventoryMovementTable.movement_type == movement_type)
+            if status:
+                conditions.append(InventoryMovementTable.status == status)
+            if start_date is not None:
+                conditions.append(InventoryMovementTable.movement_date >= start_date)
+            if end_date is not None:
+                conditions.append(InventoryMovementTable.movement_date <= end_date)
 
-        count_stmt = select(func.count()).select_from(InventoryMovementTable).where(*conditions)
-        total = (await self.session.execute(count_stmt)).scalar_one()
+            count_stmt = select(func.count()).select_from(InventoryMovementTable).where(*conditions)
+            total = (await self.session.execute(count_stmt)).scalar_one()
 
-        stmt = (
-            select(InventoryMovementTable, InventoryItemTable)
-            .join(InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id)
-            .where(*conditions)
-            .order_by(InventoryMovementTable.movement_date.desc(), InventoryMovementTable.created_at.desc())
-            .limit(page_size)
-            .offset((page - 1) * page_size)
-        )
-        result = await self.session.execute(stmt)
-        rows = result.all()
-        entities = []
-        for mov_table, item_table in rows:
-            entity = self._to_domain_movement_entity(mov_table)
-            entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
-            entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
-            entities.append(entity)
-        return entities, total
+            stmt = (
+                select(InventoryMovementTable, InventoryItemTable)
+                .join(InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id)
+                .where(*conditions)
+                .order_by(InventoryMovementTable.movement_date.desc(), InventoryMovementTable.created_at.desc())
+                .limit(page_size)
+                .offset((page - 1) * page_size)
+            )
+            result = await self.session.execute(stmt)
+            rows = result.all()
+            entities = []
+            for mov_table, item_table in rows:
+                entity = self._to_domain_movement_entity(mov_table)
+                entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
+                entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
+                entities.append(entity)
+            return entities, total
+        except Exception as e:
+            # FIX BUG KRITIS: method baca ini sebelumnya tidak punya try/except
+            # sama sekali. Kalau sesi database sudah dalam status rusak akibat
+            # error SEBELUMNYA yang tidak sempat di-rollback (mis. dari
+            # save_movement), setiap panggilan list_movements berikutnya ikut
+            # gagal dengan PendingRollbackError tanpa penjelasan, dan status
+            # rusak itu tidak pernah dibersihkan. Rollback di sini aman untuk
+            # method baca (tidak ada perubahan data yang bisa hilang).
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to list movements: {e}") from e
 
     def _to_domain_fifo_layer(self, table: InventoryFIFOLayerTable) -> FIFOLayer:
         # FIX: use purchase_date instead of layer_date, remove warehouse_id
@@ -511,6 +581,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             table = result.scalar_one_or_none()
             return self._to_domain_item(table) if table else None
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get item: {e}") from e
 
     async def get_item_by_sku(self, sku: str, legal_entity_id: UUID) -> InventoryItemAggregate | None:
@@ -524,6 +595,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             table = result.scalar_one_or_none()
             return self._to_domain_item(table) if table else None
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get item by sku: {e}") from e
 
     async def update_item(self, item: InventoryItemAggregate) -> None:
@@ -599,6 +671,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_item(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to find items by category: {e}") from e
 
     async def get_current_stock(self, item_id: UUID, warehouse_id: UUID | None = None) -> Decimal:
@@ -627,6 +700,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 stock = result.scalar() or Decimal(0)
                 return Decimal(str(stock))
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get current stock: {e}") from e
 
     async def get_all_items(
@@ -643,6 +717,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_item(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get all items: {e}") from e
 
     # ========================================================================
@@ -685,6 +760,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_movement_entity(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get movements: {e}") from e
 
     async def get_movements_by_reference(self, reference_type: str, reference_id: UUID) -> list[MovementEntity]:
@@ -697,6 +773,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_movement_entity(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get movements by reference: {e}") from e
 
     # ========================================================================
@@ -719,6 +796,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             value = result.scalar()
             return Decimal(str(value)) if value else Decimal(0)
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get inventory value: {e}") from e
 
     async def get_fifo_layers(self, item_id: UUID, warehouse_id: UUID) -> list[FIFOLayer]:
@@ -736,6 +814,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_fifo_layer(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get FIFO layers: {e}") from e
 
     # ========================================================================
@@ -754,6 +833,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             tables = result.scalars().all()
             return [self._to_domain_item(t) for t in tables]
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get items below reorder point: {e}") from e
 
     async def get_recommended_po_items(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
@@ -1039,6 +1119,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             await self._flush_and_commit()
             return opname
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to save opname: {e}") from e
 
     async def list_opnames(
@@ -1093,6 +1174,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             ]
             return items, total
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to list stock opnames: {e}") from e
 
     async def get_opname_by_id(self, opname_id: UUID) -> StockOpname | None:
@@ -1139,33 +1221,53 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 version=header.version,
             )
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get opname: {e}") from e
 
     async def get_outbound_movements(
         self, legal_entity_id: UUID, from_date: date | None = None, to_date: date | None = None
     ) -> list[MovementEntity]:
-        """Ambil semua movement outbound (dipakai calculate_cogs)."""
-        outbound_types = [t.value for t in MovementType if t.is_outbound()]
-        conditions = [
-            InventoryMovementTable.legal_entity_id == legal_entity_id,
-            InventoryMovementTable.movement_type.in_(outbound_types),
-        ]
-        if from_date is not None:
-            conditions.append(InventoryMovementTable.movement_date >= from_date)
-        if to_date is not None:
-            conditions.append(InventoryMovementTable.movement_date <= to_date)
-        stmt = select(InventoryMovementTable, InventoryItemTable).join(
-            InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
-        ).where(*conditions).order_by(InventoryMovementTable.movement_date)
-        result = await self.session.execute(stmt)
-        rows = result.all()
-        entities = []
-        for mov_table, item_table in rows:
-            entity = self._to_domain_movement_entity(mov_table)
-            entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
-            entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
-            entities.append(entity)
-        return entities
+        """Ambil semua movement outbound (dipakai calculate_cogs).
+
+        FIX: sebelumnya memfilter movement_type.in_([nilai granular seperti
+        "adjustment_out", "sales_issue", ...]) - nilai itu TIDAK PERNAH cocok
+        dengan apa yang benar-benar tersimpan di kolom database (yang sejak
+        perbaikan _db_movement_type() di atas hanya berisi salah satu dari 5
+        nilai: IN/OUT/ADJUSTMENT/TRANSFER_IN/TRANSFER_OUT). Query lama ini
+        akan SELALU mengembalikan list kosong sejak awal (movement_type di
+        kolom database tidak pernah berupa string granular), yang berarti
+        perhitungan COGS berbasis method ini tidak pernah mendapat data.
+        Filter diperbaiki memakai nilai yang benar-benar tersimpan.
+        Catatan: kolom "ADJUSTMENT" tidak membawa informasi arah
+        (masuk/keluar) - hanya "OUT" dan "TRANSFER_OUT" yang pasti berarti
+        stok keluar, jadi disitulah batas informasi yang tersedia dari
+        skema tabel yang ada tanpa migrasi tambahan.
+        """
+        outbound_db_values = ["OUT", "TRANSFER_OUT"]
+        try:
+            conditions = [
+                InventoryMovementTable.legal_entity_id == legal_entity_id,
+                InventoryMovementTable.movement_type.in_(outbound_db_values),
+            ]
+            if from_date is not None:
+                conditions.append(InventoryMovementTable.movement_date >= from_date)
+            if to_date is not None:
+                conditions.append(InventoryMovementTable.movement_date <= to_date)
+            stmt = select(InventoryMovementTable, InventoryItemTable).join(
+                InventoryItemTable, InventoryItemTable.id == InventoryMovementTable.item_id
+            ).where(*conditions).order_by(InventoryMovementTable.movement_date)
+            result = await self.session.execute(stmt)
+            rows = result.all()
+            entities = []
+            for mov_table, item_table in rows:
+                entity = self._to_domain_movement_entity(mov_table)
+                entity.item_sku = getattr(item_table, "item_code", None) or getattr(item_table, "sku", "")
+                entity.item_name = getattr(item_table, "item_name", None) or getattr(item_table, "name", "")
+                entities.append(entity)
+            return entities
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to get outbound movements: {e}") from e
 
     # ========================================================================
     # TRANSFER
@@ -1309,6 +1411,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             await self._flush_and_commit()
             return transfer
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to save transfer: {e}") from e
 
     async def get_transfer_by_id(self, transfer_id: UUID) -> InterWarehouseTransfer | None:
@@ -1360,6 +1463,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 version=header.version,
             )
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get transfer: {e}") from e
 
     # ========================================================================
@@ -1459,6 +1563,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 "total_movements": movements,
             }
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to get statistics: {e}") from e
 
     async def get_audit_log(self, item_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -1488,6 +1593,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             result = await self.session.execute(stmt)
             return result.scalar() > 0
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to check item code: {e}") from e
 
     # ========================================================================
@@ -1507,6 +1613,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             seq = int(last_number.split("-")[-1]) + 1 if last_number else 1
             return f"{prefix}-{year}-{seq:06d}"
         except Exception as e:
+            await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to generate movement number: {e}") from e
 
     # ========================================================================
@@ -1568,30 +1675,39 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         self, legal_entity_id: UUID, is_active: bool | None = None
     ) -> list[dict[str, Any]]:
         """List semua warehouse milik satu legal entity (dipakai endpoint GET /warehouses)."""
-        conditions = [
-            WarehouseTable.legal_entity_id == legal_entity_id,
-            WarehouseTable.deleted_at.is_(None),
-        ]
-        if is_active is not None:
-            conditions.append(WarehouseTable.is_active == is_active)
-        stmt = select(WarehouseTable).where(*conditions).order_by(WarehouseTable.warehouse_code)
-        result = await self.session.execute(stmt)
-        rows = result.scalars().all()
-        return [
-            {
-                "id": w.id,
-                "warehouse_code": w.warehouse_code,
-                "name": w.name,
-                "location_code": w.location_code,
-                "is_active": w.is_active,
-                "is_default": w.is_default,
-                "notes": w.notes,
-                "created_at": w.created_at,
-                "created_by": w.created_by,
-                "version": w.version,
-            }
-            for w in rows
-        ]
+        try:
+            conditions = [
+                WarehouseTable.legal_entity_id == legal_entity_id,
+                WarehouseTable.deleted_at.is_(None),
+            ]
+            if is_active is not None:
+                conditions.append(WarehouseTable.is_active == is_active)
+            stmt = select(WarehouseTable).where(*conditions).order_by(WarehouseTable.warehouse_code)
+            result = await self.session.execute(stmt)
+            rows = result.scalars().all()
+            return [
+                {
+                    "id": w.id,
+                    "warehouse_code": w.warehouse_code,
+                    "name": w.name,
+                    "location_code": w.location_code,
+                    "is_active": w.is_active,
+                    "is_default": w.is_default,
+                    "notes": w.notes,
+                    "created_at": w.created_at,
+                    "created_by": w.created_by,
+                    "version": w.version,
+                }
+                for w in rows
+            ]
+        except Exception as e:
+            # FIX BUG KRITIS: method baca ini sebelumnya tidak punya try/except
+            # sama sekali - kalau sesi database sudah rusak akibat error
+            # SEBELUMNYA di request lain yang tidak sempat di-rollback, setiap
+            # panggilan list_warehouses berikutnya ikut gagal terus dengan
+            # PendingRollbackError tanpa pernah pulih sampai backend direstart.
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to list warehouses: {e}") from e
 
     async def get_warehouse_name_by_id(self, warehouse_id: UUID) -> str | None:
         """Lookup nama warehouse langsung dari ID (dipakai untuk enrich response movement)."""

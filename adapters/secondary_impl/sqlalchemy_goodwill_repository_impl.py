@@ -28,6 +28,7 @@ from uuid import UUID
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from infrastructure.persistence_orm.goodwill_impairment_table import GoodwillImpairmentTable
 from infrastructure.persistence_orm.goodwill_table import GoodwillTable
@@ -55,6 +56,14 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         session.add(goodwill)
         await session.flush()
         await session.commit()
+        # FIX: setelah commit, session (default expire_on_commit=True)
+        # menandai SEMUA atribut objek sebagai "kedaluwarsa", termasuk
+        # relasi `impairments`. Properti GoodwillTable.impairment_accumulated
+        # (dipakai _to_response di service) membaca self.impairments - kalau
+        # belum di-refresh di sini, itu memicu lazy-load implisit di luar
+        # greenlet async yang benar -> crash "MissingGreenlet: greenlet_spawn
+        # has not been called" persis saat goodwill BARU dibuat/diperbarui.
+        await session.refresh(goodwill, attribute_names=["impairments"])
         return goodwill
 
     async def get_goodwill_by_id(self, goodwill_id: UUID) -> GoodwillTable | None:
@@ -82,7 +91,10 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
             GoodwillTable.is_active == True,  # noqa: E712
         )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        tables = list(result.scalars().all())
+        for table in tables:
+            await session.refresh(table, attribute_names=["impairments"])
+        return tables
 
     async def get_last_goodwill_code(self, legal_entity_id: UUID) -> str | None:
         session = await self._get_session()
@@ -117,12 +129,25 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         session.add(impairment)
         await session.flush()
         await session.commit()
+        # FIX: sama seperti save_goodwill - _to_impairment_response (di
+        # service_goodwill.py) membaca record.goodwill.goodwill_code,
+        # relasi yang kedaluwarsa setelah commit dan akan memicu lazy-load
+        # implisit di luar greenlet async kalau tidak di-refresh di sini.
+        await session.refresh(impairment, attribute_names=["goodwill"])
         return impairment
 
     async def get_impairments_by_goodwill(self, goodwill_id: UUID) -> list[GoodwillImpairmentTable]:
         session = await self._get_session()
+        # FIX: _to_impairment_response (service_goodwill.py) membaca
+        # record.goodwill.goodwill_code untuk tiap baris riwayat - relasi
+        # ini kedaluwarsa/belum dimuat dan memicu lazy-load implisit di
+        # luar greenlet async ("MissingGreenlet") kalau tidak dimuat
+        # bersamaan di sini. Pakai selectinload (1 query tambahan untuk
+        # semua baris sekaligus) alih-alih refresh per baris - lebih
+        # murah untuk daftar riwayat yang bisa banyak barisnya.
         stmt = (
             select(GoodwillImpairmentTable)
+            .options(selectinload(GoodwillImpairmentTable.goodwill))
             .where(GoodwillImpairmentTable.goodwill_id == goodwill_id)
             .order_by(desc(GoodwillImpairmentTable.test_date))
         )
@@ -133,6 +158,7 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         session = await self._get_session()
         stmt = (
             select(GoodwillImpairmentTable)
+            .options(selectinload(GoodwillImpairmentTable.goodwill))
             .where(GoodwillImpairmentTable.goodwill_id == goodwill_id)
             .order_by(desc(GoodwillImpairmentTable.test_date))
             .limit(1)

@@ -331,8 +331,12 @@ class GoodwillService:
         )
 
         await self._goodwill_repo.save_goodwill(table)
-        if self._uow:
-            await self._uow.commit()
+        # NOTE: commit sudah dilakukan di repository (save_goodwill/
+        # save_impairment masing-masing commit sendiri) - lihat
+        # sqlalchemy_goodwill_repository_impl.py. Tidak lagi memanggil
+        # self._uow.commit() di sini karena UoW tsb tidak pernah di-
+        # `begin()` di jalur ini, jadi commit-nya selalu gagal dengan
+        # "UoW not started or transaction not active".
 
         self._stats["goodwill_recognized"] += 1
 
@@ -397,8 +401,12 @@ class GoodwillService:
         table.increment_version()
 
         await self._goodwill_repo.save_goodwill(table)
-        if self._uow:
-            await self._uow.commit()
+        # NOTE: commit sudah dilakukan di repository (save_goodwill/
+        # save_impairment masing-masing commit sendiri) - lihat
+        # sqlalchemy_goodwill_repository_impl.py. Tidak lagi memanggil
+        # self._uow.commit() di sini karena UoW tsb tidak pernah di-
+        # `begin()` di jalur ini, jadi commit-nya selalu gagal dengan
+        # "UoW not started or transaction not active".
 
         self._stats["goodwill_updated"] += 1
 
@@ -470,8 +478,12 @@ class GoodwillService:
         )
         await self._goodwill_repo.save_impairment(impairment_record)
         await self._goodwill_repo.save_goodwill(table)
-        if self._uow:
-            await self._uow.commit()
+        # NOTE: commit sudah dilakukan di repository (save_goodwill/
+        # save_impairment masing-masing commit sendiri) - lihat
+        # sqlalchemy_goodwill_repository_impl.py. Tidak lagi memanggil
+        # self._uow.commit() di sini karena UoW tsb tidak pernah di-
+        # `begin()` di jalur ini, jadi commit-nya selalu gagal dengan
+        # "UoW not started or transaction not active".
 
         self._stats["impairments"] += 1
 
@@ -537,8 +549,12 @@ class GoodwillService:
         actual_reversal = table.carrying_amount - carrying_before
 
         await self._goodwill_repo.save_goodwill(table)
-        if self._uow:
-            await self._uow.commit()
+        # NOTE: commit sudah dilakukan di repository (save_goodwill/
+        # save_impairment masing-masing commit sendiri) - lihat
+        # sqlalchemy_goodwill_repository_impl.py. Tidak lagi memanggil
+        # self._uow.commit() di sini karena UoW tsb tidak pernah di-
+        # `begin()` di jalur ini, jadi commit-nya selalu gagal dengan
+        # "UoW not started or transaction not active".
 
         self._stats["reversals"] += 1
 
@@ -593,8 +609,12 @@ class GoodwillService:
         )
 
         await self._goodwill_repo.save_goodwill(table)
-        if self._uow:
-            await self._uow.commit()
+        # NOTE: commit sudah dilakukan di repository (save_goodwill/
+        # save_impairment masing-masing commit sendiri) - lihat
+        # sqlalchemy_goodwill_repository_impl.py. Tidak lagi memanggil
+        # self._uow.commit() di sini karena UoW tsb tidak pernah di-
+        # `begin()` di jalur ini, jadi commit-nya selalu gagal dengan
+        # "UoW not started or transaction not active".
 
         self._stats["disposals"] += 1
 

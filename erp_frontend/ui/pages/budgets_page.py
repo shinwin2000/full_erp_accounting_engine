@@ -54,7 +54,25 @@ FORM_FIELDS = [
 ACTIONS = [
     ActionSpec("submit", "Submit", path_suffix="/submit", style="primary"),
     ActionSpec("approve", "Approve", path_suffix="/approve", style="success"),
-    ActionSpec("reject", "Reject", path_suffix="/reject", style="danger"),
+    # [FIX] Endpoint POST /{id}/reject mewajibkan query param `reason`
+    # (min_length=5) -- tanpa needs_reason=True, tombol ini mengirim
+    # request TANPA reason sama sekali, dan backend SELALU menolaknya
+    # dengan 422 Unprocessable Entity. Tombol Reject sebelumnya tidak
+    # pernah bisa berhasil dipakai lewat UI.
+    ActionSpec("reject", "Reject", path_suffix="/reject", style="danger",
+               needs_reason=True, reason_min_length=5),
+    # [FITUR] Backend sudah lama punya endpoint activate/lock/unlock/close/
+    # cancel/archive (lihat fastapi_budget_router.py), tapi sebelumnya sama
+    # sekali tidak ada tombolnya di UI -- tidak ada cara mengaktifkan,
+    # mengunci, menutup, membatalkan, atau mengarsipkan budget lewat
+    # aplikasi selain lewat Swagger langsung.
+    ActionSpec("activate", "Activate", path_suffix="/activate", style="primary"),
+    ActionSpec("lock", "Lock", path_suffix="/lock", style="default"),
+    ActionSpec("unlock", "Unlock", path_suffix="/unlock", style="default"),
+    ActionSpec("close", "Close", path_suffix="/close", style="default"),
+    ActionSpec("cancel", "Cancel", path_suffix="/cancel", style="danger",
+               needs_reason=True, reason_min_length=5),
+    ActionSpec("archive", "Archive", path_suffix="/archive", style="default"),
 ]
 
 CONFIG = ModuleConfig(

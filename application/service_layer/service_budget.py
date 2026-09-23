@@ -799,13 +799,60 @@ class BudgetService:
             "archived": len([b for b in budgets if b.status == "archived"]),
         }
 
+        # [FIX] Sebelumnya dashboard tidak pernah menghitung realisasi sama
+        # sekali -- cuma hitung jumlah budget per status. Padahal tab
+        # Dashboard di frontend menampilkan 4 kartu KPI: Total Anggaran,
+        # Total Realisasi, Variance, dan % Terpakai -- 3 dari 4 KPI itu
+        # (`total_actual`, `total_variance`, `consumption_percent`) TIDAK
+        # PERNAH ada di response ini sama sekali sebelumnya (field yang
+        # dibaca frontend dan field yang dikirim backend tidak ada yang
+        # sama satu pun), jadi kartu-kartu itu selalu tampil kosong/"-".
+        # Sekarang dihitung sungguhan dari realisasi ledger (YTD s.d. bulan
+        # `as_of_date`), untuk budget berstatus approved/active saja
+        # (konsisten dengan get_budget_alerts).
+        #
+        # `total_budget_in_force` sengaja dipisah dari `total_budget_amount`
+        # (yang mencakup SEMUA status termasuk draft): membandingkan
+        # realisasi (yang cuma dihitung dari budget approved/active) dengan
+        # total_amount SEMUA budget akan bikin variance/consumption_percent
+        # menyesatkan -- budget draft ikut membesarkan "anggaran" padahal
+        # belum berkontribusi realisasi apapun.
+        total_budget_in_force = Decimal(0)
+        total_actual = Decimal(0)
+        for b in budgets:
+            if b.status not in ("approved", "active"):
+                continue
+            total_budget_in_force += b.total_amount
+            if not b.lines:
+                continue
+            account_ids = [line.account_id for line in b.lines]
+            try:
+                actuals = await self._budget_repo.get_actual_amounts_by_account(
+                    legal_entity_id, account_ids, b.fiscal_year, as_of_date.month, ytd=True
+                )
+            except NotImplementedError:
+                actuals = {}
+            total_actual += sum(actuals.values(), Decimal(0))
+
+        total_variance = total_actual - total_budget_in_force
+        consumption_percent = (
+            float(total_actual / total_budget_in_force * 100) if total_budget_in_force > 0 else 0.0
+        )
+
         # Sederhanakan return sebagai dict (sesuai router)
         return {
             "as_of_date": as_of_date.isoformat(),
             "total_budgets": len(budgets),
             "active_budgets": len(active_budgets),
             "draft_budgets": by_status["draft"],
+            # Total SEMUA budget (semua status, termasuk draft) -- info umum.
             "total_budget_amount": str(total_budget),
+            # Total budget approved/active saja -- basis perbandingan yang
+            # konsisten dengan total_actual/total_variance/consumption_percent.
+            "total_budget": str(total_budget_in_force),
+            "total_actual": str(total_actual),
+            "total_variance": str(total_variance),
+            "consumption_percent": round(consumption_percent, 1),
             "by_status": by_status,
             "generated_at": datetime.now(UTC).isoformat(),
         }

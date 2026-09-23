@@ -480,9 +480,13 @@ class InventoryService:
         if existing:
             raise InventoryServiceError(f"Item with SKU {request.sku} already exists")
 
+        # FIX BUG: daftar ini sebelumnya salah ketik ("work_in_progress")
+        # dan tidak mencantumkan nilai SAH "work_in_process" dari ItemType
+        # enum backend (fastapi_inventory_router.py) - membuat validasi ganda
+        # yang saling bertentangan dengan Pydantic di router. Disamakan persis.
         valid_types = [
-            "raw_material", "work_in_progress", "finished_goods", "finished_good",
-            "packaging", "spare_part", "trading", "consumable", "service", "asset", "supplies",
+            "raw_material", "work_in_process", "finished_good",
+            "trading", "consumable", "service", "asset",
         ]
         if request.item_type not in valid_types:
             raise InventoryServiceError(f"Invalid item_type: {request.item_type}")
@@ -508,6 +512,10 @@ class InventoryService:
             selling_price=request.selling_price,
             category=request.category,
             warehouse_code=request.warehouse_code,
+            # FIX BUG: sebelumnya warehouse_id yang dipilih user di form tidak
+            # pernah ikut disimpan sama sekali saat item BARU dibuat (hanya
+            # warehouse_code, yang tidak punya kolom database).
+            warehouse_id=getattr(request, "warehouse_id", None),
             created_by=user_id,
             created_at=datetime.utcnow(),
             updated_at=None,
@@ -540,18 +548,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -621,9 +618,18 @@ class InventoryService:
         if request.selling_price is not None and request.selling_price != item.selling_price:
             changes["selling_price"] = {"old": item.selling_price, "new": request.selling_price}
             item.selling_price = request.selling_price
-        if request.warehouse_code is not None and request.warehouse_code != item.warehouse_code:
-            changes["warehouse_code"] = {"old": item.warehouse_code, "new": request.warehouse_code}
-            item.warehouse_code = request.warehouse_code
+        if request.warehouse_id is not None and request.warehouse_id != item.warehouse_id:
+            # FIX BUG: sebelumnya membandingkan/menyimpan ke warehouse_code
+            # (diisi paksa dengan str(warehouse_id) di DTO) - field itu tidak
+            # punya kolom database sama sekali, sementara kolom FK asli
+            # warehouse_id justru selalu ditulis ulang jadi NULL oleh
+            # _to_orm_item(). Akibatnya gudang yang dipilih di form terlihat
+            # tersimpan sesaat tapi hilang lagi setiap item dimuat ulang.
+            changes["warehouse_id"] = {
+                "old": str(item.warehouse_id) if item.warehouse_id else None,
+                "new": str(request.warehouse_id),
+            }
+            item.warehouse_id = request.warehouse_id
 
         if not changes:
             return self._to_item_response(item)
@@ -645,18 +651,7 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -707,18 +702,7 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -817,6 +801,100 @@ class InventoryService:
             )
             for w in rows
         ]
+
+    async def create_warehouse(
+        self,
+        legal_entity_id: UUID,
+        warehouse_code: str,
+        warehouse_name: str,
+        location: str | None = None,
+        is_active: bool = True,
+        is_default: bool = False,
+        notes: str | None = None,
+        created_by: UUID | None = None,
+    ) -> WarehouseResponse:
+        """Buat warehouse/gudang baru untuk satu legal entity."""
+        # Cek duplikat kode lebih dulu supaya user dapat pesan yang jelas
+        # ("kode sudah dipakai") alih-alih IntegrityError mentah dari
+        # constraint uq_warehouse_code_entity di database.
+        if await self._inv_repo.get_warehouse_by_code(warehouse_code, legal_entity_id):
+            raise ValueError(f"Kode gudang '{warehouse_code}' sudah dipakai di entitas ini")
+        row = await self._inv_repo.create_warehouse(
+            legal_entity_id=legal_entity_id,
+            warehouse_code=warehouse_code,
+            name=warehouse_name,
+            location_code=location,
+            is_active=is_active,
+            is_default=is_default,
+            notes=notes,
+            created_by=created_by,
+        )
+        self._record_audit("create_warehouse", {
+            "warehouse_id": str(row["id"]),
+            "warehouse_code": row["warehouse_code"],
+            "user_id": str(created_by) if created_by else None,
+        })
+        return WarehouseResponse(
+            id=row["id"],
+            warehouse_code=row["warehouse_code"],
+            warehouse_name=row["name"],
+            location=row.get("location_code"),
+            is_active=row["is_active"],
+            is_default=row["is_default"],
+            notes=row.get("notes"),
+            created_at=row["created_at"],
+            created_by=row.get("created_by"),
+            version=row.get("version", 1),
+        )
+
+    async def update_warehouse(
+        self,
+        warehouse_id: UUID,
+        legal_entity_id: UUID,
+        warehouse_name: str | None = None,
+        location: str | None = None,
+        is_active: bool | None = None,
+        is_default: bool | None = None,
+        notes: str | None = None,
+        updated_by: UUID | None = None,
+    ) -> WarehouseResponse | None:
+        """Update warehouse/gudang yang sudah ada. Return None kalau tidak ditemukan."""
+        row = await self._inv_repo.update_warehouse(
+            warehouse_id=warehouse_id,
+            legal_entity_id=legal_entity_id,
+            name=warehouse_name,
+            location_code=location,
+            is_active=is_active,
+            is_default=is_default,
+            notes=notes,
+        )
+        if row is None:
+            return None
+        self._record_audit("update_warehouse", {
+            "warehouse_id": str(warehouse_id),
+            "user_id": str(updated_by) if updated_by else None,
+        })
+        return WarehouseResponse(
+            id=row["id"],
+            warehouse_code=row["warehouse_code"],
+            warehouse_name=row["name"],
+            location=row.get("location_code"),
+            is_active=row["is_active"],
+            is_default=row["is_default"],
+            notes=row.get("notes"),
+            created_at=row["created_at"],
+            created_by=row.get("created_by"),
+            version=row.get("version", 1),
+        )
+
+    async def delete_warehouse(
+        self, warehouse_id: UUID, legal_entity_id: UUID
+    ) -> bool:
+        """Soft-delete (nonaktifkan) warehouse/gudang."""
+        deleted = await self._inv_repo.delete_warehouse(warehouse_id, legal_entity_id)
+        if deleted:
+            self._record_audit("delete_warehouse", {"warehouse_id": str(warehouse_id)})
+        return deleted
 
     async def get_low_stock_alerts(
         self,
@@ -989,18 +1067,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1028,18 +1095,7 @@ class InventoryService:
                     correlation_id=correlation_id,
                 )
                 try:
-                    await self._event_publisher.publish(
-                        adj_event,
-                        # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                        # event_type/aggregate_id/aggregate_type - panggilan lama
-                        # (event, correlation_id=correlation_id) selalu TypeError kalau
-                        # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                        # di signature aslinya).
-                        event_type=str(getattr(adj_event.event_type, "value", adj_event.event_type)),
-                        aggregate_id=adj_event.aggregate_id,
-                        aggregate_type="Inventory",
-                        metadata={"correlation_id": correlation_id} if correlation_id else None,
-                    )
+                    await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
                 except Exception as e:
                     logger.warning(f"Failed to publish event {type(adj_event).__name__}: {e}")
 
@@ -1057,17 +1113,7 @@ class InventoryService:
                     correlation_id=correlation_id,
                 )
                 try:
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (alert_event, correlation_id=correlation_id) selalu
-                    # TypeError kalau benar-benar dieksekusi.
-                    await self._event_publisher.publish(
-                        alert_event,
-                        event_type=str(getattr(alert_event.event_type, "value", alert_event.event_type)),
-                        aggregate_id=alert_event.aggregate_id,
-                        aggregate_type="Inventory",
-                        metadata={"correlation_id": correlation_id} if correlation_id else None,
-                    )
+                    await self._event_publisher.publish(alert_event, correlation_id=correlation_id)
                 except Exception as e:
                     logger.warning(f"Failed to publish event {type(alert_event).__name__}: {e}")
 
@@ -1164,18 +1210,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1256,18 +1291,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1363,18 +1387,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1475,18 +1488,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1540,18 +1542,7 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1599,18 +1590,7 @@ class InventoryService:
                 correlation_id=correlation_id,
             )
             try:
-                await self._event_publisher.publish(
-                    event,
-                    # BUG FIX: EventPublisherPort.publish() aslinya mewajibkan
-                    # event_type/aggregate_id/aggregate_type - panggilan lama
-                    # (event, correlation_id=correlation_id) selalu TypeError kalau
-                    # benar-benar dieksekusi (parameter correlation_id juga tidak ada
-                    # di signature aslinya).
-                    event_type=str(getattr(event.event_type, "value", event.event_type)),
-                    aggregate_id=event.aggregate_id,
-                    aggregate_type="Inventory",
-                    metadata={"correlation_id": correlation_id} if correlation_id else None,
-                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
@@ -1631,22 +1611,111 @@ class InventoryService:
     # ==================== REPORTS ====================
 
     async def get_stock_card(
-        self, item_id: UUID, from_date: date | None = None, to_date: date | None = None
-    ) -> list[dict[str, Any]]:
-        movements = await self._inv_repo.get_movements_by_item(item_id, from_date, to_date)
-        return [
-            {
-                "date": m.movement_date.isoformat(),
-                "movement_type": m.movement_type.value,
-                "quantity_in": float(m.quantity) if m.movement_type.is_inbound() else 0,
-                "quantity_out": float(m.quantity) if not m.movement_type.is_inbound() else 0,
-                "unit_cost": float(m.unit_cost),
-                "total_value": float(m.total_value),
-                "reference": m.reference_document_number,
-                "warehouse": m.warehouse_code,
-            }
-            for m in movements
-        ]
+        self,
+        item_id: UUID,
+        warehouse_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> StockCardResponse:
+        """Kartu stok satu item: saldo awal, rincian mutasi, saldo akhir.
+
+        FIX: router memanggil method ini dengan keyword
+        (item_id, warehouse_id, legal_entity_id, start_date, end_date) dan
+        membaca hasilnya sebagai objek (result.lines, result.opening_quantity,
+        result.closing_value, ...). Versi sebelumnya bersignature
+        (item_id, from_date, to_date) dan me-return list[dict], sehingga
+        GET /stock-card/{item_id} selalu gagal 500 dengan
+        "'list' object has no attribute 'item_id'". Nama parameter lama
+        (from_date/to_date) tetap diterima agar pemanggil lama tidak rusak.
+        """
+        period_start = start_date or from_date
+        period_end = end_date or to_date
+
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            raise ItemNotFoundError(f"Item {item_id} tidak ditemukan")
+
+        movements = await self._inv_repo.get_movements_by_item(
+            item_id, period_start, period_end
+        )
+
+        # Saldo awal = seluruh mutasi sebelum tanggal mulai periode.
+        opening_qty = Decimal("0")
+        opening_value = Decimal("0")
+        if period_start:
+            earlier = await self._inv_repo.get_movements_by_item(item_id, None, period_start)
+            for m in earlier:
+                if m.movement_date >= period_start:
+                    continue
+                qty = Decimal(str(m.quantity))
+                cost = Decimal(str(m.unit_cost or 0))
+                if self._is_inbound(m):
+                    opening_qty += qty
+                    opening_value += qty * cost
+                else:
+                    opening_qty -= qty
+                    opening_value -= qty * cost
+
+        lines: list[StockCardLineResponse] = []
+        balance_qty = opening_qty
+        balance_value = opening_value
+
+        for m in movements:
+            if warehouse_id is not None and getattr(m, "warehouse_id", None) not in (None, warehouse_id):
+                continue
+            qty = Decimal(str(m.quantity))
+            cost = Decimal(str(m.unit_cost or 0))
+            value = qty * cost
+            inbound = self._is_inbound(m)
+            if inbound:
+                balance_qty += qty
+                balance_value += value
+            else:
+                balance_qty -= qty
+                balance_value -= value
+            lines.append(StockCardLineResponse(
+                date=m.movement_date,
+                reference=getattr(m, "reference_document_number", None)
+                          or getattr(m, "movement_number", "") or "",
+                reference_id=getattr(m, "reference_id", None),
+                in_quantity=qty if inbound else Decimal("0"),
+                out_quantity=Decimal("0") if inbound else qty,
+                balance_quantity=balance_qty,
+                unit_cost=cost,
+                in_value=value if inbound else Decimal("0"),
+                out_value=Decimal("0") if inbound else value,
+                balance_value=balance_value,
+            ))
+
+        return StockCardResponse(
+            item_id=item_id,
+            item_code=agg.item.sku,
+            item_name=agg.item.name,
+            warehouse_name=await self._get_warehouse_name(warehouse_id),
+            opening_quantity=opening_qty,
+            opening_value=opening_value,
+            opening_unit_cost=(opening_value / opening_qty) if opening_qty else Decimal("0"),
+            lines=lines,
+            closing_quantity=balance_qty,
+            closing_value=balance_value,
+            closing_unit_cost=(balance_value / balance_qty) if balance_qty else Decimal("0"),
+        )
+
+    @staticmethod
+    def _is_inbound(movement: Any) -> bool:
+        """Apakah mutasi menambah stok? Dibuat defensif karena tipe mutasi
+        bisa berupa enum domain (punya is_inbound()) atau string biasa."""
+        mtype = getattr(movement, "movement_type", None)
+        if hasattr(mtype, "is_inbound"):
+            try:
+                return bool(mtype.is_inbound())
+            except Exception:  # noqa: BLE001
+                pass
+        name = str(getattr(mtype, "value", mtype) or "").upper()
+        return any(tag in name for tag in ("IN", "RECEIPT", "PURCHASE", "SURPLUS", "RETURN_IN"))
 
     async def get_low_stock_items(
         self, legal_entity_id: UUID, threshold_percentage: Decimal = Decimal("20")
@@ -1894,6 +1963,565 @@ class InventoryService:
 
     def get_audit_trail(self) -> list[dict[str, Any]]:
         return self._audit_trail.copy()
+
+    # ========================================================================
+    # METHOD KOMPATIBILITAS UNTUK ROUTER (fix sinkronisasi router <-> service)
+    # ========================================================================
+
+    async def get_item_by_id(
+        self, item_id: UUID, legal_entity_id: UUID | None = None
+    ) -> ItemResponse | None:
+        """Router memanggil nama ini; method internal bernama get_item()."""
+        response = await self.get_item(item_id)
+        if response is None:
+            return None
+        return response
+
+    async def get_item_by_code(
+        self, item_code: str, legal_entity_id: UUID
+    ) -> ItemResponse | None:
+        """Ambil item berdasarkan kode/SKU (dipakai GET /items/by-code/{code})."""
+        aggregate = await self._inv_repo.get_item_by_sku(item_code, legal_entity_id)
+        if not aggregate:
+            return None
+        return self._to_item_response(aggregate.item)
+
+    async def activate_item(
+        self,
+        item_id: UUID,
+        user_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> ItemResponse | None:
+        """Aktifkan kembali item yang sebelumnya dinonaktifkan."""
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            return None
+
+        agg.item.status = ItemStatus.ACTIVE
+        agg.item.updated_at = datetime.utcnow()
+        agg.item.updated_by = user_id
+        await self._inv_repo.save_item(agg)
+
+        self._record_audit("activate_item", {
+            "item_id": str(item_id),
+            "user_id": str(user_id) if user_id else None,
+        })
+        logger.info(f"Item activated: {agg.item.sku}")
+        return self._to_item_response(agg.item)
+
+    async def deactivate_item_api(
+        self,
+        item_id: UUID,
+        user_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        reason: str | None = None,
+    ) -> ItemResponse | None:
+        """Versi deactivate_item yang mengembalikan ItemResponse.
+
+        FIX: endpoint DELETE /items/{id} sebelumnya memanggil
+        ``deactivate_item(item_id, current_user.user_id, legal_entity_id, reason)``
+        secara POSISIONAL, padahal signature aslinya
+        ``(item_id, reason, user_id, correlation_id)`` - jadi user_id masuk ke
+        parameter reason, legal_entity_id masuk ke user_id, dst. Selain itu
+        method aslinya me-return ``bool`` sementara router membaca
+        ``result.item_code`` sehingga selalu AttributeError. Method ini
+        membungkusnya dengan urutan argumen yang benar dan return yang sesuai.
+        """
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            return None
+        await self.deactivate_item(item_id=item_id, reason=reason, user_id=user_id)
+        refreshed = await self._inv_repo.get_item_by_id(item_id)
+        return self._to_item_response((refreshed or agg).item)
+
+    async def void_item(
+        self,
+        item_id: UUID,
+        user_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        reason: str | None = None,
+    ) -> ItemResponse | None:
+        """Hapus permanen item (hanya boleh kalau belum pernah dipakai)."""
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            return None
+
+        if agg.item.current_stock and agg.item.current_stock != 0:
+            raise ValueError(
+                f"Item {agg.item.sku} masih punya stok {agg.item.current_stock} - "
+                "tidak bisa dihapus permanen. Nonaktifkan saja, atau nolkan stoknya dulu."
+            )
+
+        movements = await self._inv_repo.get_movements_by_item(item_id, limit=1)
+        if movements:
+            raise ValueError(
+                f"Item {agg.item.sku} sudah punya riwayat mutasi stok - tidak boleh "
+                "dihapus permanen demi jejak audit. Gunakan nonaktifkan."
+            )
+
+        response = self._to_item_response(agg.item)
+        await self._inv_repo.delete_item(item_id)
+        self._record_audit("void_item", {
+            "item_id": str(item_id),
+            "reason": reason,
+            "user_id": str(user_id) if user_id else None,
+        })
+        logger.info(f"Item voided (hard delete): {agg.item.sku}")
+        return response
+
+    async def list_stock_opnames(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        warehouse_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Daftar stock opname untuk ditampilkan di menu Stock Opname &
+        Valuasi (dropdown/tabel pilih opname yang mau di-approve/dibatalkan)."""
+        return await self._inv_repo.list_opnames(
+            legal_entity_id=legal_entity_id,
+            status=status,
+            warehouse_id=warehouse_id,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def cancel_stock_opname(
+        self,
+        opname_id: UUID,
+        cancelled_by: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        reason: str | None = None,
+    ) -> OpnameCancelResponse | None:
+        """Batalkan stock opname yang masih draft/pending."""
+        opname = await self._inv_repo.get_opname_by_id(opname_id)
+        if not opname:
+            return None
+
+        current_status = getattr(opname.status, "value", opname.status)
+        if str(current_status).upper() in ("APPROVED", "COMPLETED", "CANCELLED"):
+            raise ValueError(
+                f"Stock opname sudah berstatus {current_status} - tidak bisa dibatalkan."
+            )
+
+        if hasattr(opname, "cancel"):
+            opname.cancel(cancelled_by=cancelled_by, reason=reason or "")
+        else:
+            opname.status = OpnameStatus.CANCELLED
+        await self._inv_repo.save_opname(opname)
+
+        self._record_audit("cancel_stock_opname", {
+            "opname_id": str(opname_id),
+            "reason": reason,
+            "user_id": str(cancelled_by) if cancelled_by else None,
+        })
+        return OpnameCancelResponse(
+            id=opname_id,
+            opname_number=getattr(opname, "opname_number", str(opname_id)[:8]),
+            status="CANCELLED",
+        )
+
+    # ------------------------------------------------------------------
+    # Transfer antar gudang (model header + lines)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _transfer_to_response(transfer: Any) -> WarehouseTransferResponse:
+        return WarehouseTransferResponse(
+            id=transfer.transfer_id,
+            transfer_number=transfer.transfer_number,
+            from_warehouse_id=transfer.source_warehouse_id,
+            from_warehouse_name=transfer.source_warehouse_name,
+            to_warehouse_id=transfer.destination_warehouse_id,
+            to_warehouse_name=transfer.destination_warehouse_name,
+            transfer_date=transfer.transfer_date,
+            status=getattr(transfer.status, "value", transfer.status),
+            items=[
+                it.to_dict() if hasattr(it, "to_dict") else {
+                    "item_id": str(it.item_id),
+                    "item_sku": it.item_sku,
+                    "item_name": it.item_name,
+                    "quantity": str(it.quantity),
+                    "unit_cost": str(it.unit_cost),
+                    "total_value": str(it.total_value),
+                }
+                for it in transfer.items
+            ],
+            notes=transfer.notes,
+            created_at=transfer.created_at or datetime.utcnow(),
+            created_by=transfer.created_by or transfer.requested_by,
+            approved_at=transfer.approved_at,
+            approved_by=transfer.approved_by,
+            completed_at=transfer.completed_at,
+            version=getattr(transfer, "version", 1),
+        )
+
+    async def create_warehouse_transfer(self, request: Any) -> WarehouseTransferResponse:
+        """Buat transfer antar gudang (header + banyak item)."""
+        if request.from_warehouse_id == request.to_warehouse_id:
+            raise ValueError("Gudang asal dan gudang tujuan tidak boleh sama")
+
+        items: list[TransferItem] = []
+        for raw in (request.items or []):
+            line = raw if isinstance(raw, dict) else raw.__dict__
+            item_id = line["item_id"]
+            agg = await self._inv_repo.get_item_by_id(item_id)
+            if not agg:
+                raise ValueError(f"Item {item_id} tidak ditemukan")
+            qty = Decimal(str(line["quantity"]))
+            available = await self._inv_repo.get_current_stock(item_id, request.from_warehouse_id)
+            if qty > available:
+                raise ValueError(
+                    f"Stok {agg.item.sku} di gudang asal tidak cukup "
+                    f"(tersedia {available}, diminta {qty})"
+                )
+            unit_cost = agg.item.average_cost
+            items.append(TransferItem(
+                item_id=item_id,
+                item_sku=agg.item.sku,
+                item_name=agg.item.name,
+                quantity=qty,
+                unit_cost=unit_cost,
+                total_value=qty * unit_cost,
+                batch_number=line.get("batch_number"),
+            ))
+
+        if not items:
+            raise ValueError("Transfer harus punya minimal 1 item")
+
+        transfer = InterWarehouseTransfer(
+            transfer_id=uuid4(),
+            transfer_number=f"TRF-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            source_warehouse_id=request.from_warehouse_id,
+            source_warehouse_name=await self._get_warehouse_name(request.from_warehouse_id),
+            destination_warehouse_id=request.to_warehouse_id,
+            destination_warehouse_name=await self._get_warehouse_name(request.to_warehouse_id),
+            transfer_date=request.transfer_date or date.today(),
+            priority=TransferPriority.NORMAL,
+            status=TransferStatus.PENDING,
+            items=items,
+            notes=getattr(request, "notes", None) or "",
+            requested_by=request.created_by,
+            requested_at=datetime.utcnow(),
+            created_by=request.created_by,
+            created_at=datetime.utcnow(),
+            legal_entity_id=request.legal_entity_id,
+        )
+        await self._inv_repo.save_transfer(transfer)
+
+        self._record_audit("create_warehouse_transfer", {
+            "transfer_id": str(transfer.transfer_id),
+            "transfer_number": transfer.transfer_number,
+        })
+        return self._transfer_to_response(transfer)
+
+    async def approve_warehouse_transfer(
+        self,
+        transfer_id: UUID,
+        approver_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> WarehouseTransferResponse | None:
+        """Setujui transfer antar gudang yang masih pending."""
+        transfer = await self._inv_repo.get_transfer_by_id(transfer_id)
+        if not transfer:
+            return None
+
+        status = getattr(transfer.status, "value", transfer.status)
+        if str(status).upper() not in ("PENDING", "DRAFT", "SUBMITTED"):
+            raise ValueError(f"Transfer sudah berstatus {status} - tidak bisa disetujui lagi.")
+
+        if hasattr(transfer, "approve"):
+            transfer.approve(approver_id)
+        else:
+            transfer.status = TransferStatus.APPROVED
+            transfer.approved_by = approver_id
+            transfer.approved_at = datetime.utcnow()
+        await self._inv_repo.save_transfer(transfer)
+
+        self._record_audit("approve_warehouse_transfer", {"transfer_id": str(transfer_id)})
+        return self._transfer_to_response(transfer)
+
+    async def complete_warehouse_transfer(
+        self,
+        transfer_id: UUID,
+        completed_by: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> WarehouseTransferResponse | None:
+        """Selesaikan transfer: catat mutasi keluar di gudang asal dan
+        mutasi masuk di gudang tujuan untuk setiap item."""
+        transfer = await self._inv_repo.get_transfer_by_id(transfer_id)
+        if not transfer:
+            return None
+
+        status = getattr(transfer.status, "value", transfer.status)
+        if str(status).upper() == "COMPLETED":
+            raise ValueError("Transfer sudah selesai sebelumnya.")
+        if str(status).upper() not in ("APPROVED", "IN_TRANSIT", "SHIPPED"):
+            raise ValueError(
+                f"Transfer berstatus {status} - harus disetujui dulu sebelum diselesaikan."
+            )
+
+        for line in transfer.items:
+            await self._inv_repo.transfer_stock(
+                item_id=line.item_id,
+                from_warehouse_id=transfer.source_warehouse_id,
+                to_warehouse_id=transfer.destination_warehouse_id,
+                quantity=line.quantity,
+                user_id=completed_by,
+                reference_type="INTER_WAREHOUSE_TRANSFER",
+                reference_id=transfer_id,
+                unit_cost=line.unit_cost,
+            )
+
+        if hasattr(transfer, "complete"):
+            transfer.complete(completed_by)
+        else:
+            transfer.status = TransferStatus.COMPLETED
+            transfer.completed_by = completed_by
+            transfer.completed_at = datetime.utcnow()
+        await self._inv_repo.save_transfer(transfer)
+
+        self._record_audit("complete_warehouse_transfer", {"transfer_id": str(transfer_id)})
+        return self._transfer_to_response(transfer)
+
+    # ------------------------------------------------------------------
+    # Valuasi & NRV
+    # ------------------------------------------------------------------
+
+    async def get_valuation(
+        self,
+        item_id: UUID,
+        legal_entity_id: UUID | None = None,
+        as_of_date: date | None = None,
+        warehouse_id: UUID | None = None,
+    ) -> ValuationResponse:
+        """Nilai persediaan satu item beserta rincian layer FIFO/LIFO."""
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            raise ItemNotFoundError(f"Item {item_id} tidak ditemukan")
+
+        layers_raw: list[Any] = []
+        if warehouse_id is not None:
+            try:
+                layers_raw = await self._inv_repo.get_fifo_layers(item_id, warehouse_id)
+            except Exception as exc:  # noqa: BLE001 - layer bersifat opsional
+                logger.warning(f"Gagal mengambil FIFO layer untuk {item_id}: {exc}")
+
+        layers: list[ValuationLayerResponse] = []
+        total_qty = Decimal("0")
+        total_value = Decimal("0")
+        for layer in layers_raw:
+            remaining = Decimal(str(getattr(layer, "remaining_quantity", 0) or 0))
+            unit_cost = Decimal(str(getattr(layer, "unit_cost", 0) or 0))
+            qty = Decimal(str(getattr(layer, "quantity", remaining) or 0))
+            layers.append(ValuationLayerResponse(
+                layer_id=getattr(layer, "id", uuid4()),
+                quantity=qty,
+                unit_cost=unit_cost,
+                total_value=qty * unit_cost,
+                remaining_quantity=remaining,
+                remaining_value=remaining * unit_cost,
+                created_at=getattr(layer, "created_at", None) or datetime.utcnow(),
+                expiry_date=getattr(layer, "expiry_date", None),
+            ))
+            total_qty += remaining
+            total_value += remaining * unit_cost
+
+        if not layers:
+            # Tanpa rincian layer, pakai stok & harga rata-rata yang tercatat
+            # di master item - tetap memberi angka valuasi yang benar.
+            total_qty = Decimal(str(agg.item.current_stock or 0))
+            total_value = total_qty * Decimal(str(agg.item.average_cost or 0))
+
+        wac = (total_value / total_qty) if total_qty else Decimal("0")
+
+        return ValuationResponse(
+            item_id=item_id,
+            item_code=agg.item.sku,
+            item_name=agg.item.name,
+            valuation_method=getattr(self._valuation_method, "value", str(self._valuation_method)),
+            total_quantity=total_qty,
+            total_value=total_value,
+            weighted_average_cost=wac,
+            layers=layers,
+        )
+
+    async def test_nrv(
+        self,
+        item_id: UUID,
+        legal_entity_id: UUID | None = None,
+        test_date: date | None = None,
+        nrv: Decimal | None = None,
+        tested_by: UUID | None = None,
+    ) -> NRVTestResponse:
+        """Uji Net Realizable Value (PSAK 14: persediaan dinilai pada nilai
+        terendah antara biaya perolehan dan nilai realisasi neto)."""
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            raise ItemNotFoundError(f"Item {item_id} tidak ditemukan")
+
+        nrv_value = Decimal(str(nrv if nrv is not None else 0))
+        if nrv_value < 0:
+            raise ValueError("NRV tidak boleh negatif")
+
+        quantity = Decimal(str(agg.item.current_stock or 0))
+        unit_cost = Decimal(str(agg.item.average_cost or 0))
+        carrying_value = quantity * unit_cost
+        nrv_total = quantity * nrv_value
+
+        nrv_less_than_cost = nrv_value < unit_cost
+        impairment_loss = (carrying_value - nrv_total) if nrv_less_than_cost else Decimal("0")
+
+        self._record_audit("test_nrv", {
+            "item_id": str(item_id),
+            "nrv": str(nrv_value),
+            "impairment_loss": str(impairment_loss),
+            "user_id": str(tested_by) if tested_by else None,
+        })
+
+        return NRVTestResponse(
+            item_id=item_id,
+            item_code=agg.item.sku,
+            item_name=agg.item.name,
+            carrying_value=carrying_value,
+            net_realizable_value=nrv_total,
+            impairment_loss=impairment_loss,
+            nrv_less_than_cost=nrv_less_than_cost,
+            recommended_adjustment=impairment_loss,
+            status="IMPAIRED" if nrv_less_than_cost else "OK",
+            created_at=datetime.utcnow(),
+            created_by=tested_by,
+            journal_id=None,
+        )
+
+    async def export_items(
+        self,
+        legal_entity_id: UUID,
+        format: str = "csv",
+        item_type: str | None = None,
+        category: str | None = None,
+    ) -> bytes:
+        """Ekspor master barang. Router mengirim hasilnya apa adanya sebagai
+        body Response, jadi yang dikembalikan harus bytes."""
+        csv_text = await self._inv_repo.export_items_to_csv(legal_entity_id)
+        if isinstance(csv_text, bytes):
+            return csv_text
+        return csv_text.encode("utf-8")
+
+
+# ============================================================================
+# DTO RESPONSE TAMBAHAN UNTUK ENDPOINT API
+#
+# FIX SINKRONISASI ROUTER <-> SERVICE: fastapi_inventory_router.py memanggil
+# sejumlah method yang sebelumnya TIDAK ADA di InventoryService
+# (get_item_by_id, get_item_by_code, activate_item, void_item,
+# cancel_stock_opname, create/approve/complete_warehouse_transfer,
+# get_valuation, test_nrv, export_items). Setiap endpoint tersebut pasti
+# gagal 500 AttributeError begitu diklik. Method-methodnya ditambahkan di
+# bawah, beserta dataclass response yang bentuk fieldnya persis seperti
+# yang dibaca router.
+# ============================================================================
+
+
+@dataclass
+class WarehouseTransferResponse:
+    """Bentuk response transfer antar gudang yang dibaca router."""
+
+    id: UUID
+    transfer_number: str
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    transfer_date: date
+    status: str
+    items: list[dict[str, Any]]
+    created_at: datetime
+    created_by: UUID
+    from_warehouse_name: str | None = None
+    to_warehouse_name: str | None = None
+    notes: str | None = None
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    completed_at: datetime | None = None
+    version: int = 1
+
+
+@dataclass
+class ValuationLayerResponse:
+    layer_id: UUID
+    quantity: Decimal
+    unit_cost: Decimal
+    total_value: Decimal
+    remaining_quantity: Decimal
+    remaining_value: Decimal
+    created_at: datetime
+    expiry_date: date | None = None
+
+
+@dataclass
+class ValuationResponse:
+    item_id: UUID
+    item_code: str
+    item_name: str
+    valuation_method: str
+    total_quantity: Decimal
+    total_value: Decimal
+    weighted_average_cost: Decimal
+    layers: list[ValuationLayerResponse]
+
+
+@dataclass
+class NRVTestResponse:
+    item_id: UUID
+    item_code: str
+    item_name: str
+    carrying_value: Decimal
+    net_realizable_value: Decimal
+    impairment_loss: Decimal
+    nrv_less_than_cost: bool
+    recommended_adjustment: Decimal
+    status: str
+    created_at: datetime
+    created_by: UUID
+    journal_id: UUID | None = None
+
+
+@dataclass
+class OpnameCancelResponse:
+    id: UUID
+    opname_number: str
+    status: str
+
+
+@dataclass
+class StockCardLineResponse:
+    date: date
+    reference: str
+    in_quantity: Decimal
+    out_quantity: Decimal
+    balance_quantity: Decimal
+    unit_cost: Decimal
+    in_value: Decimal
+    out_value: Decimal
+    balance_value: Decimal
+    reference_id: UUID | None = None
+
+
+@dataclass
+class StockCardResponse:
+    item_id: UUID
+    item_code: str
+    item_name: str
+    opening_quantity: Decimal
+    opening_value: Decimal
+    opening_unit_cost: Decimal
+    lines: list[StockCardLineResponse]
+    closing_quantity: Decimal
+    closing_value: Decimal
+    closing_unit_cost: Decimal
+    warehouse_name: str | None = None
 
 
 # ============================================================================

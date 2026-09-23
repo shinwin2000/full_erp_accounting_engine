@@ -14,8 +14,10 @@ from typing import Any
 from core.api_client import api_client
 from core.formatting import extract_list, extract_total
 from core.workers import run_task
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -26,6 +28,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QTableView,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -291,7 +295,12 @@ class GenericListPage(QWidget):
 
         params: dict[str, Any] | None = None
         json_body: dict[str, Any] | None = None
-        if getattr(action, "needs_reason", False):
+        if getattr(action, "action_fields", None):
+            dlg = FormDialog(action.label, action.action_fields, parent=self)
+            if not dlg.exec():
+                return
+            json_body = dlg.result_payload()
+        elif getattr(action, "needs_reason", False):
             from PySide6.QtWidgets import QInputDialog
 
             reason, ok = QInputDialog.getText(
@@ -319,15 +328,59 @@ class GenericListPage(QWidget):
         rec_id = record.get(self.config.id_field)
         path = f"{self.config.base_path}{self.config.list_path.rstrip('/')}/{rec_id}{action.path_suffix}"
         self._set_write_buttons_enabled(False)
+        # FIX: aksi ber-method GET (mis. "Riwayat Uji Impairment") adalah
+        # aksi BACA, bukan tulis - sebelumnya on_success di sini SELALU
+        # menampilkan toast generik "Aksi berhasil" dan membuang hasil GET
+        # begitu saja (tidak pernah ditampilkan ke user). Untuk method GET,
+        # hasilnya sekarang ditampilkan lewat dialog tabel read-only.
+        if action.method == "GET":
+            on_success = lambda r: (self._set_write_buttons_enabled(True), self._show_action_result(action.label, r))
+        else:
+            on_success = lambda _r: self._after_write(f"Aksi '{action.label}' berhasil.")
         run_task(
             api_client.request,
-            on_success=lambda _r: self._after_write(f"Aksi '{action.label}' berhasil."),
+            on_success=on_success,
             on_error=self._on_write_error,
             method=action.method,
             path=path,
             params=params,
             json_body=json_body,
         )
+
+    def _show_action_result(self, title: str, result: Any) -> None:
+        """Tampilkan hasil aksi ber-method GET (mis. daftar riwayat) dalam
+        dialog tabel read-only sederhana. Dipakai bersama oleh aksi GET apa
+        pun di modul mana pun - tidak spesifik ke satu modul tertentu."""
+        rows = extract_list(result) if isinstance(result, (list, dict)) else None
+        if not rows:
+            QMessageBox.information(self, title, "Tidak ada data.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.resize(700, 400)
+        # Tombol Minimize/Maximize tidak tampil default di QDialog - perlu
+        # ditambahkan eksplisit ke window flags.
+        dlg.setWindowFlags(
+            dlg.windowFlags() | Qt.WindowMinMaxButtonsHint | Qt.WindowSystemMenuHint
+        )
+        layout = QVBoxLayout(dlg)
+
+        columns = list(rows[0].keys())
+        table = QTableWidget(len(rows), len(columns))
+        table.setHorizontalHeaderLabels(columns)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setStretchLastSection(True)
+        for r, row in enumerate(rows):
+            for c, col in enumerate(columns):
+                table.setItem(r, c, QTableWidgetItem(str(row.get(col, ""))))
+        layout.addWidget(table)
+
+        close_btn = QPushButton("Tutup")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+        dlg.exec()
 
     def _after_write(self, message: str) -> None:
         self._set_write_buttons_enabled(True)

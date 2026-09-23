@@ -58,7 +58,15 @@ class BudgetStatus(Enum):
             cls.SUBMITTED: {cls.UNDER_REVIEW, cls.REJECTED, cls.CANCELLED},
             cls.UNDER_REVIEW: {cls.APPROVED, cls.REJECTED, cls.CANCELLED},
             cls.APPROVED: {cls.ACTIVE, cls.LOCKED, cls.CANCELLED, cls.ARCHIVED},
-            cls.REJECTED: {cls.DRAFT, cls.CANCELLED, cls.ARCHIVED},
+            # [FIX] Sebelumnya REJECTED cuma bisa balik ke DRAFT/CANCELLED/
+            # ARCHIVED -- tidak bisa langsung ke SUBMITTED. Padahal
+            # `is_editable()` di bawah menganggap REJECTED bisa diedit (mis.
+            # update_line/add_line) untuk diperbaiki lalu dikirim ulang, dan
+            # `submit()` sendiri cuma mengecek `is_editable()` sebagai syarat
+            # awal -- akibatnya submit ulang budget yang REJECTED SELALU
+            # gagal dengan pesan membingungkan "Cannot transition from
+            # rejected to submitted" walau tampaknya seharusnya boleh.
+            cls.REJECTED: {cls.DRAFT, cls.SUBMITTED, cls.CANCELLED, cls.ARCHIVED},
             cls.ACTIVE: {cls.LOCKED, cls.CLOSED, cls.EXPIRED, cls.ARCHIVED},
             cls.LOCKED: {cls.ACTIVE, cls.ARCHIVED},
             cls.ARCHIVED: set(),
@@ -395,13 +403,23 @@ class BudgetAggregate:
     # Untuk kepatuhan static checker (type hints only)
     id: UUID
 
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
-
     def __init__(self, budget: Budget, version: int = 1):
         self._budget = budget
         self._version = version
         self._events: list[Any] = []
+        # [FIX] Sebelumnya `_snapshots`/`_audit_trail` dideklarasikan sebagai
+        # ClassVar dengan default list mutable -- itu artinya SEMUA instance
+        # BudgetAggregate di seluruh proses (budget apapun, punya siapapun)
+        # berbagi list YANG SAMA. Setiap kali satu budget disimpan/berubah
+        # status, snapshot & audit trail-nya nyasar ke `self._snapshots`/
+        # `self._audit_trail` milik CLASS, bukan milik instance -- artinya
+        # `get_audit_trail()` satu budget bisa balikin data budget lain
+        # (kebocoran data antar-record), dan `_audit_trail` (tidak ada
+        # pembatasan ukuran sama sekali, beda dari `_snapshots`) tumbuh
+        # tanpa henti selama proses server hidup. Sekarang keduanya jadi
+        # instance attribute biasa, di-reset bersih setiap aggregate dibuat.
+        self._snapshots: list[dict[str, Any]] = []
+        self._audit_trail: list[dict[str, Any]] = []
         self._take_snapshot()
         # Untuk kepatuhan static checker: set instance attributes
         self.id = budget.id

@@ -54,10 +54,67 @@ FORM_FIELDS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Field form KHUSUS untuk "Ubah" - field penentu nilai goodwill (harga
+# akuisisi, nilai wajar aset bersih, tanggal, kode, entitas diakuisisi)
+# dikunci sejak pengakuan awal (standar akuntansi), backend memang tidak
+# menerima perubahan itu lewat update - lihat catatan di registry.py.
+# ---------------------------------------------------------------------------
+EDIT_FORM_FIELDS = [
+    FieldSpec("name", "Nama", required=True),
+    FieldSpec("cash_generating_unit", "Cash Generating Unit"),
+    FieldSpec("allocated_to_segment", "Segmen"),
+    FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
+]
+
+# ---------------------------------------------------------------------------
 # Aksi workflow tambahan (tombol di toolbar, POST /{id}/{aksi})
 # ---------------------------------------------------------------------------
 ACTIONS = [
-    ActionSpec("impairment-test", "Uji Penurunan Nilai", path_suffix="/impairment-tests", style="primary"),
+    ActionSpec(
+        "impairment-test", "Uji Penurunan Nilai", path_suffix="/impairment-tests", style="primary",
+        confirm=False,
+        action_fields=[
+            FieldSpec("test_date", "Tanggal Uji", FieldType.DATE, required=True),
+            FieldSpec("recoverable_amount", "Jumlah Terpulihkan (Recoverable Amount)",
+                      FieldType.DECIMAL, required=True),
+            FieldSpec("valuation_method", "Metode Valuasi", FieldType.SELECT,
+                      choices=("fair_value_less_cost", "value_in_use"),
+                      default="fair_value_less_cost"),
+            FieldSpec("discount_rate", "Tingkat Diskonto (0-1, opsional)", FieldType.DECIMAL, min_value=0),
+            FieldSpec("growth_rate", "Tingkat Pertumbuhan (opsional)", FieldType.DECIMAL),
+            FieldSpec("impairment_source", "Sumber Uji", FieldType.SELECT,
+                      choices=("annual_test", "trigger_based", "disposal", "reversal"),
+                      default="annual_test"),
+            FieldSpec("description", "Keterangan", FieldType.TEXTAREA),
+        ],
+    ),
+    # PENTING: reversal impairment goodwill DILARANG oleh IFRS/PSAK kecuali
+    # untuk koreksi kesalahan input - lihat peringatan di
+    # GoodwillService.reverse_impairment (service_goodwill.py).
+    ActionSpec(
+        "reverse-impairment", "Batalkan Penurunan Nilai (Reversal)",
+        path_suffix="/reverse-impairment", style="danger",
+        confirm=False,
+        action_fields=[
+            FieldSpec("reversal_date", "Tanggal Reversal", FieldType.DATE, required=True),
+            FieldSpec("reversal_amount", "Jumlah Reversal", FieldType.DECIMAL, required=True),
+            FieldSpec("reason", "Alasan (wajib, koreksi kesalahan input saja)",
+                      FieldType.TEXTAREA, required=True),
+        ],
+    ),
+    ActionSpec(
+        "dispose", "Lepas Goodwill (Dispose)", path_suffix="/dispose", style="danger",
+        confirm=False,
+        action_fields=[
+            FieldSpec("disposal_date", "Tanggal Pelepasan", FieldType.DATE, required=True),
+            FieldSpec("proceeds", "Hasil Pelepasan (jika ada)", FieldType.DECIMAL, default=0),
+            FieldSpec("reason", "Alasan", FieldType.TEXTAREA),
+        ],
+    ),
+    ActionSpec(
+        "impairment-history", "Riwayat Uji Impairment", method="GET",
+        path_suffix="/impairment-tests", style="default", confirm=False,
+    ),
 ]
 
 CONFIG = ModuleConfig(
@@ -70,6 +127,7 @@ CONFIG = ModuleConfig(
     id_field="id",
     columns=COLUMNS,
     form_fields=FORM_FIELDS,
+    edit_form_fields=EDIT_FORM_FIELDS,
     actions=ACTIONS,
     can_create=True,
     can_edit=True,
