@@ -14,6 +14,7 @@ di dalam token saat login, jadi tidak perlu header tambahan.
 from __future__ import annotations
 
 import logging
+import mimetypes
 import threading
 import time
 from typing import Any
@@ -250,7 +251,17 @@ class ApiClient:
         clean_fields = {k: str(v) for k, v in (form_fields or {}).items() if v is not None and v != ""}
         try:
             with open(file_path, "rb") as fh:
-                files = {"file": (file_path.split("/")[-1].split("\\")[-1], fh)}
+                filename = file_path.split("/")[-1].split("\\")[-1]
+                # FIX: sebelumnya files={"file": (filename, fh)} - tuple 2
+                # elemen TIDAK menebak Content-Type dari ekstensi, `requests`
+                # selalu memakai default "application/octet-stream". Endpoint
+                # manapun yang memvalidasi content_type (mis. upload foto
+                # karyawan yang mensyaratkan "image/*") jadi SELALU ditolak
+                # 400, apa pun file yang sebenarnya dipilih. Ditambahkan tebak
+                # MIME type dari ekstensi (tuple 3 elemen) supaya
+                # Content-Type yang benar-benar terkirim ke server.
+                guessed_type, _ = mimetypes.guess_type(filename)
+                files = {"file": (filename, fh, guessed_type or "application/octet-stream")}
                 resp = self._http.post(
                     url, files=files, data=clean_fields, headers=headers,
                     timeout=settings.request_timeout, verify=settings.verify_ssl,

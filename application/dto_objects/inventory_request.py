@@ -348,33 +348,46 @@ class StockMovementRequestDTO:
 
 @dataclass(kw_only=True)
 class StockOpnameRequestDTO:
-    """Request DTO for stock opname (physical count)."""
+    """Request DTO for stock opname (physical count session).
+
+    FIX BUG PRE-EXISTING (bukan hasil perbaikan sebelumnya - ini bug lama
+    yang belum pernah ketahuan): DTO ini SEBELUMNYA cuma mendukung SATU
+    item per opname (item_id + physical_quantity tunggal). Padahal
+    endpoint router (StockOpnameCreateSchema) dan form frontend (Stock
+    Opname & Valuasi) sama-sama dirancang untuk SATU SESI hitung fisik
+    per GUDANG yang berisi BANYAK baris item sekaligus (warehouse_id +
+    lines[]). Setiap kali endpoint create dipanggil, langsung TypeError
+    "unexpected keyword argument 'warehouse_id'" - fitur ini tidak
+    pernah bisa dipakai sama sekali sejak awal. DTO ditulis ulang
+    mengikuti bentuk yang benar-benar dikirim router.
+    """
 
     legal_entity_id: UUID
-    item_id: UUID
-    physical_quantity: Decimal
+    warehouse_id: UUID
+    lines: list[dict[str, Any]]
     opname_date: date | None = None
     notes: str | None = None
-    counted_by: UUID | None = None
+    created_by: UUID | None = None
 
     def __post_init__(self) -> None:
-        if self.physical_quantity < 0:
-            raise ValueError(f"Physical quantity cannot be negative: {self.physical_quantity}")
+        if not self.lines:
+            raise ValueError("Stock opname harus punya minimal 1 baris item")
+        for line in self.lines:
+            physical_qty = Decimal(str(line.get("physical_quantity", 0)))
+            if physical_qty < 0:
+                raise ValueError(f"Physical quantity cannot be negative: {physical_qty}")
         if self.opname_date is None:
-            from datetime import date
-
             object.__setattr__(self, "opname_date", date.today())
 
     def to_dict(self) -> dict[str, Any]:
-        # opname_date is guaranteed non-None after __post_init__
         assert self.opname_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
-            "item_id": str(self.item_id),
-            "physical_quantity": str(self.physical_quantity),
+            "warehouse_id": str(self.warehouse_id),
+            "lines": self.lines,
             "opname_date": self.opname_date.isoformat(),
             "notes": self.notes,
-            "counted_by": str(self.counted_by) if self.counted_by else None,
+            "created_by": str(self.created_by) if self.created_by else None,
         }
 
 

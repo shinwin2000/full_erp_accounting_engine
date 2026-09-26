@@ -16,7 +16,9 @@ baru di fastapi_employee_router.py.)
 """
 from __future__ import annotations
 
+from PySide6.QtWidgets import QMessageBox, QPushButton
 from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
+from ui.pages.employee_detail_dialog import EmployeeDetailDialog
 from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------
@@ -105,7 +107,28 @@ CONFIG = ModuleConfig(
 
 
 class EmployeesPage(GenericListPage):
-    """Halaman Karyawan."""
+    """Halaman Karyawan, + tombol Detail untuk data tanggungan/keluarga & foto."""
 
     def __init__(self, parent=None):
         super().__init__(CONFIG, parent)
+        self._add_detail_button()
+
+    # ------------------------------------------------------------------
+    def _add_detail_button(self) -> None:
+        self.detail_btn = QPushButton("📋 Detail")
+        self.detail_btn.clicked.connect(self._open_detail)
+        # Taruh tepat di sebelah kiri tombol "+ Baru" (pola yang sama
+        # seperti CustomersPage._add_detail_button).
+        toolbar_layout = self.layout().itemAt(1).layout()
+        insert_at = toolbar_layout.count() - 1 if self.config.can_create else toolbar_layout.count()
+        toolbar_layout.insertWidget(insert_at, self.detail_btn)
+
+    def _open_detail(self) -> None:
+        record = self._selected_record()
+        if not record:
+            QMessageBox.information(self, "Info", "Pilih baris karyawan terlebih dahulu.")
+            return
+        employee_id = record.get(self.config.id_field)
+        label = record.get("full_name") or record.get("employee_code") or str(employee_id)
+        dlg = EmployeeDetailDialog(str(employee_id), str(label), parent=self)
+        dlg.exec()

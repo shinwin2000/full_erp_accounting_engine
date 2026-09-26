@@ -1443,9 +1443,13 @@ async def reverse_movement(
 )
 async def get_stock_card(
     item_id: UUID,
-    warehouse_id: UUID = Query(..., description="Warehouse ID"),
-    start_date: date = Query(..., description="Start date"),
-    end_date: date = Query(..., description="End date"),
+    # FIX: sebelumnya ketiga param ini WAJIB (Query(...)) padahal tab
+    # "Kartu Stok" di frontend memanggil endpoint ini tanpa mengirim
+    # satupun - selalu 422 "Field required". Dibuat opsional dengan
+    # makna wajar: kosong = semua gudang / sejak awal / sampai sekarang.
+    warehouse_id: UUID | None = Query(None, description="Warehouse ID (kosongkan untuk semua gudang)"),
+    start_date: date | None = Query(None, description="Start date (kosongkan untuk sejak awal)"),
+    end_date: date | None = Query(None, description="End date (kosongkan untuk sampai sekarang)"),
     _permission: None = Depends(require_permission("inventory:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     inventory_service: Any = Depends(get_inventory_service),
@@ -1963,49 +1967,70 @@ async def get_inventory_valuation_by_path(
 
 @router.get(
     "/valuation",
-    response_model=InventoryValuationResponseSchema,
-    summary="Get inventory valuation (query params)",
+    summary="Get inventory valuation - satu item (item_id diisi) atau semua item (item_id kosong)",
     operation_id="get_inventory_valuation",
 )
 async def get_inventory_valuation(
-    item_id: UUID = Query(..., description="Item ID"),
-    as_of_date: date = Query(..., description="Valuation date"),
+    # FIX: sebelumnya item_id & as_of_date WAJIB diisi (Query(...)),
+    # padahal frontend (tab "Valuasi Persediaan") justru dirancang
+    # memanggil endpoint ini TANPA parameter apa pun untuk menampilkan
+    # valuasi SEMUA item sekaligus (lihat komentar dokumentasi sendiri di
+    # stock_opname_page.py: "GET /valuation - valuasi semua item") -
+    # selalu 422 "Field required" sejak awal. Dibuat opsional: kalau
+    # item_id diisi -> valuasi 1 item; kalau kosong -> valuasi semua item
+    # di legal entity ini. Response selalu dibungkus {"items": [...]}
+    # supaya bentuknya konsisten baik untuk 1 maupun banyak item.
+    item_id: UUID | None = Query(None, description="Item ID (kosongkan untuk semua item)"),
+    as_of_date: date | None = Query(None, description="Valuation date (kosongkan untuk hari ini)"),
     _permission: None = Depends(require_permission("inventory:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     inventory_service: Any = Depends(get_inventory_service),
-) -> InventoryValuationResponseSchema:
+) -> dict[str, Any]:
     """Get inventory valuation using configured method (FIFO/LIFO/AVERAGE) - query version."""
+    resolved_date = as_of_date or date.today()
     try:
-        result = await inventory_service.get_valuation(
-            item_id=item_id,
-            legal_entity_id=legal_entity_id,
-            as_of_date=as_of_date,
-        )
+        if item_id is not None:
+            item_ids = [item_id]
+        else:
+            item_list = await inventory_service.list_items(legal_entity_id=legal_entity_id, page_size=1000)
+            item_ids = [it.id for it in item_list.items]
 
-        return InventoryValuationResponseSchema(
-            item_id=result.item_id,
-            item_code=result.item_code,
-            item_name=result.item_name,
-            valuation_method=_safe_valuation_method(result.valuation_method),
-            as_of_date=as_of_date,
-            total_quantity=result.total_quantity,
-            total_value=result.total_value,
-            weighted_average_cost=result.weighted_average_cost,
-            layers=[
-                InventoryValuationLayerSchema(
-                    layer_id=layer.layer_id,
-                    quantity=layer.quantity,
-                    unit_cost=layer.unit_cost,
-                    total_value=layer.total_value,
-                    remaining_quantity=layer.remaining_quantity,
-                    remaining_value=layer.remaining_value,
-                    created_at=layer.created_at,
-                    expiry_date=layer.expiry_date,
+        schemas: list[InventoryValuationResponseSchema] = []
+        for iid in item_ids:
+            try:
+                result = await inventory_service.get_valuation(
+                    item_id=iid,
+                    legal_entity_id=legal_entity_id,
+                    as_of_date=resolved_date,
                 )
-                for layer in result.layers
-            ],
-            generated_at=datetime.now(),
-        )
+            except Exception as item_err:
+                logger.warning("Skip valuation item %s: %s", iid, item_err)
+                continue
+            schemas.append(InventoryValuationResponseSchema(
+                item_id=result.item_id,
+                item_code=result.item_code,
+                item_name=result.item_name,
+                valuation_method=_safe_valuation_method(result.valuation_method),
+                as_of_date=resolved_date,
+                total_quantity=result.total_quantity,
+                total_value=result.total_value,
+                weighted_average_cost=result.weighted_average_cost,
+                layers=[
+                    InventoryValuationLayerSchema(
+                        layer_id=layer.layer_id,
+                        quantity=layer.quantity,
+                        unit_cost=layer.unit_cost,
+                        total_value=layer.total_value,
+                        remaining_quantity=layer.remaining_quantity,
+                        remaining_value=layer.remaining_value,
+                        created_at=layer.created_at,
+                        expiry_date=layer.expiry_date,
+                    )
+                    for layer in result.layers
+                ],
+                generated_at=datetime.now(),
+            ))
+        return {"items": [s.model_dump(mode="json") for s in schemas], "total": len(schemas)}
     except Exception as e:
         logger.exception("Failed to get inventory valuation: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

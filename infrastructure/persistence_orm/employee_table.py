@@ -11,7 +11,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel employee.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -19,8 +19,10 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -36,6 +38,7 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+from infrastructure.persistence_orm.employee_dependent_table import EmployeeDependentTable
 
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.payslip_table import PayslipTable
@@ -212,12 +215,25 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Foto profil - disimpan langsung sebagai bytea (lihat catatan di
+    # migrations/versions/employee_family_photo_001.py untuk alasannya).
+    photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    photo_mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    photo_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    photo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
+
+    # Data tanggungan/keluarga (pasangan, anak, dll) - lihat EmployeeDependentTable
+    dependents: Mapped[list[EmployeeDependentTable]] = relationship(
+        "EmployeeDependentTable", back_populates="employee",
+        cascade="all, delete-orphan", lazy="selectin",
+    )
 
     # Manager hierarchy (self-referential)
     manager: Mapped[EmployeeTable | None] = relationship(
@@ -454,6 +470,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "is_active": self.is_active,
             "notes": self.notes,
             "extra_metadata": self.extra_metadata,
+            "has_photo": self.photo_data is not None,
             "legal_entity_id": str(self.legal_entity_id),
             "created_by": str(self.created_by) if self.created_by else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,

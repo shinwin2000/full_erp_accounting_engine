@@ -37,6 +37,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select, update
 
+from infrastructure.persistence_orm.employee_dependent_table import EmployeeDependentTable
 from infrastructure.persistence_orm.employee_table import EmployeeTable
 from ports.primary.employee_repository_port import EmployeeRepositoryPort
 
@@ -554,6 +555,132 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
             except Exception as e:
                 logger.warning(f"Failed to import employee row {row.get('employee_code')}: {e}")
         return count
+
+    # ==================== FOTO PROFIL ====================
+
+    async def upload_photo(
+        self, employee_id: UUID, photo_data: bytes, mime_type: str, filename: str
+    ) -> bool:
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(
+                    EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
+                ).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return False
+                row.photo_data = photo_data
+                row.photo_mime_type = mime_type
+                row.photo_filename = filename
+                row.photo_updated_at = datetime.now(UTC)
+                await session.flush()
+            return True
+
+    async def get_photo(self, employee_id: UUID) -> dict[str, Any] | None:
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row or not row.photo_data:
+                return None
+            return {
+                "photo_data": row.photo_data,
+                "mime_type": row.photo_mime_type,
+                "filename": row.photo_filename,
+            }
+
+    async def delete_photo(self, employee_id: UUID) -> bool:
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(
+                    EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
+                ).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return False
+                row.photo_data = None
+                row.photo_mime_type = None
+                row.photo_filename = None
+                row.photo_updated_at = None
+                await session.flush()
+            return True
+
+    # ==================== TANGGUNGAN / KELUARGA ====================
+
+    async def add_dependent(
+        self, employee_id: UUID, legal_entity_id: UUID, data: dict[str, Any],
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        async with self._session_scope() as session:
+            async with session.begin():
+                row = EmployeeDependentTable(
+                    id=uuid4(),
+                    employee_id=employee_id,
+                    legal_entity_id=legal_entity_id,
+                    full_name=data["full_name"],
+                    relationship_type=data["relationship_type"],
+                    birth_date=data.get("birth_date"),
+                    occupation=data.get("occupation"),
+                    is_ptkp_dependent=data.get("is_ptkp_dependent", True),
+                    notes=data.get("notes"),
+                    created_by=created_by,
+                )
+                session.add(row)
+                await session.flush()
+                result = row.to_dict()
+            return result
+
+    async def list_dependents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        async with self._session_scope() as session:
+            stmt = (
+                select(EmployeeDependentTable)
+                .where(EmployeeDependentTable.employee_id == employee_id)
+                .order_by(EmployeeDependentTable.created_at)
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+
+    async def update_dependent(
+        self, dependent_id: UUID, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeDependentTable).where(
+                    EmployeeDependentTable.id == dependent_id
+                ).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return None
+                for key in (
+                    "full_name", "relationship_type", "birth_date",
+                    "occupation", "is_ptkp_dependent", "notes",
+                ):
+                    if key in changes:
+                        setattr(row, key, changes[key])
+                await session.flush()
+                # Sama seperti update() employee: updated_at pakai server-side
+                # onupdate, refresh eksplisit supaya to_dict() tidak lazy-load.
+                await session.refresh(row)
+                result_dict = row.to_dict()
+            return result_dict
+
+    async def delete_dependent(self, dependent_id: UUID) -> bool:
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeDependentTable).where(
+                    EmployeeDependentTable.id == dependent_id
+                )
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return False
+                await session.delete(row)
+            return True
 
     # ==================== AUDIT & HEALTH ====================
 

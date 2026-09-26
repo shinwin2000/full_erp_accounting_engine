@@ -665,6 +665,99 @@ class EmployeeService:
         return deleted
 
     # ========================================================================
+    # FOTO PROFIL
+    # ========================================================================
+
+    async def upload_employee_photo(
+        self, employee_id: UUID, photo_data: bytes, mime_type: str, filename: str,
+        uploaded_by: UUID | None = None,
+    ) -> bool:
+        self._check_authority(uploaded_by, "update_employee")
+        ok = await self._repository.upload_photo(employee_id, photo_data, mime_type, filename)
+        if not ok:
+            raise EmployeeNotFoundError(f"Employee {employee_id} not found")
+        self._record_audit("upload_employee_photo", {
+            "employee_id": str(employee_id),
+            "filename": filename,
+            "uploaded_by": str(uploaded_by) if uploaded_by else None,
+        })
+        return ok
+
+    async def get_employee_photo(self, employee_id: UUID) -> dict[str, Any] | None:
+        return await self._repository.get_photo(employee_id)
+
+    async def delete_employee_photo(self, employee_id: UUID, deleted_by: UUID | None = None) -> bool:
+        self._check_authority(deleted_by, "update_employee")
+        ok = await self._repository.delete_photo(employee_id)
+        self._record_audit("delete_employee_photo", {
+            "employee_id": str(employee_id),
+            "deleted_by": str(deleted_by) if deleted_by else None,
+        })
+        return ok
+
+    # ========================================================================
+    # TANGGUNGAN / KELUARGA
+    # ========================================================================
+
+    async def add_dependent(
+        self, employee_id: UUID, legal_entity_id: UUID, full_name: str,
+        relationship_type: str, birth_date: date | None = None,
+        occupation: str | None = None, is_ptkp_dependent: bool = True,
+        notes: str | None = None, created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        self._check_authority(created_by, "update_employee")
+        if relationship_type not in ("spouse", "child", "parent", "other"):
+            raise EmployeeServiceError(
+                "relationship_type must be one of: spouse, child, parent, other"
+            )
+        result = await self._repository.add_dependent(
+            employee_id, legal_entity_id,
+            {
+                "full_name": full_name,
+                "relationship_type": relationship_type,
+                "birth_date": birth_date,
+                "occupation": occupation,
+                "is_ptkp_dependent": is_ptkp_dependent,
+                "notes": notes,
+            },
+            created_by=created_by,
+        )
+        self._record_audit("add_dependent", {
+            "employee_id": str(employee_id),
+            "full_name": full_name,
+            "relationship_type": relationship_type,
+            "created_by": str(created_by) if created_by else None,
+        })
+        return result
+
+    async def list_dependents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        return await self._repository.list_dependents(employee_id)
+
+    async def update_dependent(
+        self, dependent_id: UUID, updated_by: UUID | None = None, **changes: Any
+    ) -> dict[str, Any] | None:
+        self._check_authority(updated_by, "update_employee")
+        changes = {k: v for k, v in changes.items() if v is not None}
+        result = await self._repository.update_dependent(dependent_id, changes)
+        if result:
+            self._record_audit("update_dependent", {
+                "dependent_id": str(dependent_id),
+                "changes": list(changes.keys()),
+                "updated_by": str(updated_by) if updated_by else None,
+            })
+        return result
+
+    async def delete_dependent(self, dependent_id: UUID, deleted_by: UUID | None = None) -> bool:
+        self._check_authority(deleted_by, "update_employee")
+        ok = await self._repository.delete_dependent(dependent_id)
+        if ok:
+            self._record_audit("delete_dependent", {
+                "dependent_id": str(dependent_id),
+                "deleted_by": str(deleted_by) if deleted_by else None,
+            })
+        return ok
+
+    # ========================================================================
     # STATS
     # ========================================================================
 

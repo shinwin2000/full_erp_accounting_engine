@@ -167,6 +167,48 @@ class EmployeeRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def upload_photo(
+        self, employee_id: UUID, photo_data: bytes, mime_type: str, filename: str
+    ) -> bool:
+        """Simpan/ganti foto profil karyawan."""
+        pass
+
+    @abstractmethod
+    async def get_photo(self, employee_id: UUID) -> dict[str, Any] | None:
+        """Ambil foto profil karyawan (bytes + mime_type + filename)."""
+        pass
+
+    @abstractmethod
+    async def delete_photo(self, employee_id: UUID) -> bool:
+        """Hapus foto profil karyawan."""
+        pass
+
+    @abstractmethod
+    async def add_dependent(
+        self, employee_id: UUID, legal_entity_id: UUID, data: dict[str, Any],
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Tambah data tanggungan/keluarga karyawan."""
+        pass
+
+    @abstractmethod
+    async def list_dependents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        """Daftar tanggungan/keluarga seorang karyawan."""
+        pass
+
+    @abstractmethod
+    async def update_dependent(
+        self, dependent_id: UUID, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Ubah data satu tanggungan."""
+        pass
+
+    @abstractmethod
+    async def delete_dependent(self, dependent_id: UUID) -> bool:
+        """Hapus data satu tanggungan."""
+        pass
+
+    @abstractmethod
     async def health_check(self) -> dict[str, Any]:
         """Health check repository."""
         pass

@@ -904,6 +904,218 @@ async def resign_employee(
 
 
 # ============================================================================
+# FOTO PROFIL ENDPOINTS
+# ============================================================================
+
+@router.post(
+    "/employees/{employee_id}/photo",
+    summary="Upload/ganti foto profil karyawan",
+)
+async def upload_employee_photo(
+    employee_id: UUID,
+    file: UploadFile = File(...),
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, Any]:
+    if not file.content_type or not file.content_type.startswith("image/"):
+        # Fallback: sebagian client bisa saja mengirim Content-Type generik
+        # (mis. application/octet-stream) meski isinya benar gambar - cek
+        # ekstensi filename sebagai cadangan sebelum menolak.
+        allowed_ext = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+        fname = (file.filename or "").lower()
+        if not fname.endswith(allowed_ext):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File harus berupa gambar (image/*)",
+            )
+    content = await file.read()
+    max_bytes = 5 * 1024 * 1024  # 5 MB
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ukuran foto maksimal 5 MB",
+        )
+    try:
+        await service.upload_employee_photo(
+            employee_id=employee_id,
+            photo_data=content,
+            mime_type=file.content_type,
+            filename=file.filename or "photo.jpg",
+            uploaded_by=user.user_id,
+        )
+        return {"success": True, "filename": file.filename}
+    except EmployeeNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    except Exception as e:
+        logger.error(f"Error uploading photo for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get(
+    "/employees/{employee_id}/photo",
+    summary="Ambil foto profil karyawan",
+)
+async def get_employee_photo(
+    employee_id: UUID,
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> Response:
+    photo = await service.get_employee_photo(employee_id)
+    if not photo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto tidak ditemukan")
+    return Response(content=photo["photo_data"], media_type=photo["mime_type"] or "image/jpeg")
+
+
+@router.delete(
+    "/employees/{employee_id}/photo",
+    summary="Hapus foto profil karyawan",
+)
+async def delete_employee_photo(
+    employee_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, Any]:
+    try:
+        ok = await service.delete_employee_photo(employee_id, deleted_by=user.user_id)
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting photo for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# ============================================================================
+# TANGGUNGAN / KELUARGA ENDPOINTS
+# ============================================================================
+
+class DependentCreateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    full_name: str = Field(..., min_length=1, max_length=200)
+    relationship_type: str = Field(..., description="spouse, child, parent, atau other")
+    birth_date: date | None = None
+    occupation: str | None = Field(None, max_length=100)
+    is_ptkp_dependent: bool = True
+    notes: str | None = None
+
+
+class DependentUpdateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    full_name: str | None = Field(None, min_length=1, max_length=200)
+    relationship_type: str | None = None
+    birth_date: date | None = None
+    occupation: str | None = Field(None, max_length=100)
+    is_ptkp_dependent: bool | None = None
+    notes: str | None = None
+
+
+class DependentResponseModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    employee_id: str
+    full_name: str
+    relationship_type: str
+    birth_date: str | None
+    occupation: str | None
+    is_ptkp_dependent: bool
+    notes: str | None
+    created_at: str | None
+    updated_at: str | None
+
+
+@router.post(
+    "/employees/{employee_id}/dependents",
+    response_model=DependentResponseModel,
+    status_code=status.HTTP_201_CREATED,
+    summary="Tambah data tanggungan/keluarga karyawan",
+)
+async def add_employee_dependent(
+    employee_id: UUID,
+    payload: DependentCreateRequest,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> DependentResponseModel:
+    employee = await service.get_employee(employee_id)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    try:
+        result = await service.add_dependent(
+            employee_id=employee_id,
+            legal_entity_id=UUID(employee["legal_entity_id"]),
+            full_name=payload.full_name,
+            relationship_type=payload.relationship_type,
+            birth_date=payload.birth_date,
+            occupation=payload.occupation,
+            is_ptkp_dependent=payload.is_ptkp_dependent,
+            notes=payload.notes,
+            created_by=user.user_id,
+        )
+        return DependentResponseModel(**result)
+    except EmployeeServiceError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding dependent for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get(
+    "/employees/{employee_id}/dependents",
+    response_model=list[DependentResponseModel],
+    summary="Daftar tanggungan/keluarga karyawan",
+)
+async def list_employee_dependents(
+    employee_id: UUID,
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> list[DependentResponseModel]:
+    results = await service.list_dependents(employee_id)
+    return [DependentResponseModel(**r) for r in results]
+
+
+@router.patch(
+    "/employees/{employee_id}/dependents/{dependent_id}",
+    response_model=DependentResponseModel,
+    summary="Ubah data tanggungan",
+)
+async def update_employee_dependent(
+    employee_id: UUID,
+    dependent_id: UUID,
+    payload: DependentUpdateRequest,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> DependentResponseModel:
+    result = await service.update_dependent(
+        dependent_id,
+        updated_by=user.user_id,
+        full_name=payload.full_name,
+        relationship_type=payload.relationship_type,
+        birth_date=payload.birth_date,
+        occupation=payload.occupation,
+        is_ptkp_dependent=payload.is_ptkp_dependent,
+        notes=payload.notes,
+    )
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+    return DependentResponseModel(**result)
+
+
+@router.delete(
+    "/employees/{employee_id}/dependents/{dependent_id}",
+    summary="Hapus data tanggungan",
+)
+async def delete_employee_dependent(
+    employee_id: UUID,
+    dependent_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, Any]:
+    ok = await service.delete_dependent(dependent_id, deleted_by=user.user_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+    return {"success": True}
+
+
+# ============================================================================
 # STATS ENDPOINT
 # ============================================================================
 

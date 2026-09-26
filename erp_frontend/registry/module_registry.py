@@ -51,7 +51,6 @@ class FieldSpec:
     required: bool = False
     choices: tuple = ()
     default: object = None
-    min_value: float | None = None
     help_text: str = ""
     section: str = ""  # judul grup field (mis. "Identitas", "Kontak & Alamat")
                         # untuk form besar bertab-visual, mengurangi scroll
@@ -67,6 +66,19 @@ class FieldSpec:
     lookup_path: str = ""
     lookup_value_field: str = "id"
     lookup_label_fields: tuple = ()
+    # --- Khusus FieldType.NUMBER / FieldType.DECIMAL ---
+    # min_value: nilai minimum yang diterima backend. Dipakai supaya
+    #   validasi terjadi di form (pesan bahasa Indonesia yang jelas)
+    #   sebelum request dikirim, bukan baru ketahuan sebagai 422
+    #   "Input should be greater than 0" dari pydantic.
+    # omit_if_zero: kalau True dan field TIDAK wajib, nilai 0 dianggap
+    #   "tidak diisi" dan tidak ikut dikirim ke backend. Dibutuhkan untuk
+    #   field opsional yang backend-nya memberi batasan gt=0 (mis.
+    #   unit_cost pada mutasi stok): spinbox selalu punya nilai awal 0,
+    #   dan sebelumnya 0 itu ikut terkirim sehingga request ditolak
+    #   padahal user memang sengaja mengosongkannya.
+    min_value: float | None = None
+    omit_if_zero: bool = False
 
     def __post_init__(self):
         if not self.label:
@@ -96,13 +108,13 @@ class ActionSpec:
     # (BankTransactionReverseSchema) memang mewajibkan JSON body, bukan
     # query param seperti pola needs_reason yang sudah ada sebelumnya.
     reason_in_body: bool = False
-    # Untuk aksi yang butuh form lebih dari satu field teks alasan (mis.
-    # Uji Penurunan Nilai Goodwill: tanggal uji, jumlah terpulihkan,
-    # metode valuasi, dll) - kalau diisi, GenericListPage menampilkan
-    # FormDialog yang sama seperti "+ Baru"/"Ubah" sebelum mengirim aksi,
-    # lalu seluruh isian dikirim sebagai JSON body. Kalau None (default),
-    # perilaku needs_reason/confirm di atas tetap seperti sebelumnya -
-    # tidak mengubah aksi modul lain yang sudah jalan.
+    # Sebagian aksi (mis. "Uji Penurunan Nilai" pada modul Goodwill) butuh
+    # input beberapa field terstruktur (tanggal, jumlah, metode valuasi,
+    # dst), bukan cuma satu "reason" seperti needs_reason. Kalau diisi,
+    # GenericListPage._run_action() akan menampilkan FormDialog berisi
+    # field-field ini sebelum mengirim aksi, dan hasil isian dikirim
+    # sebagai JSON body. None (default) berarti aksi ini tidak butuh form
+    # tambahan - berlaku seperti sebelumnya untuk semua modul lain.
     action_fields: list | None = None
 
 
@@ -415,9 +427,7 @@ _reg(ModuleConfig(
     key="legal_entities", label="Entitas Legal", category="Master Data", icon="🏢",
     base_path="/legal-entities/legal-entities", list_path="/",
     columns=[("legal_name", "Nama Legal"), ("trade_name", "Nama Dagang"),
-             ("entity_type", "Tipe"), ("registration_number", "No. Registrasi (NIB)"),
-             ("npwp", "NPWP"), ("is_taxable", "PKP"), ("city", "Kota"),
-             ("province", "Provinsi"), ("status", "Status")],
+             ("entity_type", "Tipe"), ("npwp", "NPWP"), ("city", "Kota")],
     form_fields=[
         FieldSpec("legal_name", "Nama Legal (min. 3 karakter)", required=True),
         FieldSpec("trade_name", "Nama Dagang"),
@@ -523,10 +533,7 @@ _reg(ModuleConfig(
     columns=[("transaction_date", "Tanggal"), ("transaction_type", "Tipe"),
              ("amount", "Jumlah"), ("description", "Keterangan")],
     form_fields=[
-        FieldSpec("bank_account_id", "Rekening Bank", FieldType.LOOKUP, required=True,
-                  lookup_path="/bank-cash/bank-cash/bank-accounts",
-                  lookup_value_field="id",
-                  lookup_label_fields=("account_number", "account_name", "bank_name")),
+        FieldSpec("bank_account_id", "Rekening Bank (UUID)", FieldType.UUID, required=True),
         FieldSpec("transaction_date", "Tanggal", FieldType.DATE, required=True),
         FieldSpec("transaction_type", "Tipe Transaksi", FieldType.SELECT,
                   choices=("deposit", "withdrawal", "transfer_in", "transfer_out",
@@ -534,35 +541,6 @@ _reg(ModuleConfig(
         FieldSpec("amount", "Jumlah", FieldType.DECIMAL, required=True),
         FieldSpec("description", "Keterangan", FieldType.TEXTAREA, required=True),
     ],
-    # FIX: transaksi yang sudah tercatat tidak boleh diedit nilainya
-    # langsung (jejak audit) - backend (service_bank_cash.py:
-    # update_transaction) SENGAJA hanya menerima description/
-    # reference_number/status. Form "Ubah" dipersempit ke field ini saja.
-    edit_form_fields=[
-        FieldSpec("reference_number", "No. Referensi", FieldType.TEXT),
-        FieldSpec("status", "Status", FieldType.SELECT,
-                  choices=("pending", "completed", "cleared", "rejected",
-                           "cancelled", "reconciled"), required=True),
-        FieldSpec("description", "Keterangan", FieldType.TEXTAREA, required=True),
-    ],
-    # FIX: DELETE /transactions/{id} TIDAK PERNAH ada di backend (selalu
-    # 405) - yang ada cuma POST /transactions/{id}/reverse untuk
-    # membalikkan transaksi. can_delete=False + aksi "reverse" di bawah
-    # menggantikan tombol "Hapus" bawaan.
-    actions=[
-        ActionSpec(
-            name="reverse",
-            label="Batalkan (Reverse)",
-            method="POST",
-            path_suffix="/reverse",
-            confirm=True,
-            style="danger",
-            needs_reason=True,
-            reason_min_length=5,
-            reason_in_body=True,
-        ),
-    ],
-    can_delete=False,
 ))
 _reg(ModuleConfig(
     key="asset_lifecycle", label="Depresiasi, Amortisasi & Impairment", category="Aset", icon="🏗️",
@@ -591,8 +569,6 @@ _reg(ModuleConfig(
         FieldSpec("location", "Lokasi"),
         FieldSpec("responsible_party", "Penanggung Jawab"),
         FieldSpec("serial_number", "No. Seri"),
-        FieldSpec("supplier_id", "Supplier (UUID)", FieldType.UUID),
-        FieldSpec("invoice_id", "Invoice (UUID)", FieldType.UUID),
     ],
     actions=[
         ActionSpec("run-depreciation", "Jalankan Depresiasi", path_suffix="/depreciate", style="primary"),
@@ -626,95 +602,21 @@ _reg(ModuleConfig(
 _reg(ModuleConfig(
     key="goodwill", label="Goodwill", category="Aset", icon="⭐",
     base_path="/goodwill/goodwill", list_path="/",
-    # FIX (audit 2026-09-15): field lama (goodwill_name, goodwill_type,
-    # acquisition_cost, useful_life_years, amortization_method) TIDAK
-    # PERNAH cocok dengan backend - modul ini rusak total di semua lapisan
-    # (lihat catatan di application/service_layer/service_goodwill.py).
-    # Field di bawah disamakan persis dengan GoodwillCreateSchema yang
-    # baru. Goodwill TIDAK diamortisasi (PSAK 22/IFRS 3, impairment-only)
-    # - keputusan dikonfirmasi user saat audit, karena itu tidak ada lagi
-    # field useful_life_years/amortization_method.
-    columns=[("goodwill_code", "Kode"), ("name", "Nama"),
-             ("acquiree_name", "Entitas Diakuisisi"), ("goodwill_initial", "Nilai Goodwill Awal"),
-             ("carrying_amount", "Nilai Tercatat"), ("status", "Status")],
+    columns=[("goodwill_code", "Kode"), ("goodwill_name", "Nama"),
+             ("acquisition_cost", "Nilai Perolehan"), ("useful_life_years", "Umur Manfaat")],
     form_fields=[
         FieldSpec("goodwill_code", "Kode", required=True),
-        FieldSpec("name", "Nama", required=True),
+        FieldSpec("goodwill_name", "Nama", required=True),
+        FieldSpec("goodwill_type", "Tipe", FieldType.SELECT,
+                  choices=("purchase", "bargain", "internal", "consolidation"), default="purchase"),
         FieldSpec("acquisition_date", "Tanggal Akuisisi", FieldType.DATE, required=True),
-        FieldSpec("acquiree_name", "Nama Entitas yang Diakuisisi", required=True),
-        FieldSpec("acquiree_tax_id", "NPWP Entitas yang Diakuisisi"),
-        FieldSpec("purchase_price", "Harga Akuisisi", FieldType.DECIMAL, required=True),
-        FieldSpec("fair_value_identifiable_net_assets", "Nilai Wajar Aset Bersih Teridentifikasi",
-                  FieldType.DECIMAL, required=True),
+        FieldSpec("acquisition_cost", "Nilai Perolehan", FieldType.DECIMAL, required=True),
         FieldSpec("cash_generating_unit", "Cash Generating Unit"),
-        FieldSpec("allocated_to_segment", "Segmen"),
+        FieldSpec("useful_life_years", "Umur Manfaat (tahun)", FieldType.NUMBER),
+        FieldSpec("amortization_method", "Metode Amortisasi"),
         FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
     ],
-    # FIX (audit 2026-09-19): tanpa edit_form_fields, dialog "Ubah" pakai
-    # form_fields di atas APA ADANYA - termasuk goodwill_code, acquisition_date,
-    # acquiree_name, purchase_price, fair_value_identifiable_net_assets. Padahal
-    # GoodwillUpdateSchema/update_goodwill() di backend SENGAJA hanya menerima
-    # name/cash_generating_unit/allocated_to_segment/description (field penentu
-    # nilai goodwill dikunci sejak pengakuan awal - standar akuntansi, bukan
-    # bug). User mengedit purchase_price, submit sukses 200 OK, tapi field itu
-    # diam-diam diabaikan backend karena skemanya memang tidak menerimanya -
-    # "Nilai Goodwill Awal" di tabel tidak pernah berubah. Form edit dipersempit
-    # ke field yang benar-benar didukung, supaya tidak menyesatkan.
-    edit_form_fields=[
-        FieldSpec("name", "Nama", required=True),
-        FieldSpec("cash_generating_unit", "Cash Generating Unit"),
-        FieldSpec("allocated_to_segment", "Segmen"),
-        FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
-    ],
-    actions=[
-        ActionSpec(
-            "impairment-test", "Uji Penurunan Nilai", path_suffix="/impairment-tests", style="primary",
-            confirm=False,
-            action_fields=[
-                FieldSpec("test_date", "Tanggal Uji", FieldType.DATE, required=True),
-                FieldSpec("recoverable_amount", "Jumlah Terpulihkan (Recoverable Amount)",
-                          FieldType.DECIMAL, required=True),
-                FieldSpec("valuation_method", "Metode Valuasi", FieldType.SELECT,
-                          choices=("fair_value_less_cost", "value_in_use"),
-                          default="fair_value_less_cost"),
-                FieldSpec("discount_rate", "Tingkat Diskonto (0-1, opsional)", FieldType.DECIMAL, min_value=0),
-                FieldSpec("growth_rate", "Tingkat Pertumbuhan (opsional)", FieldType.DECIMAL),
-                FieldSpec("impairment_source", "Sumber Uji", FieldType.SELECT,
-                          choices=("annual_test", "trigger_based", "disposal", "reversal"),
-                          default="annual_test"),
-                FieldSpec("description", "Keterangan", FieldType.TEXTAREA),
-            ],
-        ),
-        # PENTING: reversal impairment goodwill DILARANG oleh IFRS/PSAK
-        # kecuali untuk koreksi kesalahan input - lihat peringatan di
-        # GoodwillService.reverse_impairment (service_goodwill.py). Aksi
-        # ini sengaja diberi style="danger" supaya user berpikir dua kali.
-        ActionSpec(
-            "reverse-impairment", "Batalkan Penurunan Nilai (Reversal)",
-            path_suffix="/reverse-impairment", style="danger",
-            confirm=False,
-            action_fields=[
-                FieldSpec("reversal_date", "Tanggal Reversal", FieldType.DATE, required=True),
-                FieldSpec("reversal_amount", "Jumlah Reversal", FieldType.DECIMAL, required=True),
-                FieldSpec("reason", "Alasan (wajib, koreksi kesalahan input saja)",
-                          FieldType.TEXTAREA, required=True),
-            ],
-        ),
-        ActionSpec(
-            "dispose", "Lepas Goodwill (Dispose)", path_suffix="/dispose", style="danger",
-            confirm=False,
-            action_fields=[
-                FieldSpec("disposal_date", "Tanggal Pelepasan", FieldType.DATE, required=True),
-                FieldSpec("proceeds", "Hasil Pelepasan (jika ada)", FieldType.DECIMAL, default=0),
-                FieldSpec("reason", "Alasan", FieldType.TEXTAREA),
-            ],
-        ),
-        ActionSpec(
-            "impairment-history", "Riwayat Uji Impairment", method="GET",
-            path_suffix="/impairment-tests", style="default", confirm=False,
-        ),
-    ],
-    can_delete=False,
+    actions=[ActionSpec("impairment-test", "Uji Penurunan Nilai", path_suffix="/impairment-tests", style="primary")],
 ))
 _reg(ModuleConfig(
     key="maintenance_schedule", label="Jadwal Maintenance & Spare Parts", category="Aset", icon="🔧",

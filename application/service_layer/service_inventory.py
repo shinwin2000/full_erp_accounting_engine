@@ -298,11 +298,16 @@ class MovementListResult:
 
 @dataclass(kw_only=True)
 class StockOpnameRequest:
+    """FIX: field lama (item_id + physical_quantity tunggal) diganti supaya
+    cocok dengan bentuk sebenarnya yang dikirim router (satu sesi opname per
+    gudang, berisi banyak baris item)."""
+
     legal_entity_id: UUID
-    item_id: UUID
-    physical_quantity: Decimal
+    warehouse_id: UUID
+    lines: list[dict[str, Any]]
     opname_date: date | None = None
     notes: str | None = None
+    created_by: UUID | None = None
 
 
 @dataclass(kw_only=True)
@@ -322,6 +327,31 @@ class StockOpnameResponse:
     counted_at: datetime
     approved_by: UUID | None
     approved_at: datetime | None
+
+
+@dataclass(kw_only=True)
+class StockOpnameSessionResponse:
+    """Response satu sesi stock opname (banyak baris item per gudang) -
+    bentuknya persis mengikuti apa yang dibaca router di
+    StockOpnameResponseSchema (fastapi_inventory_router.py)."""
+
+    id: UUID
+    opname_number: str
+    warehouse_id: UUID
+    warehouse_name: str | None
+    opname_date: date
+    status: str
+    total_adjustments: int
+    adjustment_value: Decimal
+    lines: list[dict[str, Any]]
+    notes: str | None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    applied_at: datetime | None = None
+    version: int = 1
 
 
 @dataclass(kw_only=True)
@@ -1072,20 +1102,29 @@ class InventoryService:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
             if movement_type in (MovementType.ADJUSTMENT_IN, MovementType.ADJUSTMENT_OUT):
-                from domain.inventory.stock_adjustment_entity import StockAdjustmentEntity
+                from domain.inventory.stock_adjustment_entity import AdjustmentStatus, StockAdjustmentEntity
+                # FIX: konstruktor ini sebelumnya tidak mengisi 3 parameter
+                # wajib (warehouse_name, item_name, status) - TypeError setiap
+                # kali mutasi jenis ADJUSTMENT_IN/OUT direkam (persis kasus
+                # "IN" yang dipilih user di form Mutasi Stok). warehouse_id
+                # juga sebelumnya di-hardcode UUID(int=0) alih-alih memakai
+                # gudang yang sebenarnya dari movement.
                 adj = StockAdjustmentEntity(
                     adjustment_id=movement.id,
                     adjustment_number=movement.reference_document_number or movement.id.hex[:8],
                     adjustment_type="INCREASE" if movement_type == MovementType.ADJUSTMENT_IN else "DECREASE",
                     item_id=movement.item_id,
                     item_sku=item_agg.item.sku,
-                    warehouse_id=UUID(int=0),
+                    item_name=item_agg.item.name,
+                    warehouse_id=movement.warehouse_id,
                     warehouse_code=movement.warehouse_code,
+                    warehouse_name=await self._get_warehouse_name(movement.warehouse_id),
                     quantity=movement.quantity,
                     unit_cost=movement.unit_cost,
                     total_value=movement.total_value,
                     reason=movement.notes or "Manual adjustment",
                     adjustment_date=movement.movement_date,
+                    status=AdjustmentStatus.EXECUTED,
                 )
                 adj_event = StockAdjustedEvent(
                     adjustment=adj,
@@ -1147,52 +1186,75 @@ class InventoryService:
 
     @audit
     async def create_stock_opname(
-        self, request: StockOpnameRequest, user_id: UUID, correlation_id: str | None = None
-    ) -> StockOpnameResponse:
-        self._check_authority(user_id, "create_stock_opname")
+        self, request: StockOpnameRequest, correlation_id: str | None = None
+    ) -> StockOpnameSessionResponse:
+        """Buat SATU sesi stock opname untuk SATU gudang, berisi banyak baris item.
+
+        FIX: signature sebelumnya mewajibkan `user_id` sebagai argumen kedua,
+        padahal router memanggil method ini HANYA dengan `dto`
+        (`inventory_service.create_stock_opname(dto)`) - user id sudah
+        dibawa lewat `request.created_by`. Signature lama membuat panggilan
+        ini SELALU gagal TypeError "missing required positional argument".
+
+        FIX BUG PRE-EXISTING: method ini sebelumnya cuma menerima satu
+        item_id + physical_quantity tunggal (tidak cocok dengan
+        StockOpnameRequestDTO yang sudah diperbaiki jadi warehouse_id +
+        lines[]) - ditulis ulang supaya benar-benar memproses semua baris
+        sekaligus dalam satu sesi opname per gudang.
+        """
+        self._check_authority(request.created_by, "create_stock_opname")
         await self._uow.begin()
 
-        item_agg = await self._inv_repo.get_item_by_id(request.item_id)
-        if not item_agg:
-            raise ItemNotFoundError(f"Item {request.item_id} not found")
+        opname_items: list[OpnameItem] = []
+        all_zero_discrepancy = True
 
-        system_qty = item_agg.item.current_stock
-        physical_qty = request.physical_quantity
-        discrepancy = physical_qty - system_qty
-        discrepancy_value = discrepancy * item_agg.item.average_cost
-        discrepancy_type = (
-            DiscrepancyType.SURPLUS if discrepancy > 0
-            else DiscrepancyType.SHORTAGE if discrepancy < 0
-            else DiscrepancyType.NONE
-        )
+        for line in request.lines:
+            item_id = line["item_id"] if isinstance(line["item_id"], UUID) else UUID(str(line["item_id"]))
+            item_agg = await self._inv_repo.get_item_by_id(item_id)
+            if not item_agg:
+                raise ItemNotFoundError(f"Item {item_id} not found")
 
-        opname_item = OpnameItem(
-            item_id=request.item_id,
-            item_sku=item_agg.item.sku,
-            item_name=item_agg.item.name,
-            system_quantity=system_qty,
-            physical_quantity=physical_qty,
-            discrepancy=discrepancy,
-            discrepancy_type=discrepancy_type,
-            unit_cost=item_agg.item.average_cost,
-            notes=request.notes or "",
-            counted_by=user_id,
-            counted_at=datetime.utcnow(),
-        )
+            system_qty = Decimal(str(line.get("system_quantity", item_agg.item.current_stock)))
+            physical_qty = Decimal(str(line["physical_quantity"]))
+            discrepancy = physical_qty - system_qty
+            discrepancy_value = discrepancy * item_agg.item.average_cost
+            discrepancy_type = (
+                DiscrepancyType.SURPLUS if discrepancy > 0
+                else DiscrepancyType.SHORTAGE if discrepancy < 0
+                else DiscrepancyType.NONE
+            )
+            if discrepancy != 0:
+                all_zero_discrepancy = False
+
+            opname_items.append(OpnameItem(
+                item_id=item_id,
+                item_sku=item_agg.item.sku,
+                item_name=item_agg.item.name,
+                system_quantity=system_qty,
+                physical_quantity=physical_qty,
+                discrepancy=discrepancy,
+                discrepancy_type=discrepancy_type,
+                unit_cost=item_agg.item.average_cost,
+                notes=line.get("notes") or "",
+                counted_by=request.created_by,
+                counted_at=datetime.utcnow(),
+            ))
+
+        warehouse_name = await self._get_warehouse_name(request.warehouse_id)
 
         opname = StockOpname(
             opname_id=uuid4(),
             opname_number=f"OPN-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-            warehouse_id=None,
-            warehouse_name=item_agg.item.warehouse_code or "",
+            warehouse_id=request.warehouse_id,
+            warehouse_name=warehouse_name or "",
             opname_date=request.opname_date or date.today(),
             status=OpnameStatus.PENDING,
-            items=[opname_item],
-            performed_by=user_id,
+            items=opname_items,
+            performed_by=request.created_by,
             notes=request.notes or "",
-            created_by=user_id,
+            created_by=request.created_by,
             legal_entity_id=request.legal_entity_id,
-            warehouse_code=item_agg.item.warehouse_code,
+            warehouse_code=None,
         )
 
         await self._inv_repo.save_opname(opname)
@@ -1203,10 +1265,10 @@ class InventoryService:
         if self._event_publisher:
             event = StockOpnameCreated(
                 aggregate_id=opname.id,
-                item_id=request.item_id,
-                sku=item_agg.item.sku,
-                discrepancy=discrepancy,
-                user_id=user_id,
+                item_id=opname_items[0].item_id,
+                sku=opname_items[0].item_sku,
+                discrepancy=sum((it.discrepancy for it in opname_items), Decimal("0")),
+                user_id=request.created_by,
                 occurred_at=datetime.utcnow(),
             )
             try:
@@ -1214,56 +1276,79 @@ class InventoryService:
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
-        if discrepancy == 0:
-            await self.approve_stock_opname(opname.id, user_id, correlation_id)
+        if all_zero_discrepancy:
+            await self.approve_stock_opname(
+                opname_id=opname.id,
+                approver_id=request.created_by,
+                legal_entity_id=request.legal_entity_id,
+                correlation_id=correlation_id,
+            )
+            opname = await self._inv_repo.get_opname_by_id(opname.id)
 
         self._record_audit("create_stock_opname", {
             "opname_id": str(opname.id),
-            "item_id": str(item_agg.item.id),
-            "discrepancy": str(discrepancy),
-            "user_id": str(user_id),
+            "warehouse_id": str(request.warehouse_id),
+            "line_count": len(opname_items),
+            "user_id": str(request.created_by),
         })
 
-        return self._to_opname_response(opname, item_agg.item)
+        return self._to_opname_session_response(opname)
 
-    @audit
     async def approve_stock_opname(
-        self, opname_id: UUID, approver_id: UUID, correlation_id: str | None = None
-    ) -> StockOpnameResponse:
+        self,
+        opname_id: UUID,
+        approver_id: UUID,
+        legal_entity_id: UUID | None = None,
+        apply_adjustments: bool = True,
+        correlation_id: str | None = None,
+    ) -> StockOpnameSessionResponse | None:
+        """Setujui satu sesi stock opname dan posting penyesuaian stok
+        untuk SEMUA baris item di dalamnya.
+
+        FIX: signature sebelumnya (opname_id, approver_id, correlation_id)
+        tidak cocok dengan pemanggilan router yang mengirim
+        legal_entity_id & apply_adjustments sebagai keyword - selalu
+        TypeError "unexpected keyword argument". Body-nya juga
+        sebelumnya cuma memproses opname.items[0] (lewat convenience
+        property item_id/system_quantity/dst di StockOpnameEntity) -
+        kalau opname punya lebih dari satu baris item, sisanya diam-diam
+        TIDAK PERNAH diposting sebagai penyesuaian stok. Ditulis ulang
+        supaya memproses setiap baris di opname.items secara eksplisit.
+        """
         self._check_authority(approver_id, "approve_stock_opname")
         await self._uow.begin()
 
         opname = await self._inv_repo.get_opname_by_id(opname_id)
         if not opname:
-            raise InventoryServiceError(f"Opname {opname_id} not found")
+            return None
 
         if opname.status != OpnameStatus.PENDING:
             raise InventoryServiceError(f"Opname already {opname.status.value}")
 
-        item_agg = await self._inv_repo.get_item_by_id(opname.item_id)
-        if not item_agg:
-            raise ItemNotFoundError(f"Item {opname.item_id} not found")
+        for opname_item in opname.items:
+            discrepancy = opname_item.discrepancy
+            if discrepancy == 0 or not apply_adjustments:
+                continue
 
-        system_qty = opname.system_quantity
-        physical_qty = opname.physical_quantity
-        discrepancy = opname.discrepancy
+            item_agg = await self._inv_repo.get_item_by_id(opname_item.item_id)
+            if not item_agg:
+                raise ItemNotFoundError(f"Item {opname_item.item_id} not found")
 
-        if discrepancy != 0:
             adjustment_type = MovementType.ADJUSTMENT_IN if discrepancy > 0 else MovementType.ADJUSTMENT_OUT
             movement = StockMovement(
                 id=uuid4(),
-                legal_entity_id=opname.legal_entity_id,
-                item_id=opname.item_id,
+                legal_entity_id=opname.legal_entity_id or legal_entity_id,
+                item_id=opname_item.item_id,
                 item_sku=item_agg.item.sku,
                 item_name=item_agg.item.name,
                 movement_type=adjustment_type,
                 quantity=abs(discrepancy),
                 unit_cost=item_agg.item.average_cost,
-                total_cost=abs(opname.discrepancy_value),
+                total_cost=abs(opname_item.discrepancy_value),
                 movement_date=date.today(),
                 reference_document_type="STOCK_OPNAME",
                 reference_document_number=opname.id.hex[:8],
-                notes=f"Adjustment from opname {opname.id} (system={system_qty}, physical={physical_qty})",
+                notes=f"Adjustment from opname {opname.id} (system={opname_item.system_quantity}, physical={opname_item.physical_quantity})",
                 created_by=str(approver_id),
                 created_at=datetime.utcnow(),
                 status=MovementStatus.CONFIRMED,
@@ -1271,7 +1356,7 @@ class InventoryService:
             await self._inv_repo.save_movement(movement)
 
             new_stock = item_agg.item.current_stock + discrepancy
-            new_value = item_agg.item.current_stock_value + opname.discrepancy_value
+            new_value = item_agg.item.current_stock_value + opname_item.discrepancy_value
             item_agg.update_stock(new_stock, new_value, item_agg.item.average_cost, approver_id)
             await self._inv_repo.save_item(item_agg)
 
@@ -1286,7 +1371,7 @@ class InventoryService:
             event = StockOpnameApproved(
                 aggregate_id=opname_id,
                 item_id=opname.item_id,
-                discrepancy=discrepancy,
+                discrepancy=opname.total_discrepancy,
                 user_id=approver_id,
                 occurred_at=datetime.utcnow(),
             )
@@ -1297,15 +1382,12 @@ class InventoryService:
 
         self._record_audit("approve_stock_opname", {
             "opname_id": str(opname_id),
-            "discrepancy": str(discrepancy),
+            "total_discrepancy": str(opname.total_discrepancy),
             "approver_id": str(approver_id),
         })
 
-        return self._to_opname_response(opname, item_agg.item)
+        return self._to_opname_session_response(opname)
 
-    # ==================== INTER-WAREHOUSE TRANSFER ====================
-
-    @audit
     async def create_transfer(
         self, request: TransferRequest, user_id: UUID, correlation_id: str | None = None
     ) -> TransferResponse:
@@ -1918,6 +2000,41 @@ class InventoryService:
             return await self._inv_repo.get_warehouse_name_by_id(warehouse_id)
         except Exception:
             return None
+
+    def _to_opname_session_response(self, opname: StockOpname) -> StockOpnameSessionResponse:
+        """Bentuk response satu sesi opname (banyak item) sesuai yang dibaca
+        router - dipakai create_stock_opname & approve_stock_opname."""
+        lines = [
+            {
+                "item_id": str(it.item_id),
+                "item_code": it.item_sku,
+                "item_name": it.item_name,
+                "system_quantity": str(it.system_quantity),
+                "physical_quantity": str(it.physical_quantity),
+                "discrepancy": str(it.discrepancy),
+                "discrepancy_value": str(it.discrepancy_value),
+                "notes": it.notes,
+            }
+            for it in opname.items
+        ]
+        return StockOpnameSessionResponse(
+            id=opname.id,
+            opname_number=opname.opname_number,
+            warehouse_id=opname.warehouse_id,
+            warehouse_name=opname.warehouse_name,
+            opname_date=opname.opname_date,
+            status=opname.status.value,
+            total_adjustments=sum(1 for it in opname.items if it.discrepancy != 0),
+            adjustment_value=opname.total_discrepancy_value,
+            lines=lines,
+            notes=opname.notes,
+            created_at=opname.created_at,
+            created_by=opname.created_by,
+            approved_at=opname.approved_at,
+            approved_by=opname.approved_by,
+            applied_at=opname.approved_at,
+            version=opname.version,
+        )
 
     def _to_opname_response(self, opname: StockOpname, item: Item) -> StockOpnameResponse:
         return StockOpnameResponse(
