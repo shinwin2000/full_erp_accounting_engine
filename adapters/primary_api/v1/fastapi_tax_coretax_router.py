@@ -380,11 +380,18 @@ class SPTMasaPPNCreateSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_spt(self) -> SPTMasaPPNCreateSchema:
-        expected_kb = (
+        # BUG FIX: sebelumnya expected_lb dihitung dari expected_kb yang
+        # SUDAH di-clamp ke >=0 (bukan dari selisih mentah), sehingga
+        # -expected_kb selalu <= 0 dan expected_lb selalu jadi 0 - berapa pun
+        # nilai PPN Lebih Bayar yang dikirim frontend akan selalu dianggap
+        # salah (422). Sekarang expected_kb dan expected_lb dihitung dari
+        # selisih mentah (raw) secara independen, supaya skenario Lebih
+        # Bayar (PPN Masukan > PPN Keluaran) bisa lolos validasi dengan benar.
+        raw_selisih = (
             self.total_ppn_keluaran - self.total_ppn_masukan - self.kompensasi_dari_masa_sebelumnya
         )
-        expected_kb = max(expected_kb, Decimal(0))
-        expected_lb = max(-expected_kb, Decimal(0))
+        expected_kb = max(raw_selisih, Decimal(0))
+        expected_lb = max(-raw_selisih, Decimal(0))
 
         if abs(self.ppn_kurang_bayar - expected_kb) > Decimal("0.01"):
             raise ValueError("PPN Kurang Bayar tidak sesuai dengan perhitungan")

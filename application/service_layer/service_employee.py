@@ -758,6 +758,66 @@ class EmployeeService:
         return ok
 
     # ========================================================================
+    # DOKUMEN (KTP/KK/BPJS/dll)
+    # ========================================================================
+
+    VALID_DOCUMENT_TYPES = (
+        "ktp", "kk", "bpjs_kesehatan", "bpjs_ketenagakerjaan", "npwp", "ijazah", "other",
+    )
+
+    async def add_employee_document(
+        self, employee_id: UUID, legal_entity_id: UUID, document_type: str,
+        file_data: bytes, file_mime_type: str, file_filename: str,
+        document_label: str | None = None, document_number: str | None = None,
+        notes: str | None = None, created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        self._check_authority(created_by, "update_employee")
+        if document_type not in self.VALID_DOCUMENT_TYPES:
+            raise EmployeeServiceError(
+                f"document_type must be one of: {', '.join(self.VALID_DOCUMENT_TYPES)}"
+            )
+        if document_type == "other" and not document_label:
+            raise EmployeeServiceError("document_label wajib diisi untuk document_type='other'")
+        result = await self._repository.add_document(
+            employee_id, legal_entity_id,
+            {
+                "document_type": document_type,
+                "document_label": document_label,
+                "document_number": document_number,
+                "file_data": file_data,
+                "file_mime_type": file_mime_type,
+                "file_filename": file_filename,
+                "notes": notes,
+            },
+            created_by=created_by,
+        )
+        self._record_audit("add_employee_document", {
+            "employee_id": str(employee_id),
+            "document_type": document_type,
+            "filename": file_filename,
+            "created_by": str(created_by) if created_by else None,
+        })
+        return result
+
+    async def list_employee_documents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        return await self._repository.list_documents(employee_id)
+
+    async def get_employee_document_file(self, document_id: UUID) -> dict[str, Any] | None:
+        return await self._repository.get_document_file(document_id)
+
+    async def delete_employee_document(
+        self, document_id: UUID, deleted_by: UUID | None = None
+    ) -> bool:
+        self._check_authority(deleted_by, "update_employee")
+        ok = await self._repository.delete_document(document_id)
+        if ok:
+            self._record_audit("delete_employee_document", {
+                "document_id": str(document_id),
+                "deleted_by": str(deleted_by) if deleted_by else None,
+            })
+        return ok
+
+    # ========================================================================
     # STATS
     # ========================================================================
 

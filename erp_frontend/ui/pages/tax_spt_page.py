@@ -208,6 +208,14 @@ class SptPph21Tab(QWidget):
         self.bulan, self.tahun = _period_form(form)
         self.bruto_edit = QLineEdit()
         form.addRow("Total Bruto", self.bruto_edit)
+        # BUG FIX: sebelumnya field "PPh Terutang" tidak ada di form ini,
+        # padahal backend (SPTMasaPPH21CreateSchema.total_pph_terutang)
+        # mewajibkan field tersebut (Field(...) tanpa default). Akibatnya
+        # SETIAP submit SPT Masa PPh 21 lewat UI ini selalu gagal 422
+        # "Field required", apa pun yang diisi user. Field ditambahkan di
+        # sini dan dikirim di payload _submit().
+        self.terutang_edit = QLineEdit()
+        form.addRow("Total PPh Terutang", self.terutang_edit)
         self.bayar_edit = QLineEdit()
         form.addRow("Jumlah Dibayar", self.bayar_edit)
         self.ntpn_edit = QLineEdit()
@@ -227,14 +235,16 @@ class SptPph21Tab(QWidget):
     def _submit(self) -> None:
         try:
             bruto = Decimal(self.bruto_edit.text().strip())
+            terutang = Decimal(self.terutang_edit.text().strip())
             bayar = Decimal(self.bayar_edit.text().strip())
         except InvalidOperation:
-            QMessageBox.warning(self, "Validasi", "Total bruto & jumlah bayar wajib diisi angka.")
+            QMessageBox.warning(self, "Validasi", "Total bruto, PPh terutang & jumlah bayar wajib diisi angka.")
             return
         payload = {
             "masa_pajak": self.bulan.value(),
             "tahun_pajak": self.tahun.value(),
             "total_bruto": float(bruto),
+            "total_pph_terutang": float(terutang),
             "jumlah_bayar": float(bayar),
             "ntpn": self.ntpn_edit.text().strip() or None,
         }
@@ -265,6 +275,14 @@ class SptPph23Tab(QWidget):
         form.addRow("Jenis Pajak", self.jenis_combo)
         self.dpp_edit = QLineEdit()
         form.addRow("Total DPP", self.dpp_edit)
+        # BUG FIX: sebelumnya field "PPh Dipotong" tidak ada di form ini,
+        # padahal backend (SPTMasaPPH23CreateSchema.total_pph_dipotong)
+        # mewajibkan field tersebut (Field(...) tanpa default). Akibatnya
+        # SETIAP submit SPT Masa PPh 23 lewat UI ini selalu gagal 422
+        # "Field required", apa pun yang diisi user. Field ditambahkan di
+        # sini dan dikirim di payload _submit().
+        self.dipotong_edit = QLineEdit()
+        form.addRow("Total PPh Dipotong", self.dipotong_edit)
         self.bayar_edit = QLineEdit()
         form.addRow("Total Bayar", self.bayar_edit)
         self.kompensasi_edit = QLineEdit("0")
@@ -285,16 +303,18 @@ class SptPph23Tab(QWidget):
     def _submit(self) -> None:
         try:
             dpp = Decimal(self.dpp_edit.text().strip())
+            dipotong = Decimal(self.dipotong_edit.text().strip())
             bayar = Decimal(self.bayar_edit.text().strip())
             kompensasi = Decimal(self.kompensasi_edit.text().strip() or "0")
         except InvalidOperation:
-            QMessageBox.warning(self, "Validasi", "DPP dan jumlah bayar wajib diisi angka.")
+            QMessageBox.warning(self, "Validasi", "DPP, PPh dipotong, dan jumlah bayar wajib diisi angka.")
             return
         payload = {
             "masa_pajak": self.bulan.value(),
             "tahun_pajak": self.tahun.value(),
             "jenis_pajak": self.jenis_combo.currentText(),
             "total_dpp": float(dpp),
+            "total_pph_dipotong": float(dipotong),
             "total_bayar": float(bayar),
             "kompensasi": float(kompensasi),
             "ntpn": self.ntpn_edit.text().strip() or None,

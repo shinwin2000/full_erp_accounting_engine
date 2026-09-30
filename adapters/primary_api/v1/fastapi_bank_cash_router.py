@@ -60,10 +60,12 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 from application.service_layer.service_bank_cash import (
     BankAccountNotFoundError,
+    BankCashServiceError,
     CashBookNotFoundError,
     CreateBankAccountRequest,
     UpdateBankAccountRequest,
 )
+from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import BankCashRepositoryError
 from domain.shared_value_objects.enums import TransactionType
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
 
@@ -1468,6 +1470,12 @@ async def create_cash_book(
         return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except BankCashServiceError as e:
+        # PENTING (fix): sebelumnya error "Cash book for currency X
+        # already exists" (validasi bisnis yang wajar) jatuh ke blok
+        # "except Exception" generik dan selalu tampil sebagai 500
+        # Internal Server Error, bukan kesalahan input user yang jelas.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to create cash book: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1801,6 +1809,21 @@ async def create_petty_cash_fund(
         return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except BankCashRepositoryError as e:
+        # PENTING (fix): sebelumnya error duplikat (mis. nama dana petty
+        # cash yang sudah dipakai di legal entity yang sama) jatuh ke
+        # blok "except Exception" generik dan selalu tampil sebagai 500
+        # Internal Server Error - padahal ini sebenarnya kesalahan input
+        # user yang wajar (nama sudah dipakai), bukan bug server. Sekarang
+        # dikenali dan dikembalikan sebagai 409 Conflict dengan pesan
+        # yang jelas.
+        if "duplicate key" in str(e).lower() or "already exists" in str(e).lower():
+            raise HTTPException(
+                status_code=409,
+                detail="Nama dana petty cash ini sudah dipakai di entitas legal yang sama. Gunakan nama lain.",
+            )
+        logger.exception(f"Failed to create petty cash fund: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     except Exception as e:
         logger.exception(f"Failed to create petty cash fund: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

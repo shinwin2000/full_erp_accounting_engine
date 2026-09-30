@@ -37,6 +37,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -1112,6 +1113,127 @@ async def delete_employee_dependent(
     ok = await service.delete_dependent(dependent_id, deleted_by=user.user_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+    return {"success": True}
+
+
+# ============================================================================
+# DOKUMEN (KTP/KK/BPJS/dll) ENDPOINTS
+# ============================================================================
+
+VALID_DOCUMENT_TYPES = (
+    "ktp", "kk", "bpjs_kesehatan", "bpjs_ketenagakerjaan", "npwp", "ijazah", "other",
+)
+
+
+class DocumentResponseModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    employee_id: str
+    document_type: str
+    document_label: str | None
+    document_number: str | None
+    file_filename: str
+    file_mime_type: str
+    notes: str | None
+    created_at: str | None
+
+
+@router.post(
+    "/employees/{employee_id}/documents",
+    response_model=DocumentResponseModel,
+    status_code=status.HTTP_201_CREATED,
+    summary="Tambah dokumen karyawan (KTP/KK/BPJS/dll)",
+)
+async def add_employee_document(
+    employee_id: UUID,
+    document_type: str = Form(...),
+    document_label: str | None = Form(None),
+    document_number: str | None = Form(None),
+    notes: str | None = Form(None),
+    file: UploadFile = File(...),
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> DocumentResponseModel:
+    if document_type not in VALID_DOCUMENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"document_type must be one of: {', '.join(VALID_DOCUMENT_TYPES)}",
+        )
+    content = await file.read()
+    max_bytes = 5 * 1024 * 1024  # 5 MB
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Ukuran file maksimal 5 MB"
+        )
+    employee = await service.get_employee(employee_id)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    try:
+        result = await service.add_employee_document(
+            employee_id=employee_id,
+            legal_entity_id=UUID(employee["legal_entity_id"]),
+            document_type=document_type,
+            file_data=content,
+            file_mime_type=file.content_type or "application/octet-stream",
+            file_filename=file.filename or "document",
+            document_label=document_label,
+            document_number=document_number,
+            notes=notes,
+            created_by=user.user_id,
+        )
+        return DocumentResponseModel(**result)
+    except EmployeeServiceError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding document for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get(
+    "/employees/{employee_id}/documents",
+    response_model=list[DocumentResponseModel],
+    summary="Daftar dokumen karyawan",
+)
+async def list_employee_documents(
+    employee_id: UUID,
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> list[DocumentResponseModel]:
+    results = await service.list_employee_documents(employee_id)
+    return [DocumentResponseModel(**r) for r in results]
+
+
+@router.get(
+    "/employees/{employee_id}/documents/{document_id}/file",
+    summary="Unduh/lihat isi file satu dokumen",
+)
+async def get_employee_document_file(
+    employee_id: UUID,
+    document_id: UUID,
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> Response:
+    doc = await service.get_employee_document_file(document_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+    return Response(
+        content=doc["file_data"],
+        media_type=doc["mime_type"] or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{doc["filename"]}"'},
+    )
+
+
+@router.delete(
+    "/employees/{employee_id}/documents/{document_id}",
+    summary="Hapus satu dokumen karyawan",
+)
+async def delete_employee_document(
+    employee_id: UUID,
+    document_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, Any]:
+    ok = await service.delete_employee_document(document_id, deleted_by=user.user_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
     return {"success": True}
 
 

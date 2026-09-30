@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 
 # ============================================================================
 # ADDITIONAL DTOs (untuk testing compatibility)
@@ -904,10 +905,30 @@ class BudgetService:
                 break
 
         if target is None:
+            # [FIX] Pesan sebelumnya cuma bilang "tidak ditemukan" tanpa
+            # menjelaskan APA yang sebenarnya tidak cocok (status? tahun?
+            # akun tidak ada di budget manapun?) -- pengguna harus menebak2
+            # sendiri lewat trial-and-error. Sekarang dicek langsung di
+            # SEMUA budget milik legal_entity ini (semua fiscal_year, semua
+            # status) supaya pesan errornya bisa nunjuk persis: budget mana
+            # yang punya akun itu, fiscal_year berapa, dan status apa --
+            # jadi pengguna langsung tahu tindakan apa yang perlu diambil.
+            all_budgets = await self.list_budgets(legal_entity_id)
+
+            def _describe(account_id: UUID) -> str:
+                hits = [
+                    f"{b.budget_code} (fiscal_year={b.fiscal_year}, status={b.status})"
+                    for b in all_budgets
+                    if any(line.account_id == account_id for line in b.lines)
+                ]
+                return "; ".join(hits) if hits else "TIDAK ADA di budget manapun"
+
             raise BudgetServiceError(
-                "Tidak ditemukan budget berstatus approved/active untuk fiscal_year "
+                f"Tidak ditemukan budget berstatus approved/active untuk fiscal_year "
                 f"{fiscal_year} yang memiliki KEDUA akun sumber dan tujuan pada baris "
-                "yang sama. Transfer lintas-budget tidak didukung."
+                f"yang sama (transfer lintas-budget tidak didukung).\n"
+                f"Akun sumber ({from_account_id}) ditemukan di: {_describe(from_account_id)}.\n"
+                f"Akun tujuan ({to_account_id}) ditemukan di: {_describe(to_account_id)}."
             )
 
         aggregate = await self._get_aggregate(target.id)
@@ -968,7 +989,13 @@ class BudgetService:
         new_effective_date = date(new_fiscal_year, 1, 1)
         new_expiry_date = self._add_months_end_of_month(new_effective_date, forecast_months - 1)
 
-        new_budget_code = f"{base.budget_code}-FCST{new_fiscal_year}"
+        # [FIX] Kalau budget dasar ternyata sendiri sudah forecast, buang
+        # sufiks "-FCSTxxxx" lama dulu -- sebelumnya kode & nama menumpuk
+        # jadi "OPX-001-FCST2027-FCST2028" / "Rolling Forecast - Rolling
+        # Forecast - Anggaran" setiap forecast dibuat dari forecast.
+        root_code = re.sub(r"(-FCST\d{4})+$", "", base.budget_code)
+        root_name = re.sub(r"^(Rolling Forecast - )+", "", base.budget_name)
+        new_budget_code = f"{root_code}-FCST{new_fiscal_year}"
         existing = await self._budget_repo.get_by_code_and_year(
             legal_entity_id, new_budget_code, new_fiscal_year
         )
@@ -993,7 +1020,7 @@ class BudgetService:
         aggregate = BudgetAggregate.create(
             legal_entity_id=legal_entity_id,
             budget_code=new_budget_code,
-            budget_name=f"Rolling Forecast - {base.budget_name}",
+            budget_name=f"Rolling Forecast - {root_name}",
             budget_type=BudgetType(base.budget_type),
             fiscal_year=new_fiscal_year,
             period=BudgetPeriod(base.period),

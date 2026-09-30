@@ -38,6 +38,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, or_, select, update
 
 from infrastructure.persistence_orm.employee_dependent_table import EmployeeDependentTable
+from infrastructure.persistence_orm.employee_document_table import EmployeeDocumentTable
 from infrastructure.persistence_orm.employee_table import EmployeeTable
 from ports.primary.employee_repository_port import EmployeeRepositoryPort
 
@@ -675,6 +676,73 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
                 stmt = select(EmployeeDependentTable).where(
                     EmployeeDependentTable.id == dependent_id
                 )
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return False
+                await session.delete(row)
+            return True
+
+    # ==================== DOKUMEN (KTP/KK/BPJS/dll) ====================
+
+    async def add_document(
+        self, employee_id: UUID, legal_entity_id: UUID, data: dict[str, Any],
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        async with self._session_scope() as session:
+            async with session.begin():
+                row = EmployeeDocumentTable(
+                    id=uuid4(),
+                    employee_id=employee_id,
+                    legal_entity_id=legal_entity_id,
+                    document_type=data["document_type"],
+                    document_label=data.get("document_label"),
+                    document_number=data.get("document_number"),
+                    file_data=data["file_data"],
+                    file_mime_type=data["file_mime_type"],
+                    file_filename=data["file_filename"],
+                    notes=data.get("notes"),
+                    created_by=created_by,
+                )
+                session.add(row)
+                await session.flush()
+                result = row.to_dict()
+            return result
+
+    async def list_documents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        async with self._session_scope() as session:
+            stmt = (
+                select(EmployeeDocumentTable)
+                .where(EmployeeDocumentTable.employee_id == employee_id)
+                # FIX: sebelumnya ORDER BY created_at - timestamp bisa
+                # kembar kalau 2 dokumen diupload sangat berdekatan,
+                # urutan tampil jadi tidak stabil. upload_seq dijamin unik
+                # & naik sesuai urutan INSERT sungguhan (lihat
+                # employee_documents_seq_001.py).
+                .order_by(EmployeeDocumentTable.upload_seq)
+            )
+            result = await session.execute(stmt)
+            # include_file_data=False - daftar tetap ringan, isi file
+            # diambil terpisah lewat get_document_file().
+            return [r.to_dict(include_file_data=False) for r in result.scalars().all()]
+
+    async def get_document_file(self, document_id: UUID) -> dict[str, Any] | None:
+        async with self._session_scope() as session:
+            stmt = select(EmployeeDocumentTable).where(EmployeeDocumentTable.id == document_id)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return None
+            return {
+                "file_data": row.file_data,
+                "mime_type": row.file_mime_type,
+                "filename": row.file_filename,
+            }
+
+    async def delete_document(self, document_id: UUID) -> bool:
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeDocumentTable).where(EmployeeDocumentTable.id == document_id)
                 result = await session.execute(stmt)
                 row = result.scalar_one_or_none()
                 if not row:

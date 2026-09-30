@@ -39,6 +39,7 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 from infrastructure.persistence_orm.employee_dependent_table import EmployeeDependentTable
+from infrastructure.persistence_orm.employee_document_table import EmployeeDocumentTable
 
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.payslip_table import PayslipTable
@@ -233,6 +234,17 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     dependents: Mapped[list[EmployeeDependentTable]] = relationship(
         "EmployeeDependentTable", back_populates="employee",
         cascade="all, delete-orphan", lazy="selectin",
+    )
+
+    # Dokumen (KTP/KK/BPJS/dll) - lihat EmployeeDocumentTable. SENGAJA
+    # lazy default (bukan selectin seperti dependents di atas) karena
+    # `file_data` di tabel ini bisa berukuran besar (scan KTP/KK/dst) -
+    # tidak boleh ikut ter-load tiap kali daftar/ambil satu karyawan
+    # dipanggil. Kode yang perlu daftar dokumen query EmployeeDocumentTable
+    # langsung (lihat repository), tidak pernah lewat employee.documents.
+    documents: Mapped[list[EmployeeDocumentTable]] = relationship(
+        "EmployeeDocumentTable", back_populates="employee",
+        cascade="all, delete-orphan", lazy="select", viewonly=False,
     )
 
     # Manager hierarchy (self-referential)

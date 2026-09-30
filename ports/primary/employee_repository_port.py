@@ -209,6 +209,29 @@ class EmployeeRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def add_document(
+        self, employee_id: UUID, legal_entity_id: UUID, data: dict[str, Any],
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Tambah dokumen (KTP/KK/BPJS/dll) untuk karyawan."""
+        pass
+
+    @abstractmethod
+    async def list_documents(self, employee_id: UUID) -> list[dict[str, Any]]:
+        """Daftar dokumen seorang karyawan (tanpa isi file, lihat get_document_file)."""
+        pass
+
+    @abstractmethod
+    async def get_document_file(self, document_id: UUID) -> dict[str, Any] | None:
+        """Ambil isi file (bytes + mime_type + filename) satu dokumen."""
+        pass
+
+    @abstractmethod
+    async def delete_document(self, document_id: UUID) -> bool:
+        """Hapus satu dokumen."""
+        pass
+
+    @abstractmethod
     async def health_check(self) -> dict[str, Any]:
         """Health check repository."""
         pass

@@ -492,7 +492,7 @@ def info() -> dict[str, str]:
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/iam/users",
+    "/users",
     response_model=UserResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create new user",
@@ -575,7 +575,7 @@ async def create_user(
 
 
 @router.get(
-    "/iam/users",
+    "/users",
     response_model=list[UserResponseSchema],
     summary="List users",
     operation_id="list_users",
@@ -666,7 +666,7 @@ async def list_users(
 
 
 @router.get(
-    "/iam/users/{user_id}",
+    "/users/{user_id}",
     response_model=UserResponseSchema,
     summary="Get user by ID",
     operation_id="get_user",
@@ -719,7 +719,7 @@ async def get_user(
 
 
 @router.get(
-    "/iam/users/by-username/{username}",
+    "/users/by-username/{username}",
     response_model=UserResponseSchema,
     summary="Get user by username",
     operation_id="get_user_by_username",
@@ -772,7 +772,7 @@ async def get_user_by_username(
 
 
 @router.put(
-    "/iam/users/{user_id}",
+    "/users/{user_id}",
     response_model=UserResponseSchema,
     summary="Update user",
     operation_id="update_user",
@@ -852,7 +852,7 @@ async def update_user(
 
 
 @router.delete(
-    "/iam/users/{user_id}",
+    "/users/{user_id}",
     response_model=dict[str, Any],
     summary="Deactivate/delete user",
     operation_id="deactivate_user",
@@ -908,7 +908,7 @@ async def deactivate_user(
 
 
 @router.post(
-    "/iam/users/{user_id}/activate",
+    "/users/{user_id}/activate",
     response_model=UserResponseSchema,
     summary="Activate user",
     operation_id="activate_user",
@@ -980,7 +980,7 @@ async def activate_user(
 
 
 @router.post(
-    "/iam/users/{user_id}/lock",
+    "/users/{user_id}/lock",
     response_model=UserResponseSchema,
     summary="Lock user",
     operation_id="lock_user",
@@ -1056,7 +1056,7 @@ async def lock_user(
 
 
 @router.post(
-    "/iam/users/{user_id}/unlock",
+    "/users/{user_id}/unlock",
     response_model=UserResponseSchema,
     summary="Unlock user",
     operation_id="unlock_user",
@@ -1128,7 +1128,7 @@ async def unlock_user(
 
 
 @router.post(
-    "/iam/users/{user_id}/reset-password",
+    "/users/{user_id}/reset-password",
     response_model=dict[str, str],
     summary="Admin: reset password user lain secara paksa",
     operation_id="admin_reset_user_password",
@@ -1186,7 +1186,7 @@ async def admin_reset_user_password(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/iam/roles",
+    "/roles",
     response_model=RoleResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create new role",
@@ -1255,7 +1255,7 @@ async def create_role(
 
 
 @router.get(
-    "/iam/roles",
+    "/roles",
     response_model=list[RoleResponseSchema],
     summary="List roles",
     operation_id="list_roles",
@@ -1315,7 +1315,7 @@ async def list_roles(
 
 
 @router.get(
-    "/iam/roles/{role_id}",
+    "/roles/{role_id}",
     response_model=RoleResponseSchema,
     summary="Get role by ID",
     operation_id="get_role",
@@ -1359,7 +1359,7 @@ async def get_role(
 
 
 @router.put(
-    "/iam/roles/{role_id}",
+    "/roles/{role_id}",
     response_model=RoleResponseSchema,
     summary="Update role",
     operation_id="update_role",
@@ -1434,7 +1434,7 @@ async def update_role(
 
 
 @router.delete(
-    "/iam/roles/{role_id}",
+    "/roles/{role_id}",
     response_model=dict[str, Any],
     summary="Delete role",
     operation_id="delete_role",
@@ -1486,7 +1486,7 @@ async def delete_role(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/iam/users/{user_id}/roles",
+    "/users/{user_id}/roles",
     response_model=list[RoleResponseSchema],
     summary="Assign roles to user",
     operation_id="assign_roles_to_user",
@@ -1563,7 +1563,7 @@ async def assign_roles_to_user(
 
 
 @router.get(
-    "/iam/users/{user_id}/roles",
+    "/users/{user_id}/roles",
     response_model=list[RoleResponseSchema],
     summary="Get user roles",
     operation_id="get_user_roles",
@@ -1611,7 +1611,7 @@ async def get_user_roles(
 
 
 @router.delete(
-    "/iam/users/{user_id}/roles/{role_id}",
+    "/users/{user_id}/roles/{role_id}",
     response_model=dict[str, Any],
     summary="Remove role from user",
     operation_id="remove_role_from_user",
@@ -1670,7 +1670,7 @@ async def remove_role_from_user(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/iam/permissions",
+    "/permissions",
     response_model=list[PermissionResponseSchema],
     summary="List all permissions",
     operation_id="list_permissions",
@@ -1710,7 +1710,7 @@ async def list_permissions(
 
 
 @router.post(
-    "/iam/roles/{role_id}/permissions",
+    "/roles/{role_id}/permissions",
     response_model=list[PermissionResponseSchema],
     summary="Assign permissions to role",
     operation_id="assign_permissions_to_role",
@@ -1805,7 +1805,7 @@ async def assign_permissions_to_role(
 
 
 @router.get(
-    "/iam/roles/{role_id}/permissions",
+    "/roles/{role_id}/permissions",
     response_model=list[PermissionResponseSchema],
     summary="Get role permissions",
     operation_id="get_role_permissions",
@@ -1842,7 +1842,7 @@ async def get_role_permissions(
 
 
 @router.delete(
-    "/iam/roles/{role_id}/permissions/{permission_id}",
+    "/roles/{role_id}/permissions/{permission_id}",
     response_model=dict[str, Any],
     summary="Remove permission from role",
     operation_id="remove_permission_from_role",
@@ -2053,7 +2053,7 @@ async def refresh_token(
 
 
 @router.post(
-    "/iam/change-password",
+    "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Change own password",
     operation_id="change_password",
@@ -2089,7 +2089,7 @@ async def change_password(
 
 
 @router.post(
-    "/iam/forgot-password",
+    "/forgot-password",
     response_model=ForgotPasswordResponseSchema,
     summary="Request password reset",
     operation_id="forgot_password",
@@ -2111,7 +2111,7 @@ async def forgot_password(
 
 
 @router.post(
-    "/iam/reset-password",
+    "/reset-password",
     response_model=dict[str, str],
     summary="Reset password with token",
     operation_id="reset_password",
@@ -2139,7 +2139,7 @@ async def reset_password(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/iam/mfa/setup",
+    "/mfa/setup",
     response_model=MFASetupResponseSchema,
     summary="Setup MFA",
     operation_id="setup_mfa",
@@ -2165,7 +2165,7 @@ async def setup_mfa(
 
 
 @router.post(
-    "/iam/mfa/verify",
+    "/mfa/verify",
     response_model=dict[str, bool],
     summary="Verify and enable MFA",
     operation_id="verify_mfa",
@@ -2196,7 +2196,7 @@ async def verify_mfa(
 
 
 @router.post(
-    "/iam/mfa/disable",
+    "/mfa/disable",
     response_model=dict[str, bool],
     summary="Disable MFA",
     operation_id="disable_mfa",
@@ -2231,7 +2231,7 @@ async def disable_mfa(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/iam/sessions",
+    "/sessions",
     response_model=list[SessionResponseSchema],
     summary="Get user sessions",
     operation_id="get_user_sessions",
@@ -2253,7 +2253,7 @@ async def get_user_sessions(
 
 
 @router.delete(
-    "/iam/sessions/{session_id}",
+    "/sessions/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke a session",
     operation_id="revoke_session",
@@ -2280,7 +2280,7 @@ async def revoke_session(
 
 
 @router.delete(
-    "/iam/sessions",
+    "/sessions",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke all other sessions",
     operation_id="revoke_all_other_sessions",
@@ -2313,7 +2313,7 @@ async def revoke_all_other_sessions(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/iam/login-attempts",
+    "/login-attempts",
     response_model=list[LoginAttemptResponseSchema],
     summary="Get login attempts (admin)",
     operation_id="get_login_attempts",
@@ -2360,7 +2360,7 @@ async def get_login_attempts(
 
 
 @router.get(
-    "/iam/users/{user_id}/audit-log",
+    "/users/{user_id}/audit-log",
     response_model=list[UserAuditLogSchema],
     summary="Get user audit log",
     operation_id="get_user_audit_log",
@@ -2389,7 +2389,7 @@ async def get_user_audit_log(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/iam/users/{user_id}/status",
+    "/users/{user_id}/status",
     response_model=dict[str, Any],
     summary="Get user status",
     operation_id="get_user_status",
@@ -2430,7 +2430,7 @@ async def get_user_status(
 
 
 @router.get(
-    "/iam/users/{user_id}/history",
+    "/users/{user_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get user history",
     operation_id="get_user_history",

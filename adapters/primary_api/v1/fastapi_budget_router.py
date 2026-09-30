@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -197,6 +198,10 @@ async def get_budget_dashboard(
 ) -> dict[str, Any]:
     try:
         return await service.get_budget_dashboard(legal_entity_id, as_of_date or date.today())
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget dashboard: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -220,6 +225,10 @@ async def get_budget_alerts(
             threshold_percent=Decimal(str(threshold_percent)),
             severity=severity,
         )
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget alerts: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -246,6 +255,10 @@ async def export_budgets(
         return Response(content=data, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
     except NotImplementedError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to export budgets: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -267,6 +280,10 @@ async def get_budget_version_history(
     # dibuatkan backend-nya.
     try:
         return await service.get_budget_version_history(legal_entity_id, budget_code)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget version history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -334,6 +351,23 @@ async def create_rolling_forecast(
         raise HTTPException(status_code=404, detail=str(e))
     except (BudgetServiceError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except IntegrityError as e:
+        # [FIX] Constraint DB `uq_budget_code_legal_entity` melarang kode
+        # budget kembar per legal entity TERMASUK baris yang sudah di-soft-
+        # delete, sementara pengecekan duplikat di service hanya melihat
+        # budget yang masih hidup (dan per fiscal_year). Akibatnya membuat
+        # ulang kode yang pernah dihapus (atau kode sama beda tahun) lolos
+        # cek service lalu meledak di INSERT jadi 500 tanpa penjelasan.
+        if "budget_code" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Kode budget sudah dipakai untuk legal entity ini (bisa jadi oleh "
+                    "budget yang sudah dihapus atau di fiscal_year lain). Gunakan kode lain."
+                ),
+            )
+        logger.exception(f"Integrity error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     except Exception as e:
         logger.exception(f"Failed to create rolling forecast: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -354,6 +388,10 @@ async def get_budget_vs_actual(
 ) -> BudgetVsActualResponse | None:
     try:
         return await service.get_budget_vs_actual(budget_id, legal_entity_id, period)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget vs actual: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -374,6 +412,10 @@ async def get_budget_vs_actual_ytd(
 ) -> BudgetVsActualResponse | None:
     try:
         return await service.get_budget_vs_actual_ytd(budget_id, legal_entity_id, as_of_month)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget vs actual YTD: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -399,6 +441,10 @@ async def list_budgets(
     try:
         budgets = await service.list_budgets(legal_entity_id, fiscal_year, status)
         return [BudgetResponseSchema(**b.__dict__) for b in budgets]
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to list budgets: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -454,6 +500,27 @@ async def create_budget(
         )
         result = await service.create_budget(create_request)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except IntegrityError as e:
+        # [FIX] Constraint DB `uq_budget_code_legal_entity` melarang kode
+        # budget kembar per legal entity TERMASUK baris yang sudah di-soft-
+        # delete, sementara pengecekan duplikat di service hanya melihat
+        # budget yang masih hidup (dan per fiscal_year). Akibatnya membuat
+        # ulang kode yang pernah dihapus (atau kode sama beda tahun) lolos
+        # cek service lalu meledak di INSERT jadi 500 tanpa penjelasan.
+        if "budget_code" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Kode budget sudah dipakai untuk legal entity ini (bisa jadi oleh "
+                    "budget yang sudah dihapus atau di fiscal_year lain). Gunakan kode lain."
+                ),
+            )
+        logger.exception(f"Integrity error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     except Exception as e:
         logger.exception(f"Failed to create budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -473,6 +540,10 @@ async def get_budget(
     try:
         result = await service.get_budget(budget_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to get budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -506,6 +577,10 @@ async def update_budget(
         )
         result = await service.update_budget(update_request)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to update budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -526,6 +601,10 @@ async def delete_budget(
     try:
         result = await service.delete_budget(budget_id, current_user.user_id)
         return {"budget_id": str(budget_id), "deleted": result, "message": "Budget archived" if result else "Budget not found"}
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to delete budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -550,6 +629,10 @@ async def submit_budget(
     try:
         result = await service.submit_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to submit budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -570,6 +653,10 @@ async def approve_budget(
     try:
         result = await service.approve_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to approve budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -591,6 +678,10 @@ async def reject_budget(
     try:
         result = await service.reject_budget(budget_id, current_user.user_id, reason)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to reject budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -611,6 +702,10 @@ async def activate_budget(
     try:
         result = await service.activate_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to activate budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -631,6 +726,10 @@ async def lock_budget(
     try:
         result = await service.lock_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to lock budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -651,6 +750,10 @@ async def unlock_budget(
     try:
         result = await service.unlock_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to unlock budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -671,6 +774,10 @@ async def archive_budget(
     try:
         result = await service.archive_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to archive budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -691,6 +798,10 @@ async def close_budget(
     try:
         result = await service.close_budget(budget_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to close budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -712,6 +823,10 @@ async def cancel_budget(
     try:
         result = await service.cancel_budget(budget_id, current_user.user_id, reason)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to cancel budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -743,6 +858,10 @@ async def add_budget_line(
         )
         result = await service.add_line(budget_id, line_request, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to add budget line: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -769,6 +888,10 @@ async def update_budget_line(
         )
         result = await service.update_line(budget_id, line_request, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to update budget line: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -790,6 +913,10 @@ async def remove_budget_line(
     try:
         result = await service.remove_line(budget_id, line_id, current_user.user_id)
         return BudgetResponseSchema(**result.__dict__)
+    except BudgetNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (BudgetServiceError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to remove budget line: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
