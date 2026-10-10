@@ -1101,42 +1101,20 @@ class InventoryService:
             except Exception as e:
                 logger.warning(f"Failed to publish event {type(event).__name__}: {e}")
 
-            if movement_type in (MovementType.ADJUSTMENT_IN, MovementType.ADJUSTMENT_OUT):
-                from domain.inventory.stock_adjustment_entity import AdjustmentStatus, StockAdjustmentEntity
-                # FIX: konstruktor ini sebelumnya tidak mengisi 3 parameter
-                # wajib (warehouse_name, item_name, status) - TypeError setiap
-                # kali mutasi jenis ADJUSTMENT_IN/OUT direkam (persis kasus
-                # "IN" yang dipilih user di form Mutasi Stok). warehouse_id
-                # juga sebelumnya di-hardcode UUID(int=0) alih-alih memakai
-                # gudang yang sebenarnya dari movement.
-                adj = StockAdjustmentEntity(
-                    adjustment_id=movement.id,
-                    adjustment_number=movement.reference_document_number or movement.id.hex[:8],
-                    adjustment_type="INCREASE" if movement_type == MovementType.ADJUSTMENT_IN else "DECREASE",
-                    item_id=movement.item_id,
-                    item_sku=item_agg.item.sku,
-                    item_name=item_agg.item.name,
-                    warehouse_id=movement.warehouse_id,
-                    warehouse_code=movement.warehouse_code,
-                    warehouse_name=await self._get_warehouse_name(movement.warehouse_id),
-                    quantity=movement.quantity,
-                    unit_cost=movement.unit_cost,
-                    total_value=movement.total_value,
-                    reason=movement.notes or "Manual adjustment",
-                    adjustment_date=movement.movement_date,
-                    status=AdjustmentStatus.EXECUTED,
-                )
-                adj_event = StockAdjustedEvent(
-                    adjustment=adj,
-                    adjusted_by=str(user_id),
-                    aggregate_id=movement.id,
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                try:
-                    await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
-                except Exception as e:
-                    logger.warning(f"Failed to publish event {type(adj_event).__name__}: {e}")
+            # FIX BUG KRITIS: blok ini SEBELUMNYA membangun StockAdjustedEvent
+            # yang TIDAK PERNAH ada di domain_events.py (NameError setiap kali
+            # movement_type ADJUSTMENT_IN/OUT direkam - PERSIS kasus tipe "IN"
+            # yang dipilih user di form Mutasi Stok). NameError ini terjadi
+            # SETELAH stok & baris movement sudah berhasil di-commit ke
+            # database - makanya stoknya benar-benar bertambah, tapi user
+            # tetap melihat popup error 500 seolah gagal total.
+            # StockAdjustmentEntity (`adj`) yang dibangun di sini juga tidak
+            # pernah benar-benar disimpan ke mana pun - satu-satunya
+            # kegunaannya cuma membangun event yang rusak itu. Dihapus
+            # sepenuhnya karena StockMovementCreated (dipublikasikan di atas
+            # untuk movement yang sama) sudah mencakup informasi mutasi ini;
+            # tidak ada event/record adjustment terpisah yang hilang secara
+            # fungsional dengan menghapus blok ini.
 
             if item_agg.item.reorder_point > 0 and new_stock <= item_agg.item.reorder_point:
                 alert_event = StockLevelAlert(

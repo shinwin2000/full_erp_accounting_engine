@@ -27,6 +27,9 @@ Responsibility: REST API modul Customer skala ERP produksi -- sinkron
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -34,7 +37,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from adapters.dependency_provider import get_service
@@ -51,7 +54,42 @@ from application.service_layer.service_customer import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+def _is_superuser(user: TokenPayload) -> bool:
+    return "*:*" in (getattr(user, "permissions", None) or [])
+
+
+def _enforce_entity(entity_id: UUID, user: TokenPayload) -> UUID:
+    """BUG FIX (keamanan): `legal_entity_id` dikirim klien lewat query/body dan dulu
+    dipercaya begitu saja, jadi user perusahaan A bisa membaca/menulis data perusahaan B
+    cukup dengan mengganti nilainya. Sekarang harus sama dengan perusahaan di token
+    (superuser `*:*` dikecualikan, mis. untuk konsolidasi grup)."""
+    if str(entity_id) != str(user.legal_entity_id) and not _is_superuser(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak boleh mengakses data legal entity lain.",
+        )
+    return entity_id
+
+
+async def _enforce_customer_scope(
+    request: Request,
+    user: TokenPayload = Depends(get_current_user),
+    service: CustomerService = Depends(get_service(CustomerService)),
+) -> None:
+    """Untuk semua route /customers/{customer_id}/...: customer harus milik perusahaan
+    user. Dijawab 404 (bukan 403) supaya keberadaan customer perusahaan lain tidak bocor."""
+    raw_id = request.path_params.get("customer_id")
+    if raw_id is None or _is_superuser(user):
+        return
+    try:
+        customer = await service.get_customer(UUID(str(raw_id)))
+    except ValueError:
+        return  # UUID tidak valid -> biar validasi route yang menjawab 422
+    if customer is not None and str(customer.legal_entity_id) != str(user.legal_entity_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+
+router = APIRouter(dependencies=[Depends(_enforce_customer_scope)])
 
 
 # ============================================================================
@@ -130,6 +168,7 @@ class UpdateCustomerRequest(BaseModel):
     province: str | None = Field(None, max_length=100)
     district: str | None = Field(None, max_length=100)
     postal_code: str | None = Field(None, max_length=20)
+    country: str | None = Field(None, min_length=2, max_length=2)
     phone: str | None = Field(None, max_length=20)
     mobile: str | None = Field(None, max_length=20)
     email: str | None = Field(None, max_length=200)
@@ -267,6 +306,8 @@ def to_customer_response(c: CustomerListItem) -> CustomerResponseModel:
 
 
 def _handle_common_errors(e: Exception, action: str, entity_id: Any = None):
+    if isinstance(e, HTTPException):
+        raise e  # 403/404 yang sengaja dilempar (izin, cakupan entitas) jangan berubah jadi 500
     if isinstance(e, CustomerNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e) or "Customer not found")
     if isinstance(e, CustomerServiceError):
@@ -286,6 +327,7 @@ async def create_customer(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     try:
+        _enforce_entity(payload.legal_entity_id, user)
         result = await service.create_customer(
             legal_entity_id=payload.legal_entity_id,
             customer_code=payload.customer_code,
@@ -329,7 +371,7 @@ async def get_statistics(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict[str, Any]:
     try:
-        return await service.get_statistics(legal_entity_id)
+        return await service.get_statistics(_enforce_entity(legal_entity_id, user))
     except Exception as e:
         _handle_common_errors(e, "getting statistics")
 
@@ -342,7 +384,7 @@ async def get_by_code(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     try:
-        result = await service.get_customer_by_code(legal_entity_id, customer_code)
+        result = await service.get_customer_by_code(_enforce_entity(legal_entity_id, user), customer_code)
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
         return to_customer_response(result)
@@ -362,11 +404,129 @@ async def search_customers(
 ) -> list[CustomerResponseModel]:
     try:
         results, _total = await service.list_customers(
-            legal_entity_id=legal_entity_id, search=q, limit=limit, offset=0,
+            legal_entity_id=_enforce_entity(legal_entity_id, user), search=q, limit=limit, offset=0,
         )
         return [to_customer_response(c) for c in results]
     except Exception as e:
         _handle_common_errors(e, "searching customers")
+
+
+# ============================================================================
+# EXPORT
+# ============================================================================
+# BUG FIX: tombol Export di frontend memanggil GET /customers/export, tetapi
+# endpoint ini tidak pernah ada -> 404 untuk semua format (csv/excel/json).
+
+_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("customer_code", "Kode"), ("customer_name", "Nama"), ("company_name", "Perusahaan"),
+    ("customer_type", "Tipe"), ("tax_id", "NPWP"), ("tax_status", "Status Pajak"),
+    ("address", "Alamat"), ("city", "Kota"), ("province", "Provinsi"),
+    ("district", "Kecamatan"), ("postal_code", "Kode Pos"), ("country", "Negara"),
+    ("phone", "Telepon"), ("mobile", "HP"), ("email", "Email"), ("website", "Website"),
+    ("contact_person", "Contact Person"), ("contact_phone", "Telepon PIC"),
+    ("contact_email", "Email PIC"), ("credit_limit", "Limit Kredit"),
+    ("current_balance", "Saldo Piutang"), ("currency", "Mata Uang"),
+    ("payment_term_days", "Termin (hari)"), ("discount_percent", "Diskon (%)"),
+    ("category", "Kategori"), ("price_group", "Price Level"), ("status", "Status"),
+    ("is_active", "Aktif"), ("created_at", "Dibuat"),
+]
+_EXPORT_NUMERIC = {"credit_limit", "current_balance", "discount_percent", "payment_term_days"}
+
+
+def _export_cell(field: str, value: Any) -> Any:
+    if value is None:
+        return ""
+    if field in _EXPORT_NUMERIC:
+        return float(value)
+    if field == "is_active":
+        return "Ya" if value else "Tidak"
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value)
+
+
+@router.get("/export", summary="Export daftar customer (csv | excel | json)")
+async def export_customers(
+    format: str = Query("csv", pattern="^(csv|excel|json)$"),
+    legal_entity_id: UUID | None = Query(None),
+    is_active: bool | None = Query(None),
+    status_filter: CustomerStatusEnum | None = Query(None, alias="status"),
+    category: str | None = Query(None),
+    search: str | None = Query(None),
+    user: TokenPayload = Depends(get_current_user),
+    service: CustomerService = Depends(get_service(CustomerService)),
+) -> Response:
+    try:
+        results, _total = await service.list_customers(
+            legal_entity_id=_enforce_entity(legal_entity_id or user.legal_entity_id, user),
+            is_active=is_active,
+            status=status_filter.value if status_filter else None,
+            category=category, search=search, limit=100000, offset=0,
+        )
+        headers_row = [label for _f, label in _EXPORT_COLUMNS]
+        rows = [[_export_cell(f, getattr(c, f, None)) for f, _l in _EXPORT_COLUMNS] for c in results]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+        if format == "json":
+            payload = [dict(zip(headers_row, r)) for r in rows]
+            return Response(
+                content=json.dumps(payload, ensure_ascii=False, indent=2),
+                media_type="application/json",
+                headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.json"'},
+            )
+
+        if format == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(headers_row)
+            writer.writerows(rows)
+            # BOM supaya Excel membaca UTF-8 (nama/alamat berkarakter khusus) dengan benar.
+            return Response(
+                content=("\ufeff" + buf.getvalue()).encode("utf-8"),
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.csv"'},
+            )
+
+        # format == "excel": file .xlsx asli
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+        except ImportError as exc:  # pragma: no cover
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail="Export Excel membutuhkan paket 'openpyxl' (pip install openpyxl). Gunakan format csv.",
+            ) from exc
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Pelanggan"
+        ws.append(headers_row)
+        for cell in ws[1]:
+            cell.font = Font(name="Arial", bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="4C1D95")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        for r in rows:
+            ws.append(r)
+        for i, (field, label) in enumerate(_EXPORT_COLUMNS, start=1):
+            col = get_column_letter(i)
+            longest = max([len(label)] + [len(str(r[i - 1])) for r in rows[:500]])
+            ws.column_dimensions[col].width = min(max(longest + 2, 10), 45)
+            if field in ("credit_limit", "current_balance"):
+                for cell in ws[col][1:]:
+                    cell.number_format = "#,##0.00"
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        out = io.BytesIO()
+        wb.save(out)
+        return Response(
+            content=out.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.xlsx"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _handle_common_errors(e, "exporting customers")
 
 
 @router.get("/customers", response_model=list[CustomerResponseModel])
@@ -390,7 +550,7 @@ async def list_customers(
         effective_limit = limit if limit is not None else page_size
         effective_offset = offset if offset is not None else (page - 1) * effective_limit
         results, _total = await service.list_customers(
-            legal_entity_id=legal_entity_id,
+            legal_entity_id=_enforce_entity(legal_entity_id, user),
             is_active=is_active,
             status=status_filter.value if status_filter else None,
             category=category,
@@ -436,7 +596,7 @@ async def update_customer(
             name=payload.customer_name, company_name=payload.company_name, npwp=payload.tax_id,
             tax_status=payload.tax_status, is_taxable=payload.is_taxable,
             address=payload.address, city=payload.city, province=payload.province,
-            district=payload.district, postal_code=payload.postal_code,
+            district=payload.district, postal_code=payload.postal_code, country=payload.country,
             phone=payload.phone, mobile=payload.mobile, email=payload.email,
             website=payload.website, contact_person=payload.contact_person,
             contact_phone=payload.contact_phone, contact_email=payload.contact_email,
@@ -445,6 +605,11 @@ async def update_customer(
             is_active=payload.is_active, is_blacklist=payload.is_blacklist,
             status=payload.status.value if payload.status else None,
             updated_by=user.user_id,
+            # field yang dikirim eksplisit sebagai null/"" = minta dikosongkan
+            clear_fields={
+                f for f in payload.model_fields_set
+                if getattr(payload, f) is None or getattr(payload, f) == ""
+            },
         )
         return to_customer_response(result)
     except Exception as e:
@@ -628,7 +793,7 @@ async def update_address(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict:
     try:
-        return await service.update_address(customer_id, address_id, **payload.model_dump())
+        return await service.update_address(customer_id, address_id, **payload.model_dump(exclude_unset=True))
     except Exception as e:
         _handle_common_errors(e, "updating address", address_id)
 
@@ -684,7 +849,7 @@ async def update_contact(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict:
     try:
-        return await service.update_contact(customer_id, contact_id, **payload.model_dump())
+        return await service.update_contact(customer_id, contact_id, **payload.model_dump(exclude_unset=True))
     except Exception as e:
         _handle_common_errors(e, "updating contact", contact_id)
 
@@ -848,7 +1013,7 @@ async def bulk_delete(
 ) -> dict[str, int]:
     try:
         count = await service.bulk_delete(payload.customer_ids, deleted_by=user.user_id)
-        return {"deleted": count}
+        return {"deleted": count, "skipped": len(payload.customer_ids) - count}
     except Exception as e:
         _handle_common_errors(e, "bulk deleting customers")
 

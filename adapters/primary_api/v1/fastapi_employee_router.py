@@ -110,7 +110,50 @@ class IdempotencyManager:
 _idempotency_manager = IdempotencyManager()
 
 
-router = APIRouter()
+def _is_superuser(user: TokenPayload) -> bool:
+    return "*:*" in (getattr(user, "permissions", None) or [])
+
+
+def _enforce_entity(entity_id: UUID, user: TokenPayload) -> UUID:
+    """BUG FIX (keamanan): `legal_entity_id` dari klien (query/body) dulu dipercaya begitu
+    saja, sehingga user perusahaan A bisa membaca/menulis data karyawan perusahaan B.
+    Sekarang harus sama dengan perusahaan di token (superuser `*:*` dikecualikan)."""
+    if str(entity_id) != str(user.legal_entity_id) and not _is_superuser(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak boleh mengakses data legal entity lain.",
+        )
+    return entity_id
+
+
+async def _scoped_entity(
+    legal_entity_id: UUID = Query(..., description="Legal entity ID"),
+    user: TokenPayload = Depends(get_current_user),
+) -> UUID:
+    """Dependency untuk parameter query `legal_entity_id` (dijalankan SEBELUM handler,
+    sehingga 403 tidak ikut tertangkap `except Exception` -> 500)."""
+    return _enforce_entity(legal_entity_id, user)
+
+
+async def _enforce_employee_scope(
+    request: Request,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> None:
+    """Semua route /employees/{employee_id}/...: karyawan harus milik perusahaan user.
+    Dijawab 404 (bukan 403) supaya keberadaan karyawan perusahaan lain tidak bocor."""
+    raw_id = request.path_params.get("employee_id")
+    if raw_id is None or _is_superuser(user):
+        return
+    try:
+        employee = await service.get_employee(UUID(str(raw_id)))
+    except ValueError:
+        return  # UUID tidak valid -> validasi route yang menjawab 422
+    if employee and str(employee.get("legal_entity_id")) != str(user.legal_entity_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+
+router = APIRouter(dependencies=[Depends(_enforce_employee_scope)])
 
 
 # ============================================================================
@@ -173,11 +216,28 @@ class CreateEmployeeRequest(BaseModel):
 
 
 class UpdateEmployeeRequest(BaseModel):
+    """
+    PENTING (fix): sebelumnya model ini cuma punya ~20 field, padahal
+    `form_fields` di registry/module_registry.py (dipakai ulang oleh
+    dialog "Ubah Karyawan" karena `edit_form_fields` tidak diisi khusus
+    untuk modul employees) menawarkan field lain yang lebih lengkap -
+    basic_salary/allowances/overtime_rate_multiplier/bpjs_*/join_date/
+    marital_status/dependents/birth_place/religion. Field yang TIDAK
+    dideklarasikan di sini otomatis DIBUANG oleh Pydantic (default
+    `extra="ignore"`) sebelum sampai ke service, jadi user yang mengubah
+    field itu lewat "Ubah" akan melihat datanya tidak pernah tersimpan
+    walau klik "Simpan" berhasil (tidak ada error) - persis pola bug
+    yang sudah ditemukan di modul lain (field form != field backend).
+    """
     full_name: str | None = Field(None, max_length=200)
     nik: str | None = Field(None, max_length=30)
     npwp: str | None = Field(None, max_length=20)
     gender: str | None = Field(None, max_length=1)
+    birth_place: str | None = Field(None, max_length=100)
     birth_date: date | None = None
+    marital_status: MaritalStatusEnum | None = None
+    dependents: int | None = Field(None, ge=0, le=10)
+    religion: str | None = Field(None, max_length=50)
     address: str | None = None
     city: str | None = Field(None, max_length=100)
     postal_code: str | None = Field(None, max_length=20)
@@ -190,10 +250,18 @@ class UpdateEmployeeRequest(BaseModel):
     job_level: str | None = Field(None, max_length=50)
     cost_center: str | None = Field(None, max_length=20)
     manager_id: UUID | None = None
+    join_date: date | None = None
+    basic_salary: Decimal | None = Field(None, ge=0)
+    allowances: Decimal | None = Field(None, ge=0)
+    overtime_rate_multiplier: Decimal | None = Field(None, ge=1)
+    bpjs_kesehatan_number: str | None = Field(None, max_length=30)
+    bpjs_ketenagakerjaan_number: str | None = Field(None, max_length=30)
     bank_name: str | None = Field(None, max_length=100)
     bank_account_number: str | None = Field(None, max_length=50)
     bank_account_name: str | None = Field(None, max_length=100)
     notes: str | None = None
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class UpdateSalaryStructureRequest(BaseModel):
@@ -382,6 +450,7 @@ async def create_employee(
     This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
     method_name = "create_employee"
+    _enforce_entity(payload.legal_entity_id, user)  # di luar try: 403 tidak berubah jadi 500
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
@@ -474,7 +543,7 @@ async def get_employee(
     summary="List employees",
 )
 async def list_employees(
-    legal_entity_id: UUID = Query(..., description="Legal entity ID"),
+    legal_entity_id: UUID = Depends(_scoped_entity),
     status_filter: EmployeeStatusEnum | None = Query(None, alias="status", description="Filter by status"),
     search: str | None = Query(None, description="Search by name/code/nik/email"),
     limit: int = Query(100, ge=1, le=1000),
@@ -533,7 +602,11 @@ async def update_employee(
             nik=payload.nik,
             npwp=payload.npwp,
             gender=payload.gender,
+            birth_place=payload.birth_place,
             birth_date=payload.birth_date,
+            marital_status=payload.marital_status,  # already str: use_enum_values=True
+            dependents=payload.dependents,
+            religion=payload.religion,
             address=payload.address,
             city=payload.city,
             postal_code=payload.postal_code,
@@ -546,6 +619,12 @@ async def update_employee(
             job_level=payload.job_level,
             cost_center=payload.cost_center,
             manager_id=payload.manager_id,
+            join_date=payload.join_date,
+            basic_salary=payload.basic_salary,
+            allowances=payload.allowances,
+            overtime_rate_multiplier=payload.overtime_rate_multiplier,
+            bpjs_kesehatan_number=payload.bpjs_kesehatan_number,
+            bpjs_ketenagakerjaan_number=payload.bpjs_ketenagakerjaan_number,
             bank_name=payload.bank_name,
             bank_account_number=payload.bank_account_number,
             bank_account_name=payload.bank_account_name,
@@ -656,7 +735,7 @@ async def deactivate_employee(
     summary="Import karyawan dari file CSV",
 )
 async def import_employees(
-    legal_entity_id: UUID = Query(..., description="Legal entity ID tujuan import"),
+    legal_entity_id: UUID = Depends(_scoped_entity),
     file: UploadFile = File(...),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),

@@ -326,6 +326,8 @@ class SQLAlchemyPurchaseSalesRepository:
                     return None
                 po.submit()
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(po, attribute_names=["updated_at"])
                 supplier = (await session.execute(
                     select(SupplierTable).where(SupplierTable.id == po.supplier_id)
                 )).scalar_one_or_none()
@@ -349,6 +351,8 @@ class SQLAlchemyPurchaseSalesRepository:
                 if notes:
                     po.notes = f"{po.notes}\n{notes}" if po.notes else notes
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(po, attribute_names=["updated_at"])
                 supplier = (await session.execute(
                     select(SupplierTable).where(SupplierTable.id == po.supplier_id)
                 )).scalar_one_or_none()
@@ -370,6 +374,8 @@ class SQLAlchemyPurchaseSalesRepository:
                     return None
                 po.reject(rejected_by=rejected_by, reason=reason)
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(po, attribute_names=["updated_at"])
                 supplier = (await session.execute(
                     select(SupplierTable).where(SupplierTable.id == po.supplier_id)
                 )).scalar_one_or_none()
@@ -621,6 +627,8 @@ class SQLAlchemyPurchaseSalesRepository:
                     return None
                 so.submit()
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(so, attribute_names=["updated_at"])
                 lines = await self._load_so_lines(session, so_id)
                 customer = (await session.execute(
                     select(CustomerTable).where(CustomerTable.id == so.customer_id)
@@ -645,6 +653,8 @@ class SQLAlchemyPurchaseSalesRepository:
                 if notes:
                     so.notes = f"{so.notes}\n{notes}" if so.notes else notes
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(so, attribute_names=["updated_at"])
                 lines = await self._load_so_lines(session, so_id)
                 customer = (await session.execute(
                     select(CustomerTable).where(CustomerTable.id == so.customer_id)
@@ -667,6 +677,8 @@ class SQLAlchemyPurchaseSalesRepository:
                     return None
                 so.reject(rejected_by=rejected_by, reason=reason)
                 await session.commit()
+                # updated_at memakai onupdate=func.now(): kedaluwarsa setelah commit; muat ulang agar tidak MissingGreenlet
+                await session.refresh(so, attribute_names=["updated_at"])
                 lines = await self._load_so_lines(session, so_id)
                 customer = (await session.execute(
                     select(CustomerTable).where(CustomerTable.id == so.customer_id)

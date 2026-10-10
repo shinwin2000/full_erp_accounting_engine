@@ -170,7 +170,7 @@ class ServiceRegistrar:
             from application.service_layer.service_supplier import SupplierService
             from application.service_layer.service_tax import TaxService
 
-            container.register_singleton(COAService, COAService)
+            container.register_transient(COAService, COAService)
             # ============================================================
             # FIX: JournalService registration via factory
             # ============================================================
@@ -199,21 +199,56 @@ class ServiceRegistrar:
                     event_publisher=event_publisher,
                 )
 
-            container.register_singleton(JournalService, factory=_create_journal_service)
+            container.register_transient(JournalService, factory=_create_journal_service)
             logger.info("JournalService registered with dependencies (factory)")
             # ============================================================
-            container.register_singleton(LedgerService, LedgerService)
-            container.register_singleton(ARService, ARService)
-            container.register_singleton(APService, APService)
-            container.register_singleton(InventoryService, InventoryService)
-            container.register_singleton(FixedAssetService, FixedAssetService)
-            container.register_singleton(BankCashService, BankCashService)
-            container.register_singleton(BudgetService, BudgetService)
-            container.register_singleton(TaxService, TaxService)
-            container.register_singleton(CoretaxService, CoretaxService)
-            container.register_singleton(PayrollService, PayrollService)
-            container.register_singleton(ManufacturingService, ManufacturingService)
-            container.register_singleton(ReportService, ReportService)
+            # FIX: PurchaseSalesService sebelumnya TIDAK PERNAH didaftarkan, padahal
+            # fastapi_purchase_sales_router (dan sinkronisasi approval PO/SO) memanggil
+            # container.resolve_async(PurchaseSalesService) -> DependencyNotFoundError.
+            # ============================================================
+            from adapters.secondary_impl.sqlalchemy_purchase_sales_repository_impl import (
+                SQLAlchemyPurchaseSalesRepository,
+            )
+            from application.service_layer.service_purchase_sales import PurchaseSalesService
+
+            async def _create_purchase_sales_service():
+                try:
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return PurchaseSalesService(
+                    event_publisher=event_publisher,
+                    repository=SQLAlchemyPurchaseSalesRepository(),
+                )
+
+            container.register_transient(PurchaseSalesService, factory=_create_purchase_sales_service)
+            logger.info("PurchaseSalesService registered with repository (factory)")
+            # ============================================================
+            container.register_transient(LedgerService, LedgerService)
+            container.register_transient(ARService, ARService)
+            container.register_transient(APService, APService)
+            container.register_transient(InventoryService, InventoryService)
+            container.register_transient(FixedAssetService, FixedAssetService)
+            container.register_transient(BankCashService, BankCashService)
+            container.register_transient(BudgetService, BudgetService)
+            container.register_transient(TaxService, TaxService)
+            container.register_transient(CoretaxService, CoretaxService)
+            container.register_transient(PayrollService, PayrollService)
+            container.register_transient(ManufacturingService, ManufacturingService)
+            # BUG FIX: ReportRepositoryPort sebelumnya TIDAK PERNAH terdaftar
+            # di container sama sekali, padahal ReportService mewajibkannya
+            # (constructor param report_repo, tanpa default) -> selalu
+            # DependencyNotFoundError. Didaftarkan transient (repo ini cache
+            # session lazy per instance - self._session - jadi tidak boleh
+            # singleton, sama seperti UnitOfWorkPort di bawah).
+            from adapters.secondary_impl.sqlalchemy_report_repository_impl import (
+                SQLAlchemyReportRepository,
+            )
+            from ports.primary.report_repository_port import ReportRepositoryPort
+
+            if not container.has_registration(ReportRepositoryPort):
+                container.register_transient(ReportRepositoryPort, SQLAlchemyReportRepository)
+            container.register_transient(ReportService, ReportService)
 
             # ReportScheduler (Tier 2, fix 2026-08-20): sebelumnya sama
             # sekali tidak terdaftar di container, menyebabkan endpoint
@@ -225,10 +260,43 @@ class ServiceRegistrar:
 
             container.register_singleton(ReportScheduler, ReportScheduler)
             logger.info("ReportScheduler registered")
-            container.register_singleton(CustomerService, CustomerService)
+            # BUG FIX: CustomerService (dan UnitOfWorkPort di baliknya)
+            # sebelumnya singleton - dibuat SEKALI untuk seumur hidup
+            # aplikasi dan dipakai bersama SEMUA request konkuren.
+            # UnitOfWork menyimpan session sebagai atribut instance yang
+            # di-reset tiap `async with` - dua request bersamaan di
+            # instance yang sama saling menimpa session pemilik masing-
+            # masing -> "concurrent operations are not permitted" /
+            # "commit() already in progress" (persis error yang muncul saat
+            # dialog detail customer memuat banyak tab sekaligus). Diganti
+            # transient: instance (dan UnitOfWork) baru tiap resolve.
+            #
+            # BUG FIX: CustomerRepositoryPort sebelumnya TIDAK PERNAH
+            # terdaftar (dipakai ARService.customer_repo, wajib tanpa
+            # default) -> DependencyNotFoundError setiap ARService
+            # di-resolve. Didaftarkan transient.
+            from adapters.secondary_impl.sqlalchemy_customer_repository_impl import (
+                SQLAlchemyCustomerRepository,
+            )
+            from ports.primary.customer_repository_port import CustomerRepositoryPort
+
+            if not container.has_registration(CustomerRepositoryPort):
+                container.register_transient(CustomerRepositoryPort, SQLAlchemyCustomerRepository)
+            container.register_transient(CustomerService, CustomerService)
             container.register_singleton(PaymentService, PaymentService)
             container.register_singleton(LegalEntityService, LegalEntityService)
-            container.register_singleton(ApprovalService, ApprovalService)
+            # BUG FIX: ApprovalRepositoryPort sebelumnya TIDAK PERNAH
+            # terdaftar, padahal ApprovalService mewajibkannya
+            # (approval_repo, tanpa default). Didaftarkan transient (repo ini
+            # juga cache session lazy per instance).
+            from adapters.secondary_impl.sqlalchemy_approval_repository_impl import (
+                SQLAlchemyApprovalRepository,
+            )
+            from ports.primary.approval_repository_port import ApprovalRepositoryPort
+
+            if not container.has_registration(ApprovalRepositoryPort):
+                container.register_transient(ApprovalRepositoryPort, SQLAlchemyApprovalRepository)
+            container.register_transient(ApprovalService, ApprovalService)
             logger.info("LegalEntityService registered")
             logger.info("ApprovalService registered")
 
@@ -245,7 +313,7 @@ class ServiceRegistrar:
             # jadi cukup register class-nya sebagai singleton di sini.
             from application.service_layer.service_intangible_asset import IntangibleAssetService
 
-            container.register_singleton(IntangibleAssetService, IntangibleAssetService)
+            container.register_transient(IntangibleAssetService, IntangibleAssetService)
             logger.info("IntangibleAssetService registered")
 
             # ----- Registrasi MaintenanceService -----
@@ -299,7 +367,7 @@ class ServiceRegistrar:
                     event_publisher=event_publisher,
                 )
 
-            container.register_singleton(ConsolidationService, factory=_create_consolidation_service)
+            container.register_transient(ConsolidationService, factory=_create_consolidation_service)
             logger.info("ConsolidationService registered")
 
             # ----- Registrasi ForexService (sebelumnya TIDAK PERNAH
@@ -328,7 +396,7 @@ class ServiceRegistrar:
                     event_publisher=event_publisher,
                 )
 
-            container.register_singleton(ForexService, factory=_create_forex_service)
+            container.register_transient(ForexService, factory=_create_forex_service)
             logger.info("ForexService registered")
 
             # ----- Registrasi GoodwillService (sebelumnya TIDAK PERNAH
@@ -359,7 +427,7 @@ class ServiceRegistrar:
                     event_publisher=event_publisher,
                 )
 
-            container.register_singleton(GoodwillService, factory=_create_goodwill_service)
+            container.register_transient(GoodwillService, factory=_create_goodwill_service)
             logger.info("GoodwillService registered")
 
             # ----- Registrasi ForexRevaluationUseCase (sebelumnya TIDAK
@@ -384,7 +452,7 @@ class ServiceRegistrar:
                     sealed_gate=sealed_gate,
                 )
 
-            container.register_singleton(ForexRevaluationUseCase, factory=_create_forex_revaluation_use_case)
+            container.register_transient(ForexRevaluationUseCase, factory=_create_forex_revaluation_use_case)
             logger.info("ForexRevaluationUseCase registered")
 
             # ----- Registrasi BankReconciliationUseCase (sebelumnya TIDAK
@@ -447,41 +515,6 @@ class ServiceRegistrar:
             container.register_singleton(SystemSettingsService, factory=_create_system_settings_service)
             logger.info("SystemSettingsService registered")
 
-            # ----- Registrasi PurchaseSalesService (FIX: sama seperti
-            # SystemSettingsService di atas -- sebelumnya TIDAK PERNAH
-            # terdaftar sama sekali, padahal fastapi_purchase_sales_router.py
-            # (endpoint Purchase Order & Sales Order, modul "Pembelian &
-            # Penjualan") memanggil container.resolve_async(PurchaseSalesService)
-            # di get_purchase_sales_service(). Akibatnya SEMUA endpoint PO/SO
-            # (GET/POST .../purchase-orders, .../sales-orders, dst) selalu
-            # gagal dengan DependencyNotFoundError, yang oleh auth middleware
-            # ditampilkan sebagai 401 Unauthorized -- bukan 500 -- sehingga
-            # gejalanya menyesatkan (terlihat seperti masalah login/token,
-            # padahal service-nya memang belum pernah didaftarkan).
-            # Constructor-nya hanya butuh EventPublisherPort opsional, jadi
-            # factory kecil ini meniru pola CapitalService/SystemSettingsService
-            # di atas. -----
-            from application.service_layer.service_purchase_sales import PurchaseSalesService
-
-            async def _create_purchase_sales_service():
-                try:
-                    from ports.primary.event_publisher_port import EventPublisherPort
-                    event_publisher = await container.resolve_async(EventPublisherPort)
-                except Exception:
-                    event_publisher = None
-                # FIX lanjutan: PurchaseSalesService sekarang butuh repository
-                # nyata (SQLAlchemyPurchaseSalesRepository) supaya Purchase
-                # Order & Sales Order benar-benar tersimpan ke database --
-                # sebelumnya cuma dict in-memory yang hilang tiap restart.
-                from adapters.secondary_impl.sqlalchemy_purchase_sales_repository_impl import (
-                    SQLAlchemyPurchaseSalesRepository,
-                )
-                repository = SQLAlchemyPurchaseSalesRepository()
-                return PurchaseSalesService(event_publisher=event_publisher, repository=repository)
-
-            container.register_singleton(PurchaseSalesService, factory=_create_purchase_sales_service)
-            logger.info("PurchaseSalesService registered")
-
             # ----- Registrasi FiscalPeriodService dengan dependensi lengkap -----
             # Daftarkan repository dan port-nya terlebih dahulu
             from adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl import (
@@ -489,14 +522,14 @@ class ServiceRegistrar:
             )
             from ports.primary.fiscal_period_repository_port import FiscalPeriodRepositoryPort
 
-            container.register_singleton(SQLAlchemyFiscalPeriodRepository, SQLAlchemyFiscalPeriodRepository)
-            container.register_singleton(FiscalPeriodRepositoryPort, SQLAlchemyFiscalPeriodRepository)
+            container.register_transient(SQLAlchemyFiscalPeriodRepository, SQLAlchemyFiscalPeriodRepository)
+            container.register_transient(FiscalPeriodRepositoryPort, SQLAlchemyFiscalPeriodRepository)
             # UnitOfWorkPort sudah terdaftar di bagian IAM, tapi kita pastikan ada
             if not container.has_registration(UnitOfWorkPort):
                 from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
                     SQLAlchemyUnitOfWork,
                 )
-                container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
+                container.register_transient(UnitOfWorkPort, SQLAlchemyUnitOfWork)
                 logger.info("UnitOfWorkPort registered (from fiscal period)")
 
             async def _create_fiscal_period_service():
@@ -514,7 +547,7 @@ class ServiceRegistrar:
                     event_publisher=event_publisher,
                 )
 
-            container.register_singleton(FiscalPeriodService, factory=_create_fiscal_period_service)
+            container.register_transient(FiscalPeriodService, factory=_create_fiscal_period_service)
             logger.info("FiscalPeriodService registered with dependencies")
 
             # ----- Registrasi SupplierService dengan repository database -----
@@ -529,8 +562,8 @@ class ServiceRegistrar:
             )
             from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
-            container.register_singleton(SQLAlchemySupplierRepository, SQLAlchemySupplierRepository)
-            container.register_singleton(SupplierRepositoryPort, SQLAlchemySupplierRepository)
+            container.register_transient(SQLAlchemySupplierRepository, SQLAlchemySupplierRepository)
+            container.register_transient(SupplierRepositoryPort, SQLAlchemySupplierRepository)
 
             async def _create_supplier_service():
                 supplier_repo = await container.resolve_async(SupplierRepositoryPort)
@@ -541,7 +574,7 @@ class ServiceRegistrar:
                     event_publisher = None
                 return SupplierService(repository=supplier_repo, event_publisher=event_publisher)
 
-            container.register_singleton(SupplierService, factory=_create_supplier_service)
+            container.register_transient(SupplierService, factory=_create_supplier_service)
             logger.info("SupplierService registered with database repository")
 
             # ----- Registrasi EmployeeService dengan factory yang aman -----
@@ -581,7 +614,7 @@ class ServiceRegistrar:
                     event_publisher = None
                 return UMKMService(umkm_repo, uow, event_publisher)
 
-            container.register_singleton(UMKMService, factory=_create_umkm_service)
+            container.register_transient(UMKMService, factory=_create_umkm_service)
             logger.info("UMKMService registered")
 
             logger.info("Application services registered")
@@ -657,12 +690,12 @@ class ServiceRegistrar:
             # Daftarkan implementasi konkret sebagai singleton (tanpa session/legal_entity)
             container.register_singleton(SQLAlchemyIAMUserRepository, SQLAlchemyIAMUserRepository)
             container.register_singleton(SQLAlchemyIAMRepository, SQLAlchemyIAMRepository)
-            container.register_singleton(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
+            container.register_transient(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
 
             # Port → implementation (singleton, tapi session & legal_entity_id di-set per request)
-            container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
-            container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMRepository)
-            container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
+            container.register_transient(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
+            container.register_transient(IAMRepositoryPort, SQLAlchemyIAMRepository)
+            container.register_transient(UnitOfWorkPort, SQLAlchemyUnitOfWork)
 
             # Dependency opsional
             event_publisher = None
@@ -714,7 +747,7 @@ class ServiceRegistrar:
                     cache=cache
                 )
 
-            container.register_singleton(IAMService, factory=_create_iam_service)
+            container.register_transient(IAMService, factory=_create_iam_service)
             logger.info("IAMService and dependencies registered")
         except Exception as e:
             logger.error(f"Failed to register IAMService: {e}")

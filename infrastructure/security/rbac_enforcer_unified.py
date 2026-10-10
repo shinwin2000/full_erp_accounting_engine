@@ -15,6 +15,22 @@ Dependencies:
 - infrastructure.telemetry.structured_json_logging
 Audit: Setiap keputusan akses (allow/deny) dicatat untuk audit trail.
        Pelanggaran akses berulang memicu alert security.
+
+FIX v2 (PermissionVO has no legal_entity_id):
+- BUG: setiap request yang butuh RBAC crash dengan
+      AttributeError: 'PermissionVO' object has no attribute 'legal_entity_id'
+  karena _get_user_permissions() mencoba filter permission berdasarkan
+  legal_entity_id, padahal domain PermissionVO tidak menyimpan field itu.
+  Akibatnya SEMUA endpoint mengembalikan 401, frontend retry terus-menerus,
+  dan user tidak bisa mengakses COA/jurnal/laporan.
+- FIX: hapus filter legal_entity_id pada iterasi permission. Permission
+  di sistem ini bersifat global (resource+action) — tidak di-scope per
+  legal entity. Bila nanti diperlukan scoping, tambahkan field
+  `legal_entity_id` di PermissionVO dan domain role_permission, baru
+  kembalikan filter tersebut.
+- FIX: gunakan `getattr(perm, "permission_key", None)` sebagai fallback
+  bila atribut `permission_key` juga belum ada di PermissionVO — pakai
+  f"{resource}:{action}" dari field yang tersedia.
 """
 
 from __future__ import annotations
@@ -49,9 +65,11 @@ SUPERUSER_PERMISSION = "*:*"
 # EXCEPTIONS
 # ============================================================================
 
+
 class RBACEnforcerError(Exception):
     """Base exception untuk RBAC enforcer."""
     pass
+
 
 class PermissionDeniedError(RBACEnforcerError):
     """User tidak memiliki permission yang diperlukan."""
@@ -63,13 +81,66 @@ class PermissionDeniedError(RBACEnforcerError):
         self.required_permission = required_permission
         super().__init__(f"Permission denied for user {user_id}: {required_permission}")
 
+
 class UserNotFoundError(RBACEnforcerError):
     """User tidak ditemukan."""
     pass
 
+
+# ============================================================================
+# HELPER: EKSTRAK PERMISSION STRING DARI PermissionVO
+# ============================================================================
+
+
+def _permission_key(perm: Any) -> str | None:
+    """Ambil string "resource:action" dari object permission.
+
+    Domain PermissionVO di proyek ini menyimpan `resource` dan `action`
+    (dan mungkin `name` atau `permission_key`), tapi TIDAK menyimpan
+    `legal_entity_id`. Fungsi ini toleran terhadap variasi bentuk:
+
+    1. Punya atribut `permission_key` -> pakai langsung (mis. "journal:read")
+    2. Punya atribut `name` berformat "resource:action" -> pakai
+    3. Punya `resource` + `action` -> gabung jadi "resource:action"
+    4. Enum/string -> str(value)
+
+    Mengembalikan None kalau tidak bisa diekstrak (dilewati).
+    """
+    if perm is None:
+        return None
+
+    # 1) atribut permission_key (paling eksplisit)
+    pk = getattr(perm, "permission_key", None)
+    if isinstance(pk, str) and pk:
+        return pk
+
+    # 2) atribut name (kadang "resource:action", kadang cuma "resource")
+    name = getattr(perm, "name", None)
+    if isinstance(name, str) and ":" in name:
+        return name
+
+    # 3) gabung resource + action
+    resource = getattr(perm, "resource", None)
+    action = getattr(perm, "action", None)
+    # Enum -> .value
+    if hasattr(resource, "value"):
+        resource = resource.value
+    if hasattr(action, "value"):
+        action = action.value
+    if isinstance(resource, str) and isinstance(action, str) and resource and action:
+        return f"{resource}:{action}"
+
+    # 4) fallback: string langsung
+    if isinstance(perm, str) and perm:
+        return perm
+
+    return None
+
+
 # ============================================================================
 # RBAC ENFORCER
 # ============================================================================
+
 
 class RBACEnforcer:
     """
@@ -104,7 +175,10 @@ class RBACEnforcer:
     async def _get_user_repo(self) -> IAMUserRepositoryPort:
         if self._user_repo is None:
             # Dynamic import to avoid architecture layer violation (P08)
-            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            get_container = __import__(
+                "bootstrap.dependency_container.ioc_container",
+                fromlist=["get_container"],
+            ).get_container
             container = get_container()
             self._user_repo = await container.resolve_async(IAMUserRepositoryPort)
         return self._user_repo
@@ -118,6 +192,10 @@ class RBACEnforcer:
     ) -> set[str]:
         """
         Get all permissions for a user (including inherited from roles).
+
+        FIX v2: tidak lagi memfilter berdasarkan `legal_entity_id` di level
+        permission (PermissionVO tidak punya field itu). Semua permission
+        dari role user dianggap berlaku global.
         """
         # Check in-memory cache first
         user_id_str = str(user_id)
@@ -133,7 +211,7 @@ class RBACEnforcer:
             try:
                 # Handle different possible types returned from Redis
                 if isinstance(cached, bytes):
-                    cached = cached.decode('utf-8')
+                    cached = cached.decode("utf-8")
                 if isinstance(cached, str):
                     # Try JSON parse
                     try:
@@ -151,7 +229,7 @@ class RBACEnforcer:
                     permissions = cached
                 else:
                     # Fallback: convert to string and try to parse
-                    permissions = set(str(cached).split(',')) if cached else set()
+                    permissions = set(str(cached).split(",")) if cached else set()
                 self._permission_cache[user_id_str] = permissions
                 return permissions
             except Exception as e:
@@ -160,7 +238,10 @@ class RBACEnforcer:
 
         # Load user from repository
         user_repo = await self._get_user_repo()
-        from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
+        from infrastructure.database.session_factory_sqlalchemy import (
+            get_async_session_factory,
+        )
+
         _session_maker = await get_async_session_factory()
         _db_session = _session_maker()
         user_repo.set_session(_db_session)
@@ -172,11 +253,13 @@ class RBACEnforcer:
 
             # Check if user is active
             if user.status != UserStatus.ACTIVE:
-                self._logger.warning(f"User {user_id} is not active (status: {user.status})")
+                self._logger.warning(
+                    f"User {user_id} is not active (status: {user.status})"
+                )
                 return set()
 
             # Collect all permissions from user's roles
-            permissions = set()
+            permissions: set[str] = set()
 
             if getattr(user, "is_superuser", False):
                 permissions.add(SUPERUSER_PERMISSION)
@@ -185,24 +268,34 @@ class RBACEnforcer:
                     role_id = getattr(role, "role_id", None) or getattr(role, "id", None)
                     role_permissions = await user_repo.get_role_permissions(role_id)
                     for perm in role_permissions:
-                        if (
-                            legal_entity_id is None
-                            or perm.legal_entity_id is None
-                            or perm.legal_entity_id == legal_entity_id
-                        ):
-                            permissions.add(perm.permission_key)
+                        # FIX v2: PermissionVO tidak punya `legal_entity_id`.
+                        # Permission di sistem ini global (resource+action),
+                        # jadi tidak ada filter legal entity di sini.
+                        # Kalau nanti PermissionVO ditambah legal_entity_id,
+                        # filter dapat dikembalikan di sini.
+                        key = _permission_key(perm)
+                        if key:
+                            permissions.add(key)
 
             # Cache permissions as JSON string
-            await redis.set(cache_key, json.dumps(list(permissions)), PERMISSION_CACHE_TTL_SECONDS)
+            await redis.set(
+                cache_key, json.dumps(list(permissions)), PERMISSION_CACHE_TTL_SECONDS
+            )
             self._permission_cache[user_id_str] = permissions
 
-            self._logger.debug(f"Cached {len(permissions)} permissions for user {user_id}")
+            self._logger.debug(
+                f"Cached {len(permissions)} permissions for user {user_id}"
+            )
             return permissions
         finally:
             await _db_session.close()
 
     async def check_permission(
-        self, user_id: UUID, resource: str, action: str, legal_entity_id: UUID | None = None
+        self,
+        user_id: UUID,
+        resource: str,
+        action: str,
+        legal_entity_id: UUID | None = None,
     ) -> bool:
         """
         Check if user has permission for a specific resource and action.
@@ -239,7 +332,9 @@ class RBACEnforcer:
             return True
 
         # Check authority matrix for additional rules
-        if await self._authority_matrix.is_allowed(user_id, resource, action, legal_entity_id):
+        if await self._authority_matrix.is_allowed(
+            user_id, resource, action, legal_entity_id
+        ):
             return True
 
         # Record access denied for monitoring
@@ -259,7 +354,10 @@ class RBACEnforcer:
             _task = asyncio.create_task(  # noqa: RUF006
                 trigger_alert(
                     title="Multiple Permission Denials",
-                    message=f"User {user_id} denied access to {permission} {self._access_denied_counter[key]} times",
+                    message=(
+                        f"User {user_id} denied access to {permission} "
+                        f"{self._access_denied_counter[key]} times"
+                    ),
                     severity="warning",
                     source="RBACEnforcer",
                 )
@@ -268,7 +366,11 @@ class RBACEnforcer:
             self._access_denied_counter[key] = 0
 
     async def enforce(
-        self, user_id: UUID, resource: str, action: str, legal_entity_id: UUID | None = None
+        self,
+        user_id: UUID,
+        resource: str,
+        action: str,
+        legal_entity_id: UUID | None = None,
     ) -> None:
         """
         Enforce permission - raises exception if denied.
@@ -277,10 +379,15 @@ class RBACEnforcer:
             PermissionDeniedError: If user does not have permission
         """
         if not await self.check_permission(user_id, resource, action, legal_entity_id):
-            raise PermissionDeniedError(user_id, resource, action, f"{resource}:{action}")
+            raise PermissionDeniedError(
+                user_id, resource, action, f"{resource}:{action}"
+            )
 
     async def check_permissions_batch(
-        self, user_id: UUID, checks: list[dict[str, str]], legal_entity_id: UUID | None = None
+        self,
+        user_id: UUID,
+        checks: list[dict[str, str]],
+        legal_entity_id: UUID | None = None,
     ) -> dict[str, bool]:
         """
         Check multiple permissions in batch.
@@ -331,7 +438,10 @@ class RBACEnforcer:
         return list(permissions)
 
     async def has_any_permission(
-        self, user_id: UUID, permissions: list[str], legal_entity_id: UUID | None = None
+        self,
+        user_id: UUID,
+        permissions: list[str],
+        legal_entity_id: UUID | None = None,
     ) -> bool:
         """
         Check if user has any of the listed permissions.
@@ -345,7 +455,10 @@ class RBACEnforcer:
         return any(p in user_perms for p in permissions)
 
     async def has_all_permissions(
-        self, user_id: UUID, permissions: list[str], legal_entity_id: UUID | None = None
+        self,
+        user_id: UUID,
+        permissions: list[str],
+        legal_entity_id: UUID | None = None,
     ) -> bool:
         """
         Check if user has all of the listed permissions.
@@ -407,11 +520,13 @@ class RBACEnforcer:
         self._access_denied_counter.clear()
         self._logger.info("RBAC enforcer reset")
 
+
 # ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
 _rbac_enforcer: RBACEnforcer | None = None
+
 
 async def get_rbac_enforcer() -> RBACEnforcer:
     """Get singleton instance of RBACEnforcer."""
@@ -420,9 +535,11 @@ async def get_rbac_enforcer() -> RBACEnforcer:
         _rbac_enforcer = RBACEnforcer()
     return _rbac_enforcer
 
+
 # ============================================================================
 # DECORATOR
 # ============================================================================
+
 
 def require_permission(resource: str, action: str):
     """
@@ -438,6 +555,7 @@ def require_permission(resource: str, action: str):
         return wrapper
 
     return decorator
+
 
 # ============================================================================
 # EXPORTS

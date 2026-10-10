@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from uuid import UUID
 
 from core.api_client import api_client
 from core.formatting import extract_list, format_date
@@ -42,11 +43,12 @@ from ui.widgets.kpi_card import KpiCard
 
 BASE = "/approval/approvals"
 
+# Harus sama dengan CHECK constraint ck_approval_matrix_entity_type di database.
 ENTITY_TYPES = [
-    "journal", "ap_invoice", "ar_invoice", "purchase_order", "sales_order",
-    "credit_note", "debit_note", "payment",
+    "journal", "ap_invoice", "ar_invoice", "payment", "purchase_order",
+    "sales_order", "budget", "master_data",
 ]
-APPROVAL_LEVELS = ["level_1", "level_2", "level_3", "level_4", "level_5", "executive", "cfo", "ceo"]
+APPROVAL_LEVELS = ["level_1", "level_2", "level_3", "level_4", "level_5", "executive", "cfo", "ceo", "board"]
 
 
 class ApprovalMatrixPage(QWidget):
@@ -113,14 +115,15 @@ class MatrixTab(QWidget):
 
         outer.addWidget(QLabel(
             "Rule per level (satu baris = satu level approval). Format per baris:\n"
-            "level|min_amount|max_amount|min_approvers|is_final(y/n)\n"
+            "level|min_amount|max_amount|approver_user_id[,approver_user_id2]|is_final(y/n)\n"
+            "approver_user_id = UUID user approver (wajib minimal satu).\n"
             "Contoh:\n"
-            "level_1|0|50000000|1|n\n"
-            "level_2|50000001|500000000|1|n\n"
-            "cfo|500000001||1|y"
+            "level_1|0|50000000|<uuid-user-1>|n\n"
+            "level_2|50000001|500000000|<uuid-user-2>|n\n"
+            "cfo|500000001||<uuid-user-3>|y"
         ))
         self.rules_edit = QTextEdit()
-        self.rules_edit.setPlaceholderText("level_1|0|50000000|1|n")
+        self.rules_edit.setPlaceholderText("level_1|0|50000000|<uuid-user-approver>|n")
         self.rules_edit.setFixedHeight(90)
         outer.addWidget(self.rules_edit)
 
@@ -165,16 +168,27 @@ class MatrixTab(QWidget):
             if len(parts) < 5:
                 QMessageBox.warning(self, "Validasi", f"Format baris rule salah: '{line}'")
                 return None
-            level, min_amt, max_amt, min_approvers, is_final = parts[:5]
+            level, min_amt, max_amt, approvers_raw, is_final = parts[:5]
             if level.strip() not in APPROVAL_LEVELS:
                 QMessageBox.warning(self, "Validasi", f"Level tidak valid: '{level}'. Pilih dari: {', '.join(APPROVAL_LEVELS)}")
+                return None
+            approver_ids = [a.strip() for a in approvers_raw.split(",") if a.strip()]
+            if not approver_ids:
+                QMessageBox.warning(self, "Validasi", f"Approver (UUID user) wajib diisi di baris: '{line}'")
+                return None
+            try:
+                for approver_id in approver_ids:
+                    UUID(approver_id)
+            except ValueError:
+                QMessageBox.warning(self, "Validasi", f"Approver harus berupa UUID user yang valid di baris: '{line}'")
                 return None
             try:
                 rule = {
                     "level": level.strip(),
                     "min_amount": float(Decimal(min_amt)) if min_amt.strip() else None,
                     "max_amount": float(Decimal(max_amt)) if max_amt.strip() else None,
-                    "min_approvers": int(min_approvers) if min_approvers.strip() else 1,
+                    "approver_user_ids": approver_ids,
+                    "min_approvers": 1,
                     "is_final": is_final.strip().lower() in ("y", "yes", "true", "1"),
                 }
             except (InvalidOperation, ValueError):
@@ -343,9 +357,9 @@ class StatisticsTab(QWidget):
 
     def _on_loaded(self, data: Any) -> None:
         data = data or {}
-        self.card_pending.set_value(str(data.get("pending_count", "-")))
-        self.card_approved.set_value(str(data.get("approved_count", "-")))
-        self.card_rejected.set_value(str(data.get("rejected_count", "-")))
+        self.card_pending.set_value(str(data.get("pending_requests", data.get("pending_count", "-"))))
+        self.card_approved.set_value(str(data.get("approved_requests", data.get("approved_count", "-"))))
+        self.card_rejected.set_value(str(data.get("rejected_requests", data.get("rejected_count", "-"))))
         avg = data.get("average_approval_time_hours")
         self.card_avg_time.set_value(f"{avg:.1f} jam" if isinstance(avg, (int, float)) else "-")
         self.status_label.setText("Statistik dimuat.")

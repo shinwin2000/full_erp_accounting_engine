@@ -61,12 +61,15 @@ class ApprovalRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def get_request_by_id(self, request_id: uuid.UUID) -> ApprovalRequestTable | None:
+    async def get_request_by_id(
+        self, request_id: uuid.UUID, for_update: bool = False
+    ) -> ApprovalRequestTable | None:
         """
-        Mendapatkan request approval berdasarkan ID.
+        Mendapatkan request approval berdasarkan ID (request yang soft-deleted diabaikan).
 
         Args:
             request_id: UUID request
+            for_update: True -> ``SELECT ... FOR UPDATE`` (kunci baris sampai transaksi selesai)
 
         Returns:
             ApprovalRequestTable jika ditemukan, None jika tidak
@@ -75,7 +78,10 @@ class ApprovalRepositoryPort(ABC):
 
     @abstractmethod
     async def get_requests_by_entity(
-        self, entity_type: str, entity_id: uuid.UUID
+        self,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        legal_entity_id: uuid.UUID | None = None,
     ) -> list[ApprovalRequestTable]:
         """
         Mendapatkan semua request approval untuk suatu entity (misal: journal, invoice, dll.)
@@ -90,15 +96,23 @@ class ApprovalRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def get_pending_requests_for_user(self, user_id: uuid.UUID) -> list[ApprovalRequestTable]:
+    async def get_pending_requests_for_user(
+        self,
+        user_id: uuid.UUID,
+        legal_entity_id: uuid.UUID | None = None,
+        extra_approver_ids: list[uuid.UUID] | None = None,
+    ) -> list[ApprovalRequestTable]:
         """
         Mendapatkan semua request approval yang pending untuk user tertentu (sebagai approver).
 
         Args:
             user_id: UUID user
+            legal_entity_id: batasi ke legal entity tertentu (opsional)
+            extra_approver_ids: approver lain yang tugasnya didelegasikan ke user ini
 
         Returns:
-            List ApprovalRequestTable (diurutkan berdasarkan priority desc, created_at asc)
+            List ApprovalRequestTable, diurutkan priority ASC (1 = paling tinggi,
+            sesuai ApprovalRequestTable) lalu created_at ASC (paling lama dulu).
         """
         pass
 
@@ -118,6 +132,31 @@ class ApprovalRepositoryPort(ABC):
             status: Status baru ('approved' atau 'rejected')
             approved_by: UUID user yang melakukan approval
             comments: Komentar opsional
+        """
+        pass
+
+    @abstractmethod
+    async def get_active_user_ids(self, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+        """Subset dari ``user_ids`` yang ada di iam_user, is_active dan belum dihapus."""
+        pass
+
+    @abstractmethod
+    async def lock_entity_for_submit(
+        self, entity_type: str, entity_id: uuid.UUID, legal_entity_id: uuid.UUID
+    ) -> None:
+        """Ambil lock level-transaksi untuk (legal_entity, entity_type, entity_id).
+
+        Dipanggil sebelum memeriksa request terbuka agar dua submit paralel untuk entity
+        yang sama tidak sama-sama lolos. Lock dilepas otomatis saat commit/rollback.
+        """
+        pass
+
+    @abstractmethod
+    async def flush_and_refresh(self, obj: Any) -> Any:
+        """Flush perubahan ke DB lalu refresh objek (mengisi updated_at/version terbaru).
+
+        Dipanggil service setelah memodifikasi objek ORM supaya error DB muncul di
+        sini (bukan saat commit) dan response berisi nilai yang sudah final.
         """
         pass
 
@@ -229,6 +268,21 @@ class ApprovalRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def get_matrix_by_code(
+        self, matrix_code: str, legal_entity_id: uuid.UUID
+    ) -> ApprovalMatrixTable | None:
+        """Mendapatkan matrix berdasarkan kode (termasuk yang soft-deleted, karena
+        unique constraint tetap berlaku untuk baris tersebut)."""
+        pass
+
+    @abstractmethod
+    async def count_open_requests_for_matrix(
+        self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID
+    ) -> int:
+        """Jumlah request berstatus pending/escalated yang memakai matrix ini."""
+        pass
+
+    @abstractmethod
     async def delete_matrix(self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID) -> bool:
         """Hard-delete approval matrix. Returns True jika ditemukan & dihapus."""
         pass
@@ -255,6 +309,25 @@ class ApprovalRepositoryPort(ABC):
         self, delegation_id: uuid.UUID, legal_entity_id: uuid.UUID | None = None
     ) -> ApprovalDelegationTable | None:
         """Mendapatkan delegation berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def get_active_delegation(
+        self,
+        delegator_id: uuid.UUID,
+        delegate_to_id: uuid.UUID,
+        legal_entity_id: uuid.UUID,
+        on_date: date,
+    ) -> ApprovalDelegationTable | None:
+        """Delegasi aktif (is_active, belum dicabut, start_date <= on_date <= end_date)
+        dari delegator ke delegate_to, jika ada."""
+        pass
+
+    @abstractmethod
+    async def list_active_delegator_ids(
+        self, delegate_to_id: uuid.UUID, legal_entity_id: uuid.UUID, on_date: date
+    ) -> list[uuid.UUID]:
+        """ID semua delegator yang saat ini mendelegasikan wewenangnya ke delegate_to_id."""
         pass
 
     # ========== Statistics ==========

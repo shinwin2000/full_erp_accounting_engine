@@ -34,6 +34,17 @@ CATATAN SEJARAH / KENAPA DITULIS ULANG:
     bekerja LANGSUNG ke ``JournalHeaderTable``/``JournalLineTable`` lewat
     UnitOfWork — pola yang sama seperti ``service_coa.py`` — supaya
     router, service, dan database benar-benar satu kontrak yang konsisten.
+
+FIX V14 (post_journal & reverse_journal FK violation):
+    Sebelumnya ``ledger_entry.account_id`` diisi ``uuid4()`` (placeholder),
+    yang menyebabkan:
+        insert or update on table "ledger_entry" violates foreign key
+        constraint "ledger_entry_account_id_fkey"
+        DETAIL: Key (account_id)=(...) is not present in table "account".
+    Sekarang ``account_id`` di-resolve dari tabel ``account`` berdasarkan
+    ``journal_line.account_code`` + ``legal_entity_id``. Bila ada kode
+    akun yang tidak ditemukan, posting dibatalkan dengan pesan jelas
+    (AccountNotFoundError), bukan diam-diam menyimpan UUID acak.
 """
 
 from __future__ import annotations
@@ -289,7 +300,7 @@ class JournalService:
             JournalLineDTO(
                 id=ln.id,
                 line_number=ln.line_number,
-                account_id=ln.id,  # ORM journal_line tidak simpan account_id (FK by code); lihat catatan di bawah
+                account_id=ln.id,  # ORM journal_line tidak simpan account_id (FK by code)
                 account_code=ln.account_code,
                 account_name=ln.account_name,
                 debit_amount=ln.debit_amount,
@@ -375,6 +386,28 @@ class JournalService:
         seq = result.scalar_one() + 1
         return f"{prefix}-{seq:05d}"
 
+    async def _resolve_account_ids(
+        self, session: Any, legal_entity_id: UUID, account_codes: list[str]
+    ) -> dict[str, UUID]:
+        """Map account_code -> account_id untuk legal entity ini.
+
+        FIX V14: dipakai oleh post_journal/reverse_journal supaya
+        ``ledger_entry.account_id`` (FK ke ``account.id``) diisi nilai
+        yang benar, bukan uuid4() placeholder.
+        """
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        codes = list({c for c in account_codes if c})
+        if not codes:
+            return {}
+        result = await session.execute(
+            select(AccountTable.id, AccountTable.account_code).where(
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.account_code.in_(codes),
+            )
+        )
+        return {row.account_code: row.id for row in result.all()}
+
     async def _validate_and_resolve_lines(
         self, session: Any, legal_entity_id: UUID, lines_input: list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], Decimal, Decimal]:
@@ -452,9 +485,7 @@ class JournalService:
     async def _check_period_open(self, session: Any, legal_entity_id: UUID, journal_date_: date) -> None:
         """Kalau ada master fiscal_period yang mencakup tanggal jurnal ini,
         periode itu HARUS berstatus 'open'. Kalau tidak ada data periode
-        sama sekali untuk tanggal ini, jurnal tetap diizinkan (banyak
-        instalasi belum setup fiscal_period) — hanya diblokir kalau
-        periodenya ADA dan statusnya bukan open (closed/locked)."""
+        sama sekali untuk tanggal ini, jurnal tetap diizinkan."""
         from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 
         result = await session.execute(
@@ -832,7 +863,19 @@ class JournalService:
         posted_by_name: str | None = None,
     ) -> JournalDTO | None:
         """Posting ke Ledger — status approved -> posted, dan membuat baris
-        ``ledger_entry`` sesuai baris jurnal (materialized GL)."""
+        ``ledger_entry`` sesuai baris jurnal (materialized GL).
+
+        FIX V14:
+        - ``account_id`` di ``ledger_entry`` sebelumnya diisi ``uuid4()``
+          placeholder, yang menyebabkan:
+              insert or update on table "ledger_entry" violates foreign key
+              constraint "ledger_entry_account_id_fkey"
+          Sekarang di-resolve dari tabel ``account`` (per legal entity) via
+          ``account_code`` yang tersimpan di ``journal_line``.
+        - Bila ada kode akun yang tidak ditemukan di tabel account, posting
+          dibatalkan dengan AccountNotFoundError (transparan), bukan diam-diam
+          menyimpan UUID acak.
+        """
         from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
 
         self._check_authority(user_id, "post_journal")
@@ -848,6 +891,20 @@ class JournalService:
                 )
             if not row.is_balanced:
                 raise JournalNotBalancedError(f"Cannot post unbalanced journal {row.voucher_number}")
+            if not row.lines:
+                raise JournalServiceError(
+                    f"Journal {row.voucher_number} has no lines to post"
+                )
+
+            # ---- Resolve account_code -> account_id (fix FK violation) ----
+            codes = [ln.account_code for ln in row.lines]
+            id_map = await self._resolve_account_ids(session, legal_entity_id, codes)
+            missing = [c for c in {ln.account_code for ln in row.lines} if c not in id_map]
+            if missing:
+                raise AccountNotFoundError(
+                    f"Cannot post journal {row.voucher_number}: "
+                    f"account(s) not found in legal entity: {', '.join(sorted(missing))}"
+                )
 
             row.post(user_id)
             row.posted_by_name = posted_by_name
@@ -856,7 +913,7 @@ class JournalService:
                 session.add(LedgerEntryTable(
                     id=uuid4(),
                     journal_id=row.id,
-                    account_id=uuid4(),  # placeholder — lihat catatan di bawah
+                    account_id=id_map[ln.account_code],
                     account_code=ln.account_code,
                     line_number=ln.line_number,
                     debit_amount=ln.debit_amount,
@@ -984,7 +1041,11 @@ class JournalService:
     ) -> JournalDTO | None:
         """Buat jurnal pembalik (debit<->kredit ditukar) dari jurnal yang
         sudah posted. Jurnal asal ditandai reversed & ditautkan dua arah
-        (reversed_journal_id <-> original_journal_id)."""
+        (reversed_journal_id <-> original_journal_id).
+
+        FIX V14: ledger_entry.account_id di-resolve dari account_code juga,
+        supaya tidak FK violation saat post_immediately=True.
+        """
         from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
         from infrastructure.persistence_orm.journal_line_table import JournalLineTable
 
@@ -1061,14 +1122,30 @@ class JournalService:
                 reversal.posted_by = user_id
                 reversal.posted_at = datetime.now(UTC)
                 await session.flush()
-                result = await session.execute(
-                    select(JournalLineTable).where(JournalLineTable.journal_id == reversal.id)
-                )
-                for ln in result.scalars().all():
+
+                rev_lines = (
+                    await session.execute(
+                        select(JournalLineTable).where(
+                            JournalLineTable.journal_id == reversal.id
+                        )
+                    )
+                ).scalars().all()
+
+                # FIX V14: resolve account_id dari account_code
+                codes_r = [ln.account_code for ln in rev_lines]
+                id_map = await self._resolve_account_ids(session, legal_entity_id, codes_r)
+                missing_r = [c for c in {ln.account_code for ln in rev_lines} if c not in id_map]
+                if missing_r:
+                    raise AccountNotFoundError(
+                        f"Cannot post reversal {voucher_number}: "
+                        f"account(s) not found: {', '.join(sorted(missing_r))}"
+                    )
+
+                for ln in rev_lines:
                     session.add(LedgerEntryTable(
                         id=uuid4(),
                         journal_id=reversal.id,
-                        account_id=uuid4(),
+                        account_id=id_map[ln.account_code],
                         account_code=ln.account_code,
                         line_number=ln.line_number,
                         debit_amount=ln.debit_amount,
@@ -1090,7 +1167,10 @@ class JournalService:
             await self._uow.commit()
 
         self._stats["journals_reversed"] += 1
-        self._record_audit("reverse_journal", journal_id, user_id, {"reversal_journal_id": str(reversal.id), "reason": reason})
+        self._record_audit(
+            "reverse_journal", journal_id, user_id,
+            {"reversal_journal_id": str(reversal.id), "reason": reason},
+        )
         return dto
 
     # ==================== LOCK / UNLOCK ====================

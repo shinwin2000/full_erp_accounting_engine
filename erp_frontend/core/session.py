@@ -7,6 +7,8 @@ aplikasi berjalan. Singleton sederhana yang diakses dari seluruh UI.
 from __future__ import annotations
 
 import json
+import base64
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +43,27 @@ class Session:
     @property
     def display_name(self) -> str:
         return self.user.get("full_name") or self.user.get("username") or "-"
+
+    def can(self, permission: str) -> bool:
+        """Dipakai UI untuk menonaktifkan tombol yang pasti ditolak server.
+
+        Membaca klaim `permissions` dari access token (tanpa verifikasi -- hanya untuk
+        UX; yang MENEGAKKAN tetap server). Jika token tidak membawa daftar permission
+        (kosong/tidak terbaca) hasilnya True: biarkan server yang memutuskan, jangan
+        sampai tombol terkunci salah."""
+        if not permission:
+            return True
+        perms: list[str] = []
+        try:
+            seg = (self.access_token or "").split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
+            perms = list(claims.get("permissions") or [])
+        except Exception:
+            return True
+        if not perms:
+            return True
+        res, _, act = permission.partition(":")
+        return any(p in ("*:*", permission, f"{res}:*", f"*:{act}") for p in perms)
 
     def has_permission(self, permission: str) -> bool:
         if not permission:

@@ -179,7 +179,7 @@ class PurchaseOrderCreatedEvent(DomainEvent):
         causation_id: str | None = None,
     ):
         event_data = {
-            "po_id": str(purchase_order.po_id),
+            "po_id": str(getattr(purchase_order, "po_id", None) or purchase_order.id),
             "po_number": purchase_order.po_number,
             "supplier_id": str(purchase_order.supplier_id),
             "supplier_name": purchase_order.supplier_name,
@@ -225,7 +225,7 @@ class PurchaseOrderApprovedEvent(DomainEvent):
         causation_id: str | None = None,
     ):
         event_data = {
-            "po_id": str(purchase_order.po_id),
+            "po_id": str(getattr(purchase_order, "po_id", None) or purchase_order.id),
             "po_number": purchase_order.po_number,
             "approved_by": approved_by,
         }
@@ -269,7 +269,7 @@ class SalesOrderCreatedEvent(DomainEvent):
         causation_id: str | None = None,
     ):
         event_data = {
-            "so_id": str(sales_order.so_id),
+            "so_id": str(getattr(sales_order, "so_id", None) or sales_order.id),
             "so_number": sales_order.so_number,
             "customer_id": str(sales_order.customer_id),
             "customer_name": sales_order.customer_name,
@@ -315,7 +315,7 @@ class SalesOrderApprovedEvent(DomainEvent):
         causation_id: str | None = None,
     ):
         event_data = {
-            "so_id": str(sales_order.so_id),
+            "so_id": str(getattr(sales_order, "so_id", None) or sales_order.id),
             "so_number": sales_order.so_number,
             "approved_by": approved_by,
         }

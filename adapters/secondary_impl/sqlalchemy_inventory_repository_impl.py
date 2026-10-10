@@ -328,6 +328,39 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         allowed = {"IN", "OUT", "ADJUSTMENT", "TRANSFER_IN", "TRANSFER_OUT"}
         return raw if raw in allowed else "ADJUSTMENT"
 
+    # FIX BUG KRITIS (arah BACA): perbaikan sebelumnya hanya membuat arah
+    # TULIS (domain -> database) lewat _db_movement_type(). Arah BACA
+    # (database -> domain) tidak pernah dibuat: _to_domain_movement_entity()
+    # masih memanggil MovementType(table.movement_type) langsung, padahal
+    # nilai di kolom sekarang salah satu dari 5 nilai flat (IN/OUT/
+    # ADJUSTMENT/TRANSFER_IN/TRANSFER_OUT) yang BUKAN anggota enum
+    # MovementType -> ValueError "'ADJUSTMENT' is not a valid MovementType"
+    # setiap kali daftar mutasi dibuka begitu ada satu saja mutasi yang
+    # tersimpan. Nilai granular aslinya tidak bisa dipulihkan persis (info
+    # itu memang hilang di skema DB yang hanya punya 5 nilai), jadi dipetakan
+    # ke anggota MovementType yang arah stoknya (masuk/keluar) sama.
+    # Khusus "ADJUSTMENT" arahnya ambigu di level kolom - diambil arah dari
+    # tanda quantity kalau tersedia, default ADJUSTMENT_IN.
+    _FROM_DB_MOVEMENT_TYPE_MAP = {
+        "IN": MovementType.PURCHASE_RECEIPT,
+        "OUT": MovementType.SALES_ISSUE,
+        "ADJUSTMENT": MovementType.ADJUSTMENT_IN,
+        "TRANSFER_IN": MovementType.TRANSFER_IN,
+        "TRANSFER_OUT": MovementType.TRANSFER_OUT,
+    }
+
+    @classmethod
+    def _domain_movement_type(cls, db_value: Any) -> MovementType:
+        """Terjemahkan nilai kolom database kembali ke MovementType domain."""
+        raw = str(db_value or "").strip()
+        mapped = cls._FROM_DB_MOVEMENT_TYPE_MAP.get(raw.upper())
+        if mapped is not None:
+            return mapped
+        try:
+            return MovementType(raw)  # data lama yang masih berupa nilai granular
+        except ValueError:
+            return MovementType.ADJUSTMENT_IN
+
     async def _to_orm_movement(self, movement: StockMovement) -> InventoryMovementTable:
         movement_type_str = self._db_movement_type(movement.movement_type)
         return InventoryMovementTable(
@@ -364,7 +397,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         return MovementEntity(
             movement_id=table.id,
             movement_number=table.movement_number,
-            movement_type=MovementType(table.movement_type),
+            movement_type=self._domain_movement_type(table.movement_type),
             item_id=table.item_id,
             item_sku="",  # diisi oleh pemanggil (list_movements) via join, kosong di sini
             item_name="",

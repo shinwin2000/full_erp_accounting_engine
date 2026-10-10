@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, LargeBinary, String, Text, func
+from sqlalchemy.schema import FetchedValue
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,7 +59,18 @@ class EmployeeDocumentTable(Base):
     # mengurutkan daftar dokumen, BUKAN `id` (UUID v4 acak, tidak
     # mencerminkan urutan pembuatan) atau `created_at` (bisa kembar kalau
     # dua dokumen diupload sangat berdekatan).
-    upload_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # FIX: migrasi (employee_documents_seq_001.py) sudah memasang
+    # server_default=nextval(...) di level database, TAPI mapping ORM di
+    # sini sebelumnya tidak diberi tahu soal itu - akibatnya SQLAlchemy
+    # mengira kolom ini tidak punya default sama sekali dan selalu
+    # mengirim NULL eksplisit saat INSERT, melanggar NOT NULL constraint
+    # ("null value in column upload_seq violates not-null constraint").
+    # server_default=FetchedValue() memberi tahu SQLAlchemy: percayakan ke
+    # DB (jangan kirim nilai saat INSERT), lalu ambil nilai yang
+    # di-generate lewat RETURNING setelahnya.
+    upload_seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=FetchedValue()
+    )
 
     employee: Mapped[EmployeeTable] = relationship("EmployeeTable", back_populates="documents")
 

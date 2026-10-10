@@ -42,6 +42,10 @@ PAGE_SIZE = 50
 
 
 class GenericListPage(QWidget):
+    # ((nama_atribut_tombol, "resource:aksi"), ...) -- tombol dinonaktifkan jika token user
+    # tidak membawa izin tsb. Diisi oleh halaman turunan; server tetap yang menegakkan.
+    button_permissions: tuple[tuple[str, str], ...] = ()
+
     def __init__(self, config: ModuleConfig, parent: QWidget | None = None):
         super().__init__(parent)
         self.config = config
@@ -152,7 +156,20 @@ class GenericListPage(QWidget):
         layout.addWidget(self.status_label)
 
     # ------------------------------------------------------------------
+    def _apply_permission_gates(self) -> None:
+        """Nonaktifkan tombol yang pasti ditolak server, dengan keterangan alasannya."""
+        from core.session import session
+
+        for attr, permission in self.button_permissions:
+            btn = getattr(self, attr, None)
+            if btn is None:
+                continue
+            allowed = session.can(permission)
+            btn.setEnabled(allowed)
+            btn.setToolTip("" if allowed else f"Anda tidak memiliki izin ({permission}). Hubungi administrator.")
+
     def refresh(self) -> None:
+        self._apply_permission_gates()
         if not self.config.list_path:
             self.status_label.setText("Modul ini tidak memiliki endpoint daftar (list).")
             return
@@ -215,12 +232,20 @@ class GenericListPage(QWidget):
         ikut dikunci karena keduanya murni baca dan aman diulang."""
         for btn in self._write_buttons:
             btn.setEnabled(enabled)
+        if enabled:  # selesai request: jangan sampai tombol terlarang ikut aktif lagi
+            self._apply_permission_gates()
+
+    def _make_form_dialog(self, title: str, fields, initial: dict | None = None) -> FormDialog:
+        """Hook pembuat dialog Tambah/Ubah. Halaman khusus (mis. Customer)
+        cukup meng-override method ini untuk memakai tampilan form berbeda;
+        default tetap FormDialog standar sehingga modul lain tidak berubah."""
+        return FormDialog(title, fields, initial=initial, parent=self)
 
     def _create_new(self) -> None:
         if not self.config.form_fields:
             QMessageBox.information(self, "Info", "Form untuk modul ini belum dikonfigurasi.")
             return
-        dlg = FormDialog(f"Tambah {self.config.label}", self.config.form_fields, parent=self)
+        dlg = self._make_form_dialog(f"Tambah {self.config.label}", self.config.form_fields)
         if dlg.exec():
             payload = dlg.result_payload()
             create_path = self.config.base_path + self.config.list_path
@@ -250,7 +275,7 @@ class GenericListPage(QWidget):
         if not edit_fields:
             QMessageBox.information(self, "Info", "Form untuk modul ini belum dikonfigurasi.")
             return
-        dlg = FormDialog(f"Ubah {self.config.label}", edit_fields, initial=record, parent=self)
+        dlg = self._make_form_dialog(f"Ubah {self.config.label}", edit_fields, initial=record)
         if dlg.exec():
             payload = dlg.result_payload()
             rec_id = record.get(self.config.id_field)

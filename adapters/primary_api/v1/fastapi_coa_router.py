@@ -462,12 +462,16 @@ def _err(e: Exception) -> HTTPException:
         PostingAccountCannotHaveChildrenError,
     )
 
+    from application.service_layer.service_coa import COAAuthorizationError, COAServiceError
+
+    if isinstance(e, COAAuthorizationError):
+        return HTTPException(status_code=403, detail=str(e))
     if isinstance(e, AccountNotFoundError):
         return HTTPException(status_code=404, detail=str(e))
     if isinstance(e, (
         AccountCodeAlreadyExistsError, InvalidParentAccountError, AccountCycleDetectedError,
         AccountHasChildrenError, AccountHasTransactionsError, AccountLockedError,
-        PostingAccountCannotHaveChildrenError, ValueError,
+        PostingAccountCannotHaveChildrenError, COAServiceError, ValueError,
     )):
         return HTTPException(status_code=422, detail=str(e))
     logger.exception("Unhandled COA error: %s", e)
@@ -537,7 +541,7 @@ async def create_account(
 
 
 @router.get(
-    "/accounts/{account_id}",
+    "/accounts/{account_id:uuid}",
     response_model=AccountResponseSchema,
     summary="Get account by ID",
     operation_id="coa_get_account_by_id",
@@ -583,7 +587,7 @@ async def get_account_by_code(
 
 
 @router.put(
-    "/accounts/{account_id}",
+    "/accounts/{account_id:uuid}",
     response_model=AccountResponseSchema,
     summary="Update account",
     operation_id="coa_update_account",
@@ -639,7 +643,7 @@ async def update_account(
 
 
 @router.delete(
-    "/accounts/{account_id}",
+    "/accounts/{account_id:uuid}",
     response_model=dict[str, str],
     summary="Deactivate/archive/delete account",
     operation_id="coa_deactivate_account",
@@ -705,7 +709,7 @@ async def deactivate_account(
 
 
 @router.post(
-    "/accounts/{account_id}/activate",
+    "/accounts/{account_id:uuid}/activate",
     response_model=AccountResponseSchema,
     summary="Activate account",
     operation_id="coa_activate_account",
@@ -738,7 +742,7 @@ async def activate_account(
 
 
 @router.post(
-    "/accounts/{account_id}/lock",
+    "/accounts/{account_id:uuid}/lock",
     response_model=AccountResponseSchema,
     summary="Lock account",
     operation_id="coa_lock_account",
@@ -772,7 +776,7 @@ async def lock_account(
 
 
 @router.post(
-    "/accounts/{account_id}/unlock",
+    "/accounts/{account_id:uuid}/unlock",
     response_model=AccountResponseSchema,
     summary="Unlock account",
     operation_id="coa_unlock_account",
@@ -805,7 +809,7 @@ async def unlock_account(
 
 
 @router.post(
-    "/accounts/{account_id}/duplicate",
+    "/accounts/{account_id:uuid}/duplicate",
     response_model=AccountResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Duplicate an existing account under a new code",
@@ -856,7 +860,7 @@ async def duplicate_account(
 
 
 @router.post(
-    "/accounts/{account_id}/move",
+    "/accounts/{account_id:uuid}/move",
     response_model=AccountResponseSchema,
     summary="Move account to a different parent (or make it a root account)",
     operation_id="coa_move_account",
@@ -1135,7 +1139,7 @@ async def get_account_tree(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/accounts/{account_id}/balance",
+    "/accounts/{account_id:uuid}/balance",
     response_model=AccountBalanceResponseSchema,
     summary="Get account balance",
     operation_id="coa_get_account_balance",
@@ -1170,7 +1174,7 @@ async def get_account_balance(
 
 
 @router.get(
-    "/accounts/{account_id}/usage",
+    "/accounts/{account_id:uuid}/usage",
     response_model=AccountUsageResponseSchema,
     summary="Get account usage information",
     operation_id="coa_get_account_usage",
@@ -1252,7 +1256,7 @@ async def get_statistics(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/accounts/{account_id}/validate",
+    "/accounts/{account_id:uuid}/validate",
     response_model=AccountValidationResultSchema,
     summary="Validate account before modification",
     operation_id="coa_validate_account",
@@ -1387,14 +1391,15 @@ async def export_coa(
     try:
         data = await coa_service.export_coa(legal_entity_id, format, include_inactive)
         media_types = {
-            "json": "application/json", "csv": "text/csv",
+            "json": "application/json",
+            "csv": "text/csv; charset=utf-8",
             "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
-        extensions = {"json": "json", "csv": "csv", "excel": "csv"}
+        extensions = {"json": "json", "csv": "csv", "excel": "xlsx"}
         filename = f"coa_export_{legal_entity_id}.{extensions[format]}"
         return Response(
             content=data, media_type=media_types[format],
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as e:
         raise _err(e)
@@ -1407,7 +1412,7 @@ async def export_coa(
     operation_id="coa_import",
 )
 async def import_coa(
-    file: UploadFile = File(..., description="COA file (JSON, CSV, or Excel-as-CSV)"),
+    file: UploadFile = File(..., description="COA file (.csv, .xlsx, atau .json)"),
     mode: str = Query("merge", pattern="^(merge|replace)$", description="Import mode"),
     validate_only: bool = Query(False, description="Only validate, don't save"),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
@@ -1425,11 +1430,16 @@ async def import_coa(
     try:
         content = await file.read()
         filename = file.filename or "import.csv"
-        file_content = content.decode("utf-8-sig") if filename.lower().endswith((".json", ".csv")) else content
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "csv"
+        if ext == "xls":
+            raise HTTPException(status_code=422, detail="Format .xls lama tidak didukung; simpan sebagai .xlsx atau .csv")
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Ukuran file maksimal 10 MB")
+        file_content = content
         result = await coa_service.import_coa(
             legal_entity_id=legal_entity_id,
             file_content=file_content,
-            file_format=filename.split(".")[-1].lower(),
+            file_format=ext,
             mode=mode,
             validate_only=validate_only,
             imported_by=current_user.user_id,
@@ -1452,7 +1462,7 @@ async def import_coa(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/accounts/{account_id}/history",
+    "/accounts/{account_id:uuid}/history",
     response_model=list[dict[str, Any]],
     summary="Get account change history",
     operation_id="coa_get_account_history",
@@ -1480,7 +1490,7 @@ async def get_account_history(
 
 
 @router.get(
-    "/accounts/{account_id}/audit-trail",
+    "/accounts/{account_id:uuid}/audit-trail",
     response_model=list[dict[str, Any]],
     summary="Get account audit trail",
     operation_id="coa_get_account_audit_trail",
@@ -1501,6 +1511,26 @@ async def get_account_audit_trail(
             }
             for a in audit_trail
         ]
+    except Exception as e:
+        raise _err(e)
+
+
+@router.get(
+    "/audit-integrity",
+    response_model=dict[str, Any],
+    summary="Verifikasi integritas jejak audit COA (hash per baris)",
+    operation_id="coa_verify_audit_integrity",
+)
+async def verify_audit_integrity(
+    account_id: UUID | None = Query(None, description="Batasi ke satu akun (opsional)"),
+    _permission: None = Depends(require_permission("coa:audit")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    coa_service: Any = Depends(get_coa_service),
+) -> dict[str, Any]:
+    """Hitung ulang SHA-256 setiap baris coa_audit_log. `ok=false` berarti ada
+    baris yang diubah di luar aplikasi (mis. lewat akses langsung ke database)."""
+    try:
+        return await coa_service.verify_audit_integrity(legal_entity_id, account_id)
     except Exception as e:
         raise _err(e)
 

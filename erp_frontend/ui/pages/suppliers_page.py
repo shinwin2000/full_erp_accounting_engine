@@ -122,6 +122,16 @@ CONFIG = ModuleConfig(
 class SuppliersPage(GenericListPage):
     """Halaman Pemasok (Supplier)."""
 
+    # Tombol -> permission yang dibutuhkan (sama dengan yang ditegakkan server).
+    button_permissions = (
+        ("new_btn", "supplier:create"),
+        ("edit_btn", "supplier:update"),
+        ("action_btn", "supplier:update"),
+        ("delete_btn", "supplier:delete"),
+        ("import_btn", "supplier:import"),
+        ("export_btn", "supplier:export"),
+    )
+
     def __init__(self, parent=None):
         super().__init__(CONFIG, parent)
 

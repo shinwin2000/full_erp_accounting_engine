@@ -108,13 +108,9 @@ class ActionSpec:
     # (BankTransactionReverseSchema) memang mewajibkan JSON body, bukan
     # query param seperti pola needs_reason yang sudah ada sebelumnya.
     reason_in_body: bool = False
-    # Sebagian aksi (mis. "Uji Penurunan Nilai" pada modul Goodwill) butuh
-    # input beberapa field terstruktur (tanggal, jumlah, metode valuasi,
-    # dst), bukan cuma satu "reason" seperti needs_reason. Kalau diisi,
-    # GenericListPage._run_action() akan menampilkan FormDialog berisi
-    # field-field ini sebelum mengirim aksi, dan hasil isian dikirim
-    # sebagai JSON body. None (default) berarti aksi ini tidak butuh form
-    # tambahan - berlaku seperti sebelumnya untuk semua modul lain.
+    # Kalau diisi (list[FieldSpec]), GenericListPage menampilkan form dialog
+    # berisi field-field ini dulu, lalu mengirim hasilnya sebagai JSON body
+    # aksi (mis. Goodwill: Uji Penurunan Nilai, Reversal, Dispose).
     action_fields: list | None = None
 
 
@@ -268,7 +264,7 @@ _reg(ModuleConfig(
              ("current_balance", "Saldo Piutang"), ("status", "Status"),
              ("is_active", "Aktif"), ("created_at", "Dibuat")],
     form_fields=[
-        FieldSpec("customer_code", "Kode Customer (kosongkan untuk auto: CUST-0001, dst)", section="Identitas"),
+        FieldSpec("customer_code", "Kode Customer", help_text="Kosongkan untuk otomatis (CUST-0001, dst)", section="Identitas"),
         FieldSpec("customer_name", "Nama Customer", required=True, section="Identitas"),
         FieldSpec("company_name", "Nama Perusahaan", section="Identitas"),
         FieldSpec("customer_type", "Tipe", FieldType.SELECT,
@@ -282,7 +278,7 @@ _reg(ModuleConfig(
         FieldSpec("province", "Provinsi", section="Kontak & Alamat"),
         FieldSpec("district", "Kecamatan", section="Kontak & Alamat"),
         FieldSpec("postal_code", "Kode Pos", section="Kontak & Alamat"),
-        FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID", section="Kontak & Alamat"),
+        FieldSpec("country", "Negara (ISO 2 huruf)", default="ID", section="Kontak & Alamat"),
         FieldSpec("phone", "Telepon", section="Kontak & Alamat"),
         FieldSpec("mobile", "HP", section="Kontak & Alamat"),
         FieldSpec("email", "Email", section="Kontak & Alamat"),
@@ -301,6 +297,8 @@ _reg(ModuleConfig(
     actions=[
         ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
         ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
+        ActionSpec("block", "Blokir (dengan alasan)", path_suffix="/block", style="danger",
+                   needs_reason=True, reason_in_body=True, reason_min_length=5),
     ],
     edit_http_method="PATCH",
     description="Master Customer lengkap (identitas, pajak, alamat, finance, status). "

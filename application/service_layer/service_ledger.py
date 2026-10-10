@@ -1,13 +1,18 @@
 # service_ledger.py - Complete rewrite with full implementation
-# v5.9.5 - Added validate_balance function to satisfy double_entry_integrity_checker
+# v5.9.8 - Fix:
+#   (1) Balance Sheet sekarang balance: Laba Tahun Berjalan (Net Income YTD)
+#       ditambahkan ke sisi Ekuitas, karena belum ada closing entries yang
+#       memindahkan laba ke akun Laba Ditahan. Tanpa ini, sisi Aset sudah
+#       termasuk laba (via Kas/Piutang) tapi sisi Ekuitas belum -> selisih.
+#   (2) current_assets di get_financial_ratios sekarang baca key yang benar
+#       ("balance" / "amount") sehingga tidak None.
+#   (3) _classify_expense/_classify_income ditulis lebih eksplisit.
 
 #!/usr/bin/env python3
 
 """
 Module: service_ledger.py
-
 Layer: 8 - Application / Service Layer
-
 Responsibility:
     Service untuk operasi buku besar (general ledger):
     - Posting jurnal
@@ -16,6 +21,16 @@ Responsibility:
     - Mendapatkan laporan neraca saldo per entitas
     - Posting eliminasi (untuk konsolidasi)
     - Close/reopen period
+    - Laporan keuangan lengkap (Neraca, Laba Rugi, Arus Kas, Ekuitas, Rasio)
+
+CATATAN KLASIFIKASI:
+    Format kode akun di proyek ini: "1-1100", "4-4100", "5-1100", dst.
+    Karena ada tanda hubung, `code.startswith("11")` TIDAK match — perlu
+    normalisasi (hapus "-" dan ".") dulu sebelum cek prefix.
+
+FIX v5.9.8:
+    - Balance Sheet balance: Laba Tahun Berjalan (YTD) ditambahkan ke Ekuitas.
+    - get_financial_ratios membaca key "balance"/"amount" dengan benar.
 """
 
 from __future__ import annotations
@@ -53,14 +68,101 @@ def audit(func):
 # ============================================================================
 
 def validate_balance(debit: Decimal, credit: Decimal) -> None:
-    """
-    Validate that total debit equals total credit.
-    Raises JournalNotBalancedError if not equal.
-    """
+    """Validate that total debit equals total credit."""
     if debit != credit:
         raise JournalNotBalancedError(
             f"Journal not balanced: debit={debit}, credit={credit}"
         )
+
+
+# ============================================================================
+# KONSTANTA KLASIFIKASI AKUN (untuk laporan keuangan)
+# ============================================================================
+#
+# ATURAN KLASIFIKASI:
+#   Aset Lancar      : prefix "11" / group "current" / "lancar"
+#   Aset Tetap       : prefix "12" / group "fixed" / "tetap"
+#   Aset Lain        : sisanya
+#   Kewajiban Pendek : prefix "21" / group "current" / "pendek" / "short"
+#   Kewajiban Panjang: prefix "22" - "29"
+#   HPP              : prefix "51" / nama "pokok penjualan"/"hpp"/"cogs"
+#   Beban Operasi    : sisanya (5-2xxx, 5-3xxx non-bunga)
+#   Beban Lain       : prefix "53" / nama "bunga"/"denda"/"selisih kurs"
+#   Beban Pajak      : prefix "81" / nama "pajak"/"tax"
+#   Pendapatan Lain  : prefix "43" / "7" / nama "lain"/"other"
+# ============================================================================
+
+
+def _normalize_code(code: str) -> str:
+    """Hapus tanda hubung & titik dari kode akun.
+    "5-1100" -> "51100", "1.2.3" -> "123". Untuk cek prefix numerik.
+    """
+    return (code or "").strip().replace("-", "").replace(".", "")
+
+
+def _classify_asset(code: str, group: str) -> str:
+    code_clean = _normalize_code(code)
+    group_l = (group or "").lower()
+    if code_clean.startswith("11") or "current" in group_l or "lancar" in group_l:
+        return "current"
+    if code_clean.startswith("12") or "fixed" in group_l or "tetap" in group_l:
+        return "fixed"
+    return "other"
+
+
+def _classify_liability(code: str, group: str) -> str:
+    code_clean = _normalize_code(code)
+    group_l = (group or "").lower()
+    if (
+        code_clean.startswith("21")
+        or "current" in group_l
+        or "pendek" in group_l
+        or "short" in group_l
+    ):
+        return "current"
+    return "long_term"
+
+
+def _classify_expense(code: str, name: str) -> str:
+    """Klasifikasi akun Expense: tax | cogs | other | operating."""
+    code_clean = _normalize_code(code)
+    name_l = (name or "").lower()
+
+    # 1) Pajak
+    if "pajak" in name_l or "tax" in name_l or code_clean.startswith("81"):
+        return "tax"
+
+    # 2) HPP / COGS (5-1xxx)
+    if (
+        code_clean.startswith("51")
+        or "pokok penjualan" in name_l
+        or "hpp" in name_l
+        or "cogs" in name_l
+        or "harga pokok" in name_l
+    ):
+        return "cogs"
+
+    # 3) Beban lain-lain (bunga, denda, selisih kurs) — 5-3xxx
+    if "bunga" in name_l or "denda" in name_l or "selisih kurs" in name_l:
+        return "other"
+    if code_clean.startswith("53"):
+        return "other"
+
+    # 4) Default: beban operasional (5-2xxx, dst)
+    return "operating"
+
+
+def _classify_income(code: str, name: str) -> str:
+    """Klasifikasi akun Revenue: other | operating."""
+    code_clean = _normalize_code(code)
+    name_l = (name or "").lower()
+
+    if "lain" in name_l or "other" in name_l:
+        return "other"
+    if code_clean.startswith("43") or code_clean.startswith("7"):
+        return "other"
+
+    return "operating"
 
 
 # ============================================================================
@@ -109,7 +211,7 @@ class TrialBalanceResponse:
 
 
 # ============================================================================
-# DTOs - Ledger Reporting API (used by fastapi_ledger_router.py)
+# DTOs - Ledger Reporting API
 # ============================================================================
 
 
@@ -151,6 +253,11 @@ class BalanceSheetResult:
     current_ratio: float | None = None
     quick_ratio: float | None = None
     debt_to_equity: float | None = None
+    total_current_assets: Decimal = Decimal("0")
+    total_fixed_assets: Decimal = Decimal("0")
+    total_other_assets: Decimal = Decimal("0")
+    total_current_liabilities: Decimal = Decimal("0")
+    total_long_term_liabilities: Decimal = Decimal("0")
 
 
 @dataclass(kw_only=True)
@@ -166,6 +273,8 @@ class CashFlowResult:
     beginning_cash: Decimal
     ending_cash: Decimal
     free_cash_flow: Decimal | None = None
+    non_cash_adjustments: list[dict[str, Any]] = field(default_factory=list)
+    working_capital_changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(kw_only=True)
@@ -275,9 +384,7 @@ class AccountNotFoundError(LedgerServiceError):
 
 
 class LedgerService:
-    """
-    Service untuk operasi buku besar (general ledger).
-    """
+    """Service untuk operasi buku besar (general ledger)."""
 
     def __init__(
         self,
@@ -335,7 +442,6 @@ class LedgerService:
         total_debit = sum(Decimal(str(line.get("debit", 0))) for line in lines)
         total_credit = sum(Decimal(str(line.get("credit", 0))) for line in lines)
 
-        # Validate double-entry (will raise JournalNotBalancedError if not balanced)
         validate_balance(total_debit, total_credit)
 
         journal_entry = JournalEntry(
@@ -347,8 +453,8 @@ class LedgerService:
             legal_entity_id=legal_entity_id,
             status=JournalStatus.POSTED,
             created_by=str(user_id) if user_id else "system",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             total_debit=total_debit,
             total_credit=total_credit,
             reference=source_system,
@@ -402,10 +508,6 @@ class LedgerService:
         as_of_date: date,
         include_zero_balance: bool = False,
     ) -> TrialBalanceReport:
-        """
-        Returns the trial balance report expected by fastapi_ledger_router.py
-        (full debit/credit breakdown per account).
-        """
         raw_lines = await self._ledger_repo.get_trial_balance_detailed(
             legal_entity_id, as_of_date, include_zero_balance=include_zero_balance
         )
@@ -434,7 +536,7 @@ class LedgerService:
                 return line.closing_balance_debit - line.closing_balance_credit
         return Decimal("0")
 
-    # ==================== REPORTING API (fastapi_ledger_router.py) ====================
+    # ==================== REPORTING API ====================
 
     async def get_balance_sheet(
         self,
@@ -442,29 +544,107 @@ class LedgerService:
         as_of_date: date,
         include_comparatives: bool = False,
     ) -> BalanceSheetResult:
+        """Neraca dengan klasifikasi Lancar/Tidak Lancar + pembanding periode lalu.
+
+        FIX v5.9.8: Laba Tahun Berjalan (Net Income YTD) ditambahkan ke sisi
+        Ekuitas. Tanpa ini, Neraca tidak balance karena sisi Aset sudah
+        termasuk Laba (via Kas/Piutang), tapi sisi Ekuitas belum — karena
+        belum ada closing entries yang memindahkan Laba ke akun Laba Ditahan.
+        """
         data = await self._ledger_repo.get_balance_sheet(
             legal_entity_id, as_of_date, compare_with_previous=include_comparatives
         )
         total_assets = Decimal(str(data.get("total_assets", 0)))
         total_liabilities = Decimal(str(data.get("total_liabilities", 0)))
-        total_equity = Decimal(str(data.get("total_equity", 0)))
+        total_equity_reported = Decimal(str(data.get("total_equity", 0)))
+
+        # ---- Hitung Laba Tahun Berjalan (Net Income YTD) ----
+        ytd_start = date(as_of_date.year, 1, 1)
+        _rev, _exp, net_income_ytd = await self._ledger_repo.get_net_income_for_range(
+            legal_entity_id, ytd_start, as_of_date
+        )
+        # Total ekuitas = ekuitas tercatat + laba tahun berjalan
+        total_equity = total_equity_reported + net_income_ytd
+
+        asset_details = data.get("asset_details", [])
+        liability_details = data.get("liability_details", [])
+        equity_details = data.get("equity_details", [])
+
+        def _normalize_lines(lines, kind):
+            out = []
+            for line in lines:
+                code = line.get("account_code", "")
+                name = line.get("account_name", "")
+                grp = line.get("account_group", "") or ""
+                cur = Decimal(str(line.get("balance", line.get("amount", 0))))
+                prev = Decimal(str(line.get("balance_previous", line.get("amount_previous", 0))))
+                if kind == "asset":
+                    klas = _classify_asset(code, grp)
+                elif kind == "liability":
+                    klas = _classify_liability(code, grp)
+                else:
+                    klas = "equity"
+                out.append({
+                    "account_id": line.get("account_id"),
+                    "account_code": code,
+                    "account_name": name,
+                    "account_group": grp,
+                    "classification": klas,
+                    "amount": cur,
+                    "amount_previous": prev,
+                })
+            return out
+
+        assets = _normalize_lines(asset_details, "asset")
+        liabilities = _normalize_lines(liability_details, "liability")
+        equities = _normalize_lines(equity_details, "equity")
+
+        # Tambahkan Laba Tahun Berjalan ke list equities (kalau belum ada)
+        equity_has_current_income = any(
+            "laba tahun berjalan" in (e.get("account_name") or "").lower()
+            or "current year" in (e.get("account_name") or "").lower()
+            or "laba (rugi) tahun berjalan" in (e.get("account_name") or "").lower()
+            for e in equities
+        )
+        if not equity_has_current_income and net_income_ytd != 0:
+            equities.append({
+                "account_id": None,
+                "account_code": "3-9999",
+                "account_name": "Laba Tahun Berjalan (YTD)",
+                "account_group": "Retained Earnings",
+                "classification": "equity",
+                "amount": net_income_ytd,
+                "amount_previous": Decimal("0"),
+            })
+
+        total_current_assets = sum((a["amount"] for a in assets if a["classification"] == "current"), Decimal("0"))
+        total_fixed_assets = sum((a["amount"] for a in assets if a["classification"] == "fixed"), Decimal("0"))
+        total_other_assets = sum((a["amount"] for a in assets if a["classification"] == "other"), Decimal("0"))
+        total_current_liabilities = sum((l["amount"] for l in liabilities if l["classification"] == "current"), Decimal("0"))
+        total_long_term_liabilities = sum((l["amount"] for l in liabilities if l["classification"] == "long_term"), Decimal("0"))
 
         debt_to_equity = float(total_liabilities / total_equity) if total_equity != 0 else None
+        current_ratio = (
+            float(total_current_assets / total_current_liabilities)
+            if total_current_liabilities != 0 else None
+        )
 
         return BalanceSheetResult(
-            legal_entity_name=None,
-            assets_lines=data.get("asset_details", []),
-            liabilities_lines=data.get("liability_details", []),
-            equity_lines=data.get("equity_details", []),
+            legal_entity_name=data.get("legal_entity_name"),
+            assets_lines=assets,
+            liabilities_lines=liabilities,
+            equity_lines=equities,
             total_assets=total_assets,
             total_liabilities=total_liabilities,
             total_equity=total_equity,
-            # Current/quick ratios need current-vs-non-current account
-            # sub-classification, which the chart of accounts doesn't carry
-            # today. Left as None rather than approximated with a wrong number.
-            current_ratio=None,
+            current_ratio=current_ratio,
             quick_ratio=None,
             debt_to_equity=debt_to_equity,
+            total_current_assets=total_current_assets,
+            total_fixed_assets=total_fixed_assets,
+            total_other_assets=total_other_assets,
+            total_current_liabilities=total_current_liabilities,
+            total_long_term_liabilities=total_long_term_liabilities,
         )
 
     async def get_income_statement(
@@ -475,7 +655,9 @@ class LedgerService:
         period: str = "custom",
         comparison: str = "none",
     ) -> IncomeStatementResult:
+        """Laba rugi multiple-step dengan pembanding periode sebelumnya."""
         ytd_start = date(end_date.year, 1, 1)
+
         current_rows = await self._ledger_repo.get_income_expense_breakdown(
             legal_entity_id, start_date, end_date
         )
@@ -484,54 +666,87 @@ class LedgerService:
         )
         ytd_by_code = {r["account_code"]: r["amount"] for r in ytd_rows}
 
+        prior_rows: list[dict[str, Any]] = []
+        if comparison == "previous_period":
+            span_days = (end_date - start_date).days + 1
+            prev_end = start_date - timedelta(days=1)
+            prev_start = prev_end - timedelta(days=span_days - 1)
+            prior_rows = await self._ledger_repo.get_income_expense_breakdown(
+                legal_entity_id, prev_start, prev_end
+            )
+        prior_by_code = {r["account_code"]: r["amount"] for r in prior_rows}
+
         def to_line(row: dict[str, Any]) -> dict[str, Any]:
+            cur = row["amount"]
+            prior = prior_by_code.get(row["account_code"])
+            variance = (cur - prior) if prior is not None else None
+            variance_pct = (
+                float(variance / prior) * 100
+                if prior not in (None, 0) and variance is not None else None
+            )
             return {
                 "account_id": row["account_id"],
                 "account_code": row["account_code"],
                 "account_name": row["account_name"],
-                "current_period": row["amount"],
-                "year_to_date": ytd_by_code.get(row["account_code"], row["amount"]),
-                "prior_period": None,
+                "current_period": cur,
+                "year_to_date": ytd_by_code.get(row["account_code"], cur),
+                "prior_period": prior,
                 "prior_year": None,
-                "variance": None,
-                "variance_percent": None,
+                "variance": variance,
+                "variance_percent": variance_pct,
             }
 
-        revenues = [to_line(r) for r in current_rows if r["account_type"] == "Revenue"]
-        # The chart of accounts doesn't separate COGS / operating expense /
-        # other income & expense today, so every Expense account is reported
-        # as an operating expense rather than guessed into a sub-bucket.
-        operating_expenses = [to_line(r) for r in current_rows if r["account_type"] == "Expense"]
+        # Klasifikasi
+        revenue_rows = [r for r in current_rows if r["account_type"] == "Revenue"]
+        expense_rows = [r for r in current_rows if r["account_type"] == "Expense"]
 
-        total_revenue = sum((r["amount"] for r in current_rows if r["account_type"] == "Revenue"), Decimal("0"))
-        total_expense = sum((r["amount"] for r in current_rows if r["account_type"] == "Expense"), Decimal("0"))
+        other_income_rows = [r for r in revenue_rows if _classify_income(r["account_code"], r["account_name"]) == "other"]
+        revenue_operating = [r for r in revenue_rows if _classify_income(r["account_code"], r["account_name"]) == "operating"]
 
-        gross_profit = total_revenue  # no COGS separated
-        operating_income = gross_profit - total_expense
-        income_before_tax = operating_income
-        tax_expense = Decimal("0")
-        net_income = income_before_tax - tax_expense
+        cogs_rows = [r for r in expense_rows if _classify_expense(r["account_code"], r["account_name"]) == "cogs"]
+        opex_rows = [r for r in expense_rows if _classify_expense(r["account_code"], r["account_name"]) == "operating"]
+        other_expense_rows = [r for r in expense_rows if _classify_expense(r["account_code"], r["account_name"]) == "other"]
+        tax_rows = [r for r in expense_rows if _classify_expense(r["account_code"], r["account_name"]) == "tax"]
 
-        def safe_div(a: Decimal, b: Decimal) -> float | None:
-            return float(a / b) if b else None
+        revenues = [to_line(r) for r in revenue_operating]
+        other_income = [to_line(r) for r in other_income_rows]
+        cogs = [to_line(r) for r in cogs_rows]
+        operating_expenses = [to_line(r) for r in opex_rows]
+        other_expenses = [to_line(r) for r in other_expense_rows]
+
+        total_revenue = sum((r["amount"] for r in revenue_operating), Decimal("0"))
+        total_other_income = sum((r["amount"] for r in other_income_rows), Decimal("0"))
+        total_cogs = sum((r["amount"] for r in cogs_rows), Decimal("0"))
+        total_opex = sum((r["amount"] for r in opex_rows), Decimal("0"))
+        total_other_expense = sum((r["amount"] for r in other_expense_rows), Decimal("0"))
+        total_tax = sum((r["amount"] for r in tax_rows), Decimal("0"))
+
+        gross_profit = total_revenue - total_cogs
+        operating_income = gross_profit - total_opex
+        other_net = total_other_income - total_other_expense
+        income_before_tax = operating_income + other_net
+        net_income = income_before_tax - total_tax
+
+        def safe_pct(num: Decimal, den: Decimal) -> float | None:
+            return float(num / den) if den else None
 
         return IncomeStatementResult(
             legal_entity_name=None,
             period_name=f"{start_date.isoformat()} - {end_date.isoformat()}",
             revenues=revenues,
-            cogs=[],
+            cogs=cogs,
             gross_profit=gross_profit,
             operating_expenses=operating_expenses,
             operating_income=operating_income,
-            other_income=[],
-            other_expenses=[],
+            other_income=other_income,
+            other_expenses=other_expenses,
             income_before_tax=income_before_tax,
-            tax_expense=tax_expense,
+            tax_expense=total_tax,
             net_income=net_income,
-            ebitda=None,
-            gross_margin=None,
-            operating_margin=safe_div(operating_income, total_revenue),
-            net_margin=safe_div(net_income, total_revenue),
+            ebitda=operating_income,
+            gross_margin=safe_pct(gross_profit, total_revenue),
+            operating_margin=safe_pct(operating_income, total_revenue),
+            net_margin=safe_pct(net_income, total_revenue),
         )
 
     async def get_cash_flow_statement(
@@ -541,6 +756,7 @@ class LedgerService:
         end_date: date,
         method: str = "indirect",
     ) -> CashFlowResult:
+        """Arus kas metode tidak langsung: Operasi, Investasi, Pendanaan."""
         _revenue, _expense, net_income = await self._ledger_repo.get_net_income_for_range(
             legal_entity_id, start_date, end_date
         )
@@ -550,26 +766,69 @@ class LedgerService:
         ending_cash = await self._ledger_repo.get_cash_balance(legal_entity_id, end_date)
         net_change = ending_cash - beginning_cash
 
+        operating: list[dict[str, Any]] = [
+            {"category": "operating", "description": "Laba Bersih Periode", "amount": net_income},
+        ]
+        wc_changes: list[dict[str, Any]] = []
+        try:
+            wc = await self._ledger_repo.get_working_capital_changes(
+                legal_entity_id, start_date, end_date
+            )
+            for row in wc or []:
+                wc_changes.append({
+                    "category": "operating",
+                    "description": row.get("description", ""),
+                    "amount": Decimal(str(row.get("amount", 0))),
+                })
+                operating.append(wc_changes[-1])
+        except (AttributeError, NotImplementedError):
+            pass
+
+        investing: list[dict[str, Any]] = []
+        financing: list[dict[str, Any]] = []
+        try:
+            inv = await self._ledger_repo.get_investing_activities(
+                legal_entity_id, start_date, end_date
+            )
+            for row in inv or []:
+                investing.append({
+                    "category": "investing",
+                    "description": row.get("description", ""),
+                    "amount": Decimal(str(row.get("amount", 0))),
+                })
+        except (AttributeError, NotImplementedError):
+            pass
+        try:
+            fin = await self._ledger_repo.get_financing_activities(
+                legal_entity_id, start_date, end_date
+            )
+            for row in fin or []:
+                financing.append({
+                    "category": "financing",
+                    "description": row.get("description", ""),
+                    "amount": Decimal(str(row.get("amount", 0))),
+                })
+        except (AttributeError, NotImplementedError):
+            pass
+
+        net_cash_op = sum((line["amount"] for line in operating), Decimal("0"))
+        net_cash_inv = sum((line["amount"] for line in investing), Decimal("0"))
+        net_cash_fin = sum((line["amount"] for line in financing), Decimal("0"))
+
         return CashFlowResult(
             legal_entity_name=None,
-            operating_activities=[
-                {
-                    "category": "operating",
-                    "description": "Net income for the period",
-                    "amount": net_income,
-                }
-            ],
-            net_cash_operating=net_income,
-            # Investing/financing activities aren't tagged in the chart of
-            # accounts today, so they're reported as zero rather than guessed.
-            investing_activities=[],
-            net_cash_investing=Decimal("0"),
-            financing_activities=[],
-            net_cash_financing=Decimal("0"),
+            operating_activities=operating,
+            net_cash_operating=net_cash_op,
+            investing_activities=investing,
+            net_cash_investing=net_cash_inv,
+            financing_activities=financing,
+            net_cash_financing=net_cash_fin,
             net_increase_decrease=net_change,
             beginning_cash=beginning_cash,
             ending_cash=ending_cash,
-            free_cash_flow=None,
+            free_cash_flow=net_cash_op + net_cash_inv,
+            non_cash_adjustments=[],
+            working_capital_changes=wc_changes,
         )
 
     async def get_equity_statement(
@@ -588,7 +847,7 @@ class LedgerService:
             legal_entity_id, start_date, end_date
         )
 
-        opening_equity_map = {
+        opening_map = {
             item["account_code"]: Decimal(str(item["balance"]))
             for item in opening_bs.get("equity_details", [])
         }
@@ -600,39 +859,30 @@ class LedgerService:
         for item in closing_bs.get("equity_details", []):
             code = item["account_code"]
             closing_balance = Decimal(str(item["balance"]))
-            opening_balance = opening_equity_map.pop(code, Decimal("0"))
+            opening_balance = opening_map.pop(code, Decimal("0"))
             change = closing_balance - opening_balance
-            lines.append(
-                EquityStatementLine(
-                    component=item.get("account_name", code),
-                    opening_balance=opening_balance,
-                    additions=change if change > 0 else Decimal("0"),
-                    deductions=-change if change < 0 else Decimal("0"),
-                    closing_balance=closing_balance,
-                    change=change,
-                )
-            )
+            lines.append(EquityStatementLine(
+                component=item.get("account_name", code),
+                opening_balance=opening_balance,
+                additions=change if change > 0 else Decimal("0"),
+                deductions=-change if change < 0 else Decimal("0"),
+                closing_balance=closing_balance,
+                change=change,
+            ))
             opening_total += opening_balance
             closing_total += closing_balance
 
-        # Equity accounts that had a balance at the start but were fully
-        # closed out (zeroed) by period end.
-        for code, opening_balance in opening_equity_map.items():
-            lines.append(
-                EquityStatementLine(
-                    component=code,
-                    opening_balance=opening_balance,
-                    additions=Decimal("0"),
-                    deductions=opening_balance,
-                    closing_balance=Decimal("0"),
-                    change=-opening_balance,
-                )
-            )
+        for code, opening_balance in opening_map.items():
+            lines.append(EquityStatementLine(
+                component=code,
+                opening_balance=opening_balance,
+                additions=Decimal("0"),
+                deductions=opening_balance,
+                closing_balance=Decimal("0"),
+                change=-opening_balance,
+            ))
             opening_total += opening_balance
 
-        # Any movement not explained by net income is bucketed as a capital
-        # change (contributions/distributions/OCI aren't separately tagged
-        # in the chart of accounts today).
         capital_changes = (closing_total - opening_total) - net_income
 
         return EquityStatementResult(
@@ -660,6 +910,19 @@ class LedgerService:
         total_liabilities = Decimal(str(bs.get("total_liabilities", 0)))
         total_equity = Decimal(str(bs.get("total_equity", 0)))
 
+        asset_details = bs.get("asset_details", [])
+        liab_details = bs.get("liability_details", [])
+        current_assets = sum(
+            (Decimal(str(a.get("balance", a.get("amount", 0)))) for a in asset_details
+             if _classify_asset(a.get("account_code", ""), a.get("account_group", "")) == "current"),
+            Decimal("0"),
+        )
+        current_liab = sum(
+            (Decimal(str(l.get("balance", l.get("amount", 0)))) for l in liab_details
+             if _classify_liability(l.get("account_code", ""), l.get("account_group", "")) == "current"),
+            Decimal("0"),
+        )
+
         ytd_start = date(as_of_date.year, 1, 1)
         total_revenue, _expense, net_income = await self._ledger_repo.get_net_income_for_range(
             legal_entity_id, ytd_start, as_of_date
@@ -669,10 +932,7 @@ class LedgerService:
             return float(a / b) if b else None
 
         return FinancialRatiosResult(
-            # Current/quick/cash ratios and the turnover ratios need
-            # current-vs-non-current and inventory/receivable/payable
-            # sub-classification the chart of accounts doesn't carry today.
-            current_ratio=None,
+            current_ratio=safe_div(current_assets, current_liab),
             quick_ratio=None,
             cash_ratio=None,
             debt_to_equity=safe_div(total_liabilities, total_equity),
@@ -734,16 +994,13 @@ class LedgerService:
 
         lines = []
         for elim in elimination_entries:
-            lines.append(
-                {
-                    "account_code": elim.account_code,
-                    "debit": elim.debit,
-                    "credit": elim.credit,
-                    "description": elim.description,
-                }
-            )
+            lines.append({
+                "account_code": elim.account_code,
+                "debit": elim.debit,
+                "credit": elim.credit,
+                "description": elim.description,
+            })
 
-        # Validate balance before calling post_journal (double validation is fine)
         total_debit = sum(Decimal(str(line.get("debit", 0))) for line in lines)
         total_credit = sum(Decimal(str(line.get("credit", 0))) for line in lines)
         validate_balance(total_debit, total_credit)
@@ -763,7 +1020,6 @@ class LedgerService:
             "journal_id": str(journal_id),
             "user_id": str(user_id),
         })
-
         return journal_id
 
     async def get_account_balances_summary(
@@ -785,7 +1041,6 @@ class LedgerService:
                     result[line.account_code][entity_id] = (
                         line.closing_balance_debit - line.closing_balance_credit
                     )
-
         return result
 
     @audit
@@ -811,8 +1066,8 @@ class LedgerService:
                     period_year=year,
                     period_month=month,
                     user_id=str(user_id),
-                    closed_at=datetime.utcnow(),
-                    occurred_at=datetime.utcnow(),
+                    closed_at=datetime.now(UTC),
+                    occurred_at=datetime.now(UTC),
                 )
                 await self._event_publisher.publish(event, correlation_id)
             except Exception as e:
@@ -851,7 +1106,7 @@ class LedgerService:
                     period_month=month,
                     user_id=str(user_id),
                     reason=reason,
-                    occurred_at=datetime.utcnow(),
+                    occurred_at=datetime.now(UTC),
                 )
                 await self._event_publisher.publish(event, correlation_id)
             except Exception as e:

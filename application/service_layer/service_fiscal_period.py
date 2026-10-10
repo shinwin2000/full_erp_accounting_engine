@@ -149,6 +149,18 @@ class PeriodOverlapError(FiscalPeriodServiceError):
 
 
 class FiscalPeriodService:
+    # BUG FIX: FiscalPeriodService sekarang transient (instance baru tiap
+    # request - lihat catatan di service_registry.py). _stats dipindah jadi
+    # atribut level-class supaya counter /fiscal-periods/stats tidak selalu
+    # balik ke nol tiap request.
+    _stats: dict[str, int] = {
+        "periods_created": 0,
+        "periods_updated": 0,
+        "periods_closed": 0,
+        "periods_locked": 0,
+        "periods_reopened": 0,
+    }
+
     def __init__(
         self,
         period_repo: FiscalPeriodRepositoryPort,
@@ -163,13 +175,6 @@ class FiscalPeriodService:
         self._period_repo = period_repo
         self._uow = uow
         self._event_publisher = event_publisher
-        self._stats = {
-            "periods_created": 0,
-            "periods_updated": 0,
-            "periods_closed": 0,
-            "periods_locked": 0,
-            "periods_reopened": 0,
-        }
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.info("FiscalPeriodService initialized")

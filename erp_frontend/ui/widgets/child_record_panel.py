@@ -13,18 +13,21 @@ Beda dengan GenericListPage (widgets/generic_list_page.py):
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from core.api_client import api_client
 from core.workers import run_task
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
+    QStackedWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -45,6 +48,8 @@ class ChildRecordPanel(QWidget):
         can_edit: bool = False,
         empty_label: str = "Belum ada data.",
         parent: QWidget | None = None,
+        dialog_factory: Callable[..., Any] | None = None,
+        entity_label: str = "Data",
     ):
         """
         base_path: path absolut sudah termasuk id parent,
@@ -58,6 +63,10 @@ class ChildRecordPanel(QWidget):
         self.read_only = read_only
         self.can_edit = can_edit
         self.empty_label = empty_label
+        # dialog_factory(title, fields, initial=None, parent=None) -> dialog.
+        # Default FormDialog standar; tab Customer memakai ModernFormDialog.
+        self.dialog_factory = dialog_factory
+        self.entity_label = entity_label
         self._build_ui()
         self.refresh()
 
@@ -100,10 +109,31 @@ class ChildRecordPanel(QWidget):
         self.table.verticalHeader().setVisible(False)
         if self.can_edit and not self.read_only:
             self.table.doubleClicked.connect(lambda *_: self._edit_selected())
-        layout.addWidget(self.table, stretch=1)
+
+        # BUG FIX: `empty_label` sebelumnya diterima tapi tidak pernah
+        # ditampilkan, jadi tab yang datanya kosong hanya berupa kotak putih
+        # polos dan terlihat seperti rusak. Sekarang ada keterangan jelas.
+        self.empty_widget = QLabel(f"📭\n\n{self.empty_label}")
+        self.empty_widget.setAlignment(Qt.AlignCenter)
+        self.empty_widget.setStyleSheet(
+            "color:#6B7280; font-size:13.5px; background:#FFFFFF; "
+            "border:1px dashed #D8D4F2; border-radius:12px;"
+        )
+        self.loading_widget = QLabel("⏳  Memuat data...")
+        self.loading_widget.setAlignment(Qt.AlignCenter)
+        self.loading_widget.setStyleSheet("color:#6B7280; font-size:13px; background:#FFFFFF;")
+
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.table)           # 0 = ada data
+        self.stack.addWidget(self.empty_widget)    # 1 = kosong
+        self.stack.addWidget(self.loading_widget)  # 2 = memuat
+        self.stack.setCurrentIndex(2)
+        layout.addWidget(self.stack, stretch=1)
 
     # ------------------------------------------------------------------
     def refresh(self) -> None:
+        if self.model.rowCount() == 0:
+            self.stack.setCurrentIndex(2)
         run_task(
             api_client.get,
             on_success=self._on_loaded,
@@ -115,8 +145,11 @@ class ChildRecordPanel(QWidget):
         rows = payload if isinstance(payload, list) else payload.get("items", []) if isinstance(payload, dict) else []
         self.model.set_rows(rows)
         self.table.resizeColumnsToContents()
+        self.stack.setCurrentIndex(0 if rows else 1)
 
     def _on_error(self, message: str) -> None:
+        if self.model.rowCount() == 0:
+            self.stack.setCurrentIndex(1)
         if message != "AUTH_REQUIRED":
             QMessageBox.warning(self, "Gagal memuat", message)
 
@@ -127,10 +160,15 @@ class ChildRecordPanel(QWidget):
             return None
         return self.model.record_at(idx.row())
 
+    def _make_dialog(self, title: str, initial: dict[str, Any] | None = None):
+        if self.dialog_factory:
+            return self.dialog_factory(title, self.form_fields, initial=initial, parent=self)
+        return FormDialog(title, self.form_fields, initial=initial, parent=self)
+
     def _add_new(self) -> None:
         if not self.form_fields:
             return
-        dlg = FormDialog("Tambah Data", self.form_fields, parent=self)
+        dlg = self._make_dialog(f"Tambah {self.entity_label}")
         if dlg.exec():
             payload = dlg.result_payload()
             run_task(
@@ -146,7 +184,7 @@ class ChildRecordPanel(QWidget):
         if not record:
             QMessageBox.information(self, "Info", "Pilih baris terlebih dahulu.")
             return
-        dlg = FormDialog("Ubah Data", self.form_fields, initial=record, parent=self)
+        dlg = self._make_dialog(f"Ubah {self.entity_label}", initial=record)
         if dlg.exec():
             payload = dlg.result_payload()
             rec_id = record.get(self.id_field)

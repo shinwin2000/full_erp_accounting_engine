@@ -150,13 +150,23 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
             "timestamp": datetime.utcnow().isoformat(),
             "data": data,
         }
-        self._events.append(event)
+        self._pending_events().append(event)
+
+    def _pending_events(self) -> list[dict[str, Any]]:
+        # SQLAlchemy TIDAK memanggil __init__ saat memuat baris dari DB, sehingga _events
+        # tidak ada pada objek hasil query (submit/approve/reject -> AttributeError).
+        # Inisialisasi malas menjamin atribut selalu ada.
+        events = self.__dict__.get("_events")
+        if events is None:
+            events = []
+            self.__dict__["_events"] = events
+        return events
 
     def clear_events(self) -> None:
-        self._events.clear()
+        self._pending_events().clear()
 
     def get_events(self) -> list[dict[str, Any]]:
-        return self._events.copy()
+        return self._pending_events().copy()
 
     @classmethod
     def reconstruct(cls, events: list[dict[str, Any]]) -> PurchaseOrderTable:

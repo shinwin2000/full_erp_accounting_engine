@@ -3,15 +3,28 @@
 Module: sqlalchemy_approval_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Approval (workflow persetujuan) menggunakan SQLAlchemy.
+
+Catatan transaksi:
+    Repository ini HANYA melakukan flush (tidak commit). Commit/rollback dilakukan oleh
+    pemilik session -- pada request HTTP itu adalah dependency ``get_async_session()``
+    (lihat ``get_approval_svc`` di fastapi_approval_router.py).
+
+Catatan soft-delete:
+    Query ``select()`` gaya 2.0 TIDAK terkena listener auto-filter ``deleted_at`` di
+    base_model (listener itu hanya untuk legacy ``Query``), sehingga setiap query di
+    sini memfilter ``deleted_at IS NULL`` secara eksplisit.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.approval_delegation_table import ApprovalDelegationTable
@@ -19,6 +32,30 @@ from infrastructure.persistence_orm.approval_matrix_table import ApprovalMatrixT
 from infrastructure.persistence_orm.approval_request_table import ApprovalRequestTable
 from infrastructure.persistence_orm.approval_rule_table import ApprovalRuleTable
 from ports.primary.approval_repository_port import ApprovalRepositoryPort
+
+
+def _date_conditions(column: Any, start: date | datetime | None, end: date | datetime | None) -> list[Any]:
+    """Bangun kondisi rentang waktu untuk kolom timestamptz.
+
+    - ``date``     : start = awal hari (UTC), end = AKHIR hari (eksklusif hari berikutnya),
+                     sehingga hari terakhir ikut terhitung.
+    - ``datetime`` : dipakai apa adanya (naive dianggap UTC); end inklusif.
+    """
+    conditions: list[Any] = []
+    if start is not None:
+        if isinstance(start, datetime):
+            lower = start if start.tzinfo else start.replace(tzinfo=UTC)
+        else:
+            lower = datetime.combine(start, time.min, tzinfo=UTC)
+        conditions.append(column >= lower)
+    if end is not None:
+        if isinstance(end, datetime):
+            upper = end if end.tzinfo else end.replace(tzinfo=UTC)
+            conditions.append(column <= upper)
+        else:
+            upper = datetime.combine(end + timedelta(days=1), time.min, tzinfo=UTC)
+            conditions.append(column < upper)
+    return conditions
 
 
 class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
@@ -32,86 +69,97 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
             from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
+
             self._session = await get_async_session_direct()
         return self._session
+
+    async def get_active_user_ids(self, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+        if not user_ids:
+            return set()
+        session = await self._get_session()
+        stmt = text(
+            "SELECT id FROM iam_user "
+            "WHERE id = ANY(:ids) AND is_active IS TRUE AND deleted_at IS NULL"
+        ).bindparams(bindparam("ids", value=list(user_ids), type_=ARRAY(PGUUID(as_uuid=True))))
+        result = await session.execute(stmt)
+        return {row[0] for row in result.all()}
+
+    async def lock_entity_for_submit(
+        self, entity_type: str, entity_id: uuid.UUID, legal_entity_id: uuid.UUID
+    ) -> None:
+        session = await self._get_session()
+        # Advisory lock level-transaksi (PostgreSQL >= 11). Submit paralel untuk entity yang
+        # sama diserialkan; yang kedua baru lanjut setelah yang pertama commit/rollback.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"approval-submit:{legal_entity_id}:{entity_type}:{entity_id}"},
+        )
+
+    async def flush_and_refresh(self, obj: Any) -> Any:
+        session = await self._get_session()
+        await session.flush()
+        await session.refresh(obj)
+        return obj
 
     # ========== Approval Request ==========
 
     async def save_request(self, request: ApprovalRequestTable) -> ApprovalRequestTable:
-        """
-        Persist a new approval request.
-
-        Args:
-            request: The approval request ORM object.
-
-        Returns:
-            The persisted request (with generated fields populated).
-        """
+        """Persist a new approval request (flush + refresh agar kolom server-default terisi)."""
         session = await self._get_session()
         session.add(request)
         await session.flush()
+        await session.refresh(request)
         return request
 
-    async def get_request_by_id(self, request_id: uuid.UUID) -> ApprovalRequestTable | None:
-        """
-        Retrieve an approval request by its primary key.
-
-        Args:
-            request_id: UUID of the request.
-
-        Returns:
-            The request if found, else None.
-        """
+    async def get_request_by_id(
+        self, request_id: uuid.UUID, for_update: bool = False
+    ) -> ApprovalRequestTable | None:
         session = await self._get_session()
-        stmt = select(ApprovalRequestTable).where(ApprovalRequestTable.id == request_id)
+        stmt = select(ApprovalRequestTable).where(
+            ApprovalRequestTable.id == request_id,
+            ApprovalRequestTable.deleted_at.is_(None),
+        )
+        if for_update:
+            # Kunci baris + paksa baca ulang state terbaru dari DB.
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_requests_by_entity(
-        self, entity_type: str, entity_id: uuid.UUID
+        self,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        legal_entity_id: uuid.UUID | None = None,
     ) -> list[ApprovalRequestTable]:
-        """
-        Retrieve all approval requests for a given entity, ordered by creation date descending.
-
-        Args:
-            entity_type: Type of the entity (e.g., "purchase_order").
-            entity_id: UUID of the entity.
-
-        Returns:
-            List of requests (empty if none).
-        """
         session = await self._get_session()
-        stmt = (
-            select(ApprovalRequestTable)
-            .where(
-                ApprovalRequestTable.entity_type == entity_type,
-                ApprovalRequestTable.entity_id == entity_id,
-            )
-            .order_by(ApprovalRequestTable.created_at.desc())
+        stmt = select(ApprovalRequestTable).where(
+            ApprovalRequestTable.entity_type == entity_type,
+            ApprovalRequestTable.entity_id == entity_id,
+            ApprovalRequestTable.deleted_at.is_(None),
         )
+        if legal_entity_id is not None:
+            stmt = stmt.where(ApprovalRequestTable.legal_entity_id == legal_entity_id)
+        stmt = stmt.order_by(ApprovalRequestTable.created_at.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_pending_requests_for_user(self, user_id: uuid.UUID) -> list[ApprovalRequestTable]:
-        """
-        Retrieve all pending approval requests assigned to a specific user,
-        ordered by priority (descending) and creation date (ascending).
-
-        Args:
-            user_id: UUID of the approver.
-
-        Returns:
-            List of pending requests.
-        """
+    async def get_pending_requests_for_user(
+        self,
+        user_id: uuid.UUID,
+        legal_entity_id: uuid.UUID | None = None,
+        extra_approver_ids: list[uuid.UUID] | None = None,
+    ) -> list[ApprovalRequestTable]:
         session = await self._get_session()
-        stmt = (
-            select(ApprovalRequestTable)
-            .where(
-                ApprovalRequestTable.status == "pending",
-                ApprovalRequestTable.approver_id == user_id,
-            )
-            .order_by(ApprovalRequestTable.priority.desc(), ApprovalRequestTable.created_at)
+        approver_ids = [user_id, *(extra_approver_ids or [])]
+        stmt = select(ApprovalRequestTable).where(
+            ApprovalRequestTable.status == "pending",
+            ApprovalRequestTable.approver_id.in_(approver_ids),
+            ApprovalRequestTable.deleted_at.is_(None),
         )
+        if legal_entity_id is not None:
+            stmt = stmt.where(ApprovalRequestTable.legal_entity_id == legal_entity_id)
+        # priority: 1 = tertinggi (lihat ApprovalRequestTable) -> ASC. Lalu yang paling lama dulu.
+        stmt = stmt.order_by(ApprovalRequestTable.priority.asc(), ApprovalRequestTable.created_at.asc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
@@ -122,117 +170,76 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         approved_by: uuid.UUID,
         comments: str | None = None,
     ) -> None:
-        """
-        Update the status of an approval request with pessimistic locking.
+        """Update status request dengan pessimistic lock (SELECT ... FOR UPDATE).
 
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
-
-        Args:
-            request_id: UUID of the request.
-            status: New status (must be one of "approved", "rejected", or "pending").
-            approved_by: UUID of the approver.
-            comments: Optional comments.
+        Transaksi dimiliki pemanggil/session (tidak memakai ``session.begin()`` sendiri,
+        yang akan error bila session sudah autobegin).
 
         Raises:
-            ValueError: If status is not allowed or request not found.
+            ValueError: status tidak diizinkan atau request tidak ditemukan.
         """
         allowed_statuses = {"approved", "rejected", "pending"}
         if status not in allowed_statuses:
             raise ValueError(f"Invalid status: {status}. Allowed: {allowed_statuses}")
 
-        session = await self._get_session()
-        async with session.begin():
-            # 1. Lock the row with SELECT FOR UPDATE
-            stmt_lock = select(ApprovalRequestTable).where(
-                ApprovalRequestTable.id == request_id
-            ).with_for_update()
-            result = await session.execute(stmt_lock)
-            request = result.scalar_one_or_none()
-            if not request:
-                raise ValueError(f"Approval request {request_id} not found")
+        request = await self.get_request_by_id(request_id, for_update=True)
+        if not request:
+            raise ValueError(f"Approval request {request_id} not found")
 
-            # 2. Update the locked row
-            request.status = status
+        request.status = status
+        if status == "pending":
+            request.approved_by = None
+            request.approved_at = None
+        else:
             request.approved_by = approved_by
             request.approved_at = datetime.now(UTC)
-            if comments is not None:
-                request.comments = comments
-            await session.flush()
+        if comments is not None:
+            request.approval_comments = comments
+        request.increment_version()
+        await self.flush_and_refresh(request)
 
     # ========== Approval Rules ==========
 
     async def save_rule(self, rule: ApprovalRuleTable) -> ApprovalRuleTable:
-        """
-        Persist a new approval rule.
-
-        Args:
-            rule: The approval rule ORM object.
-
-        Returns:
-            The persisted rule.
-        """
         session = await self._get_session()
         session.add(rule)
         await session.flush()
         return rule
 
     async def get_rule_by_id(self, rule_id: uuid.UUID) -> ApprovalRuleTable | None:
-        """
-        Retrieve an approval rule by its primary key.
-
-        Args:
-            rule_id: UUID of the rule.
-
-        Returns:
-            The rule if found, else None.
-        """
         session = await self._get_session()
-        stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.id == rule_id)
+        stmt = select(ApprovalRuleTable).where(
+            ApprovalRuleTable.id == rule_id, ApprovalRuleTable.deleted_at.is_(None)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_rules_for_entity(
         self, entity_type: str, amount: Decimal | None = None
     ) -> list[ApprovalRuleTable]:
-        """
-        Retrieve applicable approval rules for a given entity type and optional monetary amount.
-
-        Args:
-            entity_type: Type of the entity.
-            amount: The monetary amount to match against min_amount/max_amount.
-                   If None, amount filtering is skipped.
-
-        Returns:
-            List of matching rules.
-
-        Note:
-            The amount is compared as Decimal to avoid floating-point precision issues.
-        """
+        """Rule AKTIF untuk entity_type (dan amount bila diberikan), prioritas tertinggi dulu."""
         session = await self._get_session()
-        stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.entity_type == entity_type)
-
+        stmt = select(ApprovalRuleTable).where(
+            ApprovalRuleTable.entity_type == entity_type,
+            ApprovalRuleTable.is_active.is_(True),
+            ApprovalRuleTable.deleted_at.is_(None),
+        )
         if amount is not None:
-            # Ensure amount is non-negative (business rule)
             if amount < Decimal("0"):
                 raise ValueError("Amount must be non-negative")
-
             stmt = stmt.where(
                 ApprovalRuleTable.min_amount <= amount,
                 ApprovalRuleTable.max_amount >= amount,
             )
-
+        stmt = stmt.order_by(ApprovalRuleTable.priority.desc(), ApprovalRuleTable.approval_level)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_active_rules(self) -> list[ApprovalRuleTable]:
-        """
-        Retrieve all active approval rules.
-
-        Returns:
-            List of active rules.
-        """
         session = await self._get_session()
-        stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.is_active.is_(True))
+        stmt = select(ApprovalRuleTable).where(
+            ApprovalRuleTable.is_active.is_(True), ApprovalRuleTable.deleted_at.is_(None)
+        )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
@@ -243,7 +250,8 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
     ) -> ApprovalRequestTable | None:
         session = await self._get_session()
         stmt = select(ApprovalRequestTable).where(
-            ApprovalRequestTable.request_number == request_number
+            ApprovalRequestTable.request_number == request_number,
+            ApprovalRequestTable.deleted_at.is_(None),
         )
         if legal_entity_id:
             stmt = stmt.where(ApprovalRequestTable.legal_entity_id == legal_entity_id)
@@ -263,7 +271,10 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         page_size: int = 20,
     ) -> tuple[list[ApprovalRequestTable], int]:
         session = await self._get_session()
-        conditions = [ApprovalRequestTable.legal_entity_id == legal_entity_id]
+        conditions: list[Any] = [
+            ApprovalRequestTable.legal_entity_id == legal_entity_id,
+            ApprovalRequestTable.deleted_at.is_(None),
+        ]
         if entity_type:
             conditions.append(ApprovalRequestTable.entity_type == entity_type)
         if status:
@@ -272,10 +283,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
             conditions.append(ApprovalRequestTable.requested_by == requester_id)
         if approver_id:
             conditions.append(ApprovalRequestTable.approver_id == approver_id)
-        if start_date:
-            conditions.append(ApprovalRequestTable.created_at >= start_date)
-        if end_date:
-            conditions.append(ApprovalRequestTable.created_at <= end_date)
+        conditions.extend(_date_conditions(ApprovalRequestTable.created_at, start_date, end_date))
 
         count_stmt = select(func.count()).select_from(ApprovalRequestTable).where(*conditions)
         total = (await session.execute(count_stmt)).scalar_one()
@@ -283,8 +291,8 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         stmt = (
             select(ApprovalRequestTable)
             .where(*conditions)
-            .order_by(ApprovalRequestTable.created_at.desc())
-            .offset((page - 1) * page_size)
+            .order_by(ApprovalRequestTable.created_at.desc(), ApprovalRequestTable.id)
+            .offset((max(page, 1) - 1) * page_size)
             .limit(page_size)
         )
         result = await session.execute(stmt)
@@ -296,15 +304,30 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         session = await self._get_session()
         session.add(matrix)
         await session.flush()
+        await session.refresh(matrix)
         return matrix
 
     async def get_matrix_by_id(
         self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID | None = None
     ) -> ApprovalMatrixTable | None:
         session = await self._get_session()
-        stmt = select(ApprovalMatrixTable).where(ApprovalMatrixTable.id == matrix_id)
+        stmt = select(ApprovalMatrixTable).where(
+            ApprovalMatrixTable.id == matrix_id, ApprovalMatrixTable.deleted_at.is_(None)
+        )
         if legal_entity_id:
             stmt = stmt.where(ApprovalMatrixTable.legal_entity_id == legal_entity_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_matrix_by_code(
+        self, matrix_code: str, legal_entity_id: uuid.UUID
+    ) -> ApprovalMatrixTable | None:
+        session = await self._get_session()
+        # Sengaja TANPA filter deleted_at: unique constraint tetap berlaku untuk baris soft-deleted.
+        stmt = select(ApprovalMatrixTable).where(
+            ApprovalMatrixTable.matrix_code == matrix_code,
+            ApprovalMatrixTable.legal_entity_id == legal_entity_id,
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -316,7 +339,8 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
     ) -> list[ApprovalMatrixTable]:
         session = await self._get_session()
         stmt = select(ApprovalMatrixTable).where(
-            ApprovalMatrixTable.legal_entity_id == legal_entity_id
+            ApprovalMatrixTable.legal_entity_id == legal_entity_id,
+            ApprovalMatrixTable.deleted_at.is_(None),
         )
         if entity_type:
             stmt = stmt.where(ApprovalMatrixTable.entity_type == entity_type)
@@ -325,6 +349,22 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         stmt = stmt.order_by(ApprovalMatrixTable.matrix_code)
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_open_requests_for_matrix(
+        self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID
+    ) -> int:
+        session = await self._get_session()
+        stmt = (
+            select(func.count())
+            .select_from(ApprovalRequestTable)
+            .where(
+                ApprovalRequestTable.approval_matrix_id == matrix_id,
+                ApprovalRequestTable.legal_entity_id == legal_entity_id,
+                ApprovalRequestTable.status.in_(("pending", "escalated")),
+                ApprovalRequestTable.deleted_at.is_(None),
+            )
+        )
+        return int((await session.execute(stmt)).scalar_one())
 
     async def delete_matrix(self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID) -> bool:
         session = await self._get_session()
@@ -341,6 +381,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         session = await self._get_session()
         session.add(delegation)
         await session.flush()
+        await session.refresh(delegation)
         return delegation
 
     async def list_delegations_by_delegator(
@@ -353,6 +394,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         stmt = select(ApprovalDelegationTable).where(
             ApprovalDelegationTable.delegator_id == delegator_id,
             ApprovalDelegationTable.legal_entity_id == legal_entity_id,
+            ApprovalDelegationTable.deleted_at.is_(None),
         )
         if is_active is not None:
             stmt = stmt.where(ApprovalDelegationTable.is_active == is_active)
@@ -364,11 +406,54 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         self, delegation_id: uuid.UUID, legal_entity_id: uuid.UUID | None = None
     ) -> ApprovalDelegationTable | None:
         session = await self._get_session()
-        stmt = select(ApprovalDelegationTable).where(ApprovalDelegationTable.id == delegation_id)
+        stmt = select(ApprovalDelegationTable).where(
+            ApprovalDelegationTable.id == delegation_id,
+            ApprovalDelegationTable.deleted_at.is_(None),
+        )
         if legal_entity_id:
             stmt = stmt.where(ApprovalDelegationTable.legal_entity_id == legal_entity_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_active_delegation(
+        self,
+        delegator_id: uuid.UUID,
+        delegate_to_id: uuid.UUID,
+        legal_entity_id: uuid.UUID,
+        on_date: date,
+    ) -> ApprovalDelegationTable | None:
+        session = await self._get_session()
+        stmt = (
+            select(ApprovalDelegationTable)
+            .where(
+                ApprovalDelegationTable.delegator_id == delegator_id,
+                ApprovalDelegationTable.delegate_to_id == delegate_to_id,
+                ApprovalDelegationTable.legal_entity_id == legal_entity_id,
+                ApprovalDelegationTable.is_active.is_(True),
+                ApprovalDelegationTable.deleted_at.is_(None),
+                ApprovalDelegationTable.start_date <= on_date,
+                ApprovalDelegationTable.end_date >= on_date,
+            )
+            .order_by(ApprovalDelegationTable.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_active_delegator_ids(
+        self, delegate_to_id: uuid.UUID, legal_entity_id: uuid.UUID, on_date: date
+    ) -> list[uuid.UUID]:
+        session = await self._get_session()
+        stmt = select(ApprovalDelegationTable.delegator_id).where(
+            ApprovalDelegationTable.delegate_to_id == delegate_to_id,
+            ApprovalDelegationTable.legal_entity_id == legal_entity_id,
+            ApprovalDelegationTable.is_active.is_(True),
+            ApprovalDelegationTable.deleted_at.is_(None),
+            ApprovalDelegationTable.start_date <= on_date,
+            ApprovalDelegationTable.end_date >= on_date,
+        )
+        result = await session.execute(stmt)
+        return list({row[0] for row in result.all()})
 
     # ========== Statistics ==========
 
@@ -378,52 +463,49 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         start_date: date | None = None,
         end_date: date | None = None,
         entity_type: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         session = await self._get_session()
-        conditions = [ApprovalRequestTable.legal_entity_id == legal_entity_id]
-        if start_date:
-            conditions.append(ApprovalRequestTable.created_at >= start_date)
-        if end_date:
-            conditions.append(ApprovalRequestTable.created_at <= end_date)
+        conditions: list[Any] = [
+            ApprovalRequestTable.legal_entity_id == legal_entity_id,
+            ApprovalRequestTable.deleted_at.is_(None),
+        ]
+        conditions.extend(_date_conditions(ApprovalRequestTable.created_at, start_date, end_date))
         if entity_type:
             conditions.append(ApprovalRequestTable.entity_type == entity_type)
 
-        # Hitung per status sekaligus dalam satu query
         stmt = (
             select(ApprovalRequestTable.status, func.count())
             .where(*conditions)
             .group_by(ApprovalRequestTable.status)
         )
-        result = await session.execute(stmt)
-        counts_by_status = {row[0]: row[1] for row in result.all()}
-
+        counts_by_status = {row[0]: row[1] for row in (await session.execute(stmt)).all()}
         total = sum(counts_by_status.values())
 
-        # Hitung per entity_type
         stmt_type = (
             select(ApprovalRequestTable.entity_type, func.count())
             .where(*conditions)
             .group_by(ApprovalRequestTable.entity_type)
         )
-        result_type = await session.execute(stmt_type)
-        by_entity_type = {row[0]: row[1] for row in result_type.all()}
+        by_entity_type = {row[0]: row[1] for row in (await session.execute(stmt_type)).all()}
 
-        # Hitung per level saat ini
         stmt_level = (
             select(ApprovalRequestTable.current_level, func.count())
             .where(*conditions)
             .group_by(ApprovalRequestTable.current_level)
         )
-        result_level = await session.execute(stmt_level)
-        by_level = {str(row[0]): row[1] for row in result_level.all()}
+        by_level = {str(row[0]): row[1] for row in (await session.execute(stmt_level)).all()}
 
-        # Rata-rata waktu approval (jam) untuk request yang sudah selesai (approved/rejected)
+        # Rata-rata waktu keputusan (jam) hanya untuk request yang sudah diputuskan.
         avg_stmt = select(
             func.avg(
                 func.extract("epoch", ApprovalRequestTable.approved_at)
                 - func.extract("epoch", ApprovalRequestTable.created_at)
             )
-        ).where(*conditions, ApprovalRequestTable.approved_at.is_not(None))
+        ).where(
+            *conditions,
+            ApprovalRequestTable.status.in_(("approved", "rejected")),
+            ApprovalRequestTable.approved_at.is_not(None),
+        )
         avg_seconds = (await session.execute(avg_stmt)).scalar_one_or_none()
         avg_hours = float(avg_seconds) / 3600 if avg_seconds is not None else None
 

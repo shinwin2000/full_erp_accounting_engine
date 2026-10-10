@@ -525,15 +525,23 @@ class PermissionUtils:
         "customer:read",
         "customer:update",
         "customer:delete",
+        "customer:approve",  # ubah limit kredit
+        "customer:post",  # koreksi saldo piutang manual
+        "customer:export",  # export data pelanggan
         "supplier:create",
         "supplier:read",
         "supplier:update",
         "supplier:delete",
+        "supplier:approve",  # ubah kategori pemotongan pajak (PPh)
+        "supplier:export",
+        "supplier:import",
         # Employee permissions
         "employee:create",
         "employee:read",
         "employee:update",
         "employee:delete",
+        "employee:approve",  # struktur gaji, BPJS, PTKP, resign
+        "employee:import",
         # Fixed asset permissions
         "fixed_asset:create",
         "fixed_asset:read",

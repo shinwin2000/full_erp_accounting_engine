@@ -301,6 +301,11 @@ class ApiClient:
             body["legal_entity_id"] = legal_entity_id
         data = self.request("POST", "/iam/login", json_body=body, retry_on_401=False)
         session.apply_login_response(data)
+        # BUG FIX: sebelumnya session memakai legal entity PERTAMA milik user, bukan yang
+        # dipilih di layar login -> user multi-perusahaan melihat data entitas yang salah
+        # (tidak sama dengan perusahaan di token).
+        if legal_entity_id:
+            session.legal_entity_id = str(legal_entity_id)
         return data
 
     def logout(self) -> None:

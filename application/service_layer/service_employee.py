@@ -328,7 +328,11 @@ class EmployeeService:
         nik: str | None = None,
         npwp: str | None = None,
         gender: str | None = None,
+        birth_place: str | None = None,
         birth_date: date | None = None,
+        marital_status: str | None = None,
+        dependents: int | None = None,
+        religion: str | None = None,
         address: str | None = None,
         city: str | None = None,
         postal_code: str | None = None,
@@ -341,6 +345,12 @@ class EmployeeService:
         job_level: str | None = None,
         cost_center: str | None = None,
         manager_id: UUID | None = None,
+        join_date: date | None = None,
+        basic_salary: Decimal | None = None,
+        allowances: Decimal | None = None,
+        overtime_rate_multiplier: Decimal | None = None,
+        bpjs_kesehatan_number: str | None = None,
+        bpjs_ketenagakerjaan_number: str | None = None,
         bank_name: str | None = None,
         bank_account_number: str | None = None,
         bank_account_name: str | None = None,
@@ -348,6 +358,26 @@ class EmployeeService:
         updated_by: UUID | None = None,
         correlation_id: str | None = None,
     ) -> dict[str, Any] | None:
+        """Update profil employee secara umum (partial update).
+
+        PENTING (fix): versi sebelumnya HANYA menerima ~20 field (identitas,
+        kontak, kepegawaian dasar, bank) - field form "Tambah/Ubah Karyawan"
+        lain yang SAMA PERSIS dipakai untuk form "Ubah" (job_level,
+        cost_center, dsb SUDAH ada, tapi basic_salary/allowances/
+        overtime_rate_multiplier/bpjs_*/join_date/marital_status/
+        dependents/birth_place/religion TIDAK PERNAH diteruskan ke sini -
+        field-field itu memang dideklarasikan di `form_fields` registry
+        yang dipakai ulang untuk dialog "Ubah", jadi user bisa mengisinya,
+        tapi karena tidak ada di signature/`candidate_changes` sebelumnya,
+        nilainya dibuang diam-diam setelah "Simpan" (silent data loss -
+        pola bug yang sama dengan yang sudah ditemukan di modul lain).
+        Sekarang SEMUA field yang ada di form_fields diterima di sini.
+
+        `marital_status`/`dependents` kalau diisi akan memicu re-kalkulasi
+        `ptkp_status` (sama seperti endpoint khusus `update_ptkp`) supaya
+        tidak jadi tidak-konsisten kalau user mengubahnya lewat form
+        umum ini alih-alih lewat aksi PTKP khusus.
+        """
         self._check_authority(updated_by, "update_employee")
 
         candidate_changes = {
@@ -355,7 +385,9 @@ class EmployeeService:
             "nik": nik,
             "tax_id": npwp,
             "gender": gender,
+            "birth_place": birth_place,
             "birth_date": birth_date,
+            "religion": religion,
             "address": address,
             "city": city,
             "postal_code": postal_code,
@@ -368,6 +400,12 @@ class EmployeeService:
             "job_level": job_level,
             "cost_center": cost_center,
             "manager_id": manager_id,
+            "join_date": join_date,
+            "basic_salary": basic_salary,
+            "allowances": allowances,
+            "overtime_rate_multiplier": overtime_rate_multiplier,
+            "bpjs_kesehatan_number": bpjs_kesehatan_number,
+            "bpjs_ketenagakerjaan_number": bpjs_ketenagakerjaan_number,
             "bank_name": bank_name,
             "bank_account_number": bank_account_number,
             "bank_account_name": bank_account_name,
@@ -375,8 +413,42 @@ class EmployeeService:
         }
         # Only send fields that were actually provided (not None) - partial update.
         changes = {k: v for k, v in candidate_changes.items() if v is not None}
+
+        # marital_status/dependents butuh penanganan khusus: ptkp_status
+        # harus ikut dihitung ulang, bukan sekadar disalin mentah - kalau
+        # tidak, ptkp_status akan jadi basi/tidak sinkron dengan status
+        # pernikahan & jumlah tanggungan yang baru.
+        current_for_ptkp: dict[str, Any] | None = None
+        if marital_status is not None or dependents is not None:
+            current_for_ptkp = await self._repository.get_by_id(employee_id)
+            if not current_for_ptkp:
+                raise EmployeeNotFoundError(f"Employee {employee_id} not found")
+            effective_marital = marital_status if marital_status is not None else current_for_ptkp["marital_status"]
+            if dependents is not None:
+                effective_dependents = dependents
+            else:
+                # Jumlah tanggungan TIDAK disimpan sebagai kolom skalar
+                # tersendiri di tabel employee (lihat catatan di
+                # EmployeeTable.dependents - itu relationship ke
+                # EmployeeDependentTable, bukan angka PTKP) - satu-
+                # satunya jejak jumlah tanggungan yang sudah tersimpan
+                # adalah angka di belakang "/" pada ptkp_status (mis.
+                # "K/2" -> 2). Ambil dari situ alih-alih asumsi 0, supaya
+                # mengubah marital_status saja tidak diam-diam me-reset
+                # jumlah tanggungan yang sudah ada.
+                old_ptkp = current_for_ptkp.get("ptkp_status") or "TK/0"
+                try:
+                    effective_dependents = int(old_ptkp.rsplit("/", 1)[-1])
+                except (ValueError, AttributeError):
+                    effective_dependents = 0
+            changes["marital_status"] = effective_marital
+            changes["ptkp_status"] = compute_ptkp_status(effective_marital, effective_dependents)
+
         if not changes:
             return await self.get_employee(employee_id)
+
+        before = await self._repository.get_by_id(employee_id) if current_for_ptkp is None else current_for_ptkp
+        old_basic_salary = Decimal(str(before["basic_salary"])) if before else Decimal("0")
 
         employee = await self._repository.update(employee_id, changes)
         if not employee:
@@ -385,18 +457,25 @@ class EmployeeService:
 
         if self._event_publisher:
             try:
-                event = EmployeeStructureUpdatedEvent(
-                    aggregate_id=UUID(employee["id"]),
-                    aggregate_version=employee["version"],
-                    employee_id=UUID(employee["id"]),
-                    employee_name=employee["full_name"],
-                    old_basic_salary=Decimal(str(employee["basic_salary"])),
-                    new_basic_salary=Decimal(str(employee["basic_salary"])),
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._publish_event(event, f"Employee {employee['employee_code']} (updated)", correlation_id)
+                new_basic_salary = Decimal(str(employee["basic_salary"]))
+                if "basic_salary" in changes and new_basic_salary != old_basic_salary:
+                    # Hanya kirim event "structure updated" kalau memang
+                    # gaji pokok yang berubah - sebelumnya event ini selalu
+                    # dikirim untuk SETIAP update_employee (termasuk yang
+                    # cuma mengubah email/alamat) dengan old==new_basic_salary,
+                    # yang menyesatkan konsumen event (mis. modul Payroll).
+                    event = EmployeeStructureUpdatedEvent(
+                        aggregate_id=UUID(employee["id"]),
+                        aggregate_version=employee["version"],
+                        employee_id=UUID(employee["id"]),
+                        employee_name=employee["full_name"],
+                        old_basic_salary=old_basic_salary,
+                        new_basic_salary=new_basic_salary,
+                        updated_by=str(updated_by) if updated_by else "system",
+                        user_id=str(updated_by) if updated_by else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._publish_event(event, f"Employee {employee['employee_code']} (updated)", correlation_id)
             except Exception as e:
                 logger.warning(f"Failed to publish EmployeeStructureUpdatedEvent for {employee['employee_code']}: {e}")
 

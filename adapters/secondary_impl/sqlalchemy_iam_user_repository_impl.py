@@ -4,29 +4,32 @@ Module: sqlalchemy_iam_user_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository IAM menggunakan SQLAlchemy.
                Production-grade: NO fallback, session & legal_entity_id MUST be set.
-FIX v8:
-- _to_domain_role() menggunakan perm_table.resource dan perm_table.action (bukan .name)
-- _to_domain_permission() menggunakan resource dan action (bukan name)
-- create_role dan update_role menggunakan p.resource dan p.action
+
+FIX v11 (UserEntity method attribute):
+- BUG: edit user lewat UI (mis. reset password akuntan) crash dengan:
+      TypeError: Not a boolean value: <bound method UserEntity.is_active ...>
+  Penyebab: domain UserEntity mendefinisikan is_active/is_locked sebagai
+  METHOD (bukan atribut). Akses getattr(user, "is_active") mengembalikan
+  bound method, yang SQLAlchemy coba simpan ke kolom BOOLEAN -> error.
+- FIX: helper `_entity_is_active/_entity_is_superuser/_entity_is_locked`
+  di class SQLAlchemyIAMRepository untuk normalisasi baik method maupun
+  atribut ke bool.
+
+FIX v10 (timezone-aware datetime):
+- BUG: percobaan login gagal berkali-kali menyebabkan akun terkunci, lalu
+  login berikutnya crash dengan:
+      TypeError: can't compare offset-naive and offset-aware datetimes
+  Penyebab: kolom `locked_until` bertipe TIMESTAMPTZ (aware), sementara
+  `datetime.utcnow()` naive. Perbandingan meledak saat locked_until terisi.
+- FIX: semua perbandingan datetime pakai `datetime.now(UTC)` (aware), dan
+  setiap nilai dari DB dinormalisasi lewat `_ensure_aware()`.
 
 FIX v9 (concurrency):
-- Repository ini dipakai lewat SATU instance singleton (app.state.iam_service
-  -> _iam_repo), dibuat sekali saat startup dan dipakai bersama oleh SEMUA
-  request. Sebelumnya session & legal_entity_id per-request disimpan sebagai
-  atribut instance biasa (self._session, self._legal_entity_id), yang
-  ditimpa setiap kali set_session()/set_legal_entity_id() dipanggil.
-  Akibatnya, kalau 2+ request berjalan bersamaan (mis. dashboard yang
-  menembak banyak endpoint IAM sekaligus), request yang satu bisa memakai
-  session milik request lain di tengah jalan -> error SQLAlchemy
-  "This session is provisioning a new connection; concurrent operations
-  are not permitted", atau lebih parah, data user/legal-entity yang salah
-  ikut tercampur.
-  Diperbaiki dengan contextvars.ContextVar: nilai session & legal_entity_id
-  sekarang disimpan per-asyncio-task (setiap request FastAPI berjalan di
-  task-nya sendiri), bukan di objek instance yang dipakai bersama. Ini
-  memperbaiki race condition tanpa perlu mengubah wiring DI/bootstrap atau
-  cara router memanggil set_context()/set_session() - dari luar, perilaku
-  method-method publik di class ini tetap sama persis.
+- Repository dipakai sebagai singleton; context per-request disimpan di
+  ContextVar (per asyncio task), bukan atribut instance.
+
+FIX v8:
+- _to_domain_role() dan _to_domain_permission() menggunakan resource & action.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ import logging
 import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -76,6 +79,7 @@ def _legal_entity_overlap(legal_entity_id: UUID):
         sa_cast(pg_array([str(legal_entity_id)]), PG_ARRAY(SA_String))
     )
 
+
 # Security
 from infrastructure.security.field_encryption_aes256_gcm import FieldEncryption
 
@@ -83,9 +87,35 @@ from infrastructure.security.field_encryption_aes256_gcm import FieldEncryption
 from ports.primary.iam_repository_port import IAMRepositoryPort
 from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
 
+
+# ============================================================================
+# TIMEZONE HELPER (FIX v10)
+# ============================================================================
+
+
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    """Normalisasi datetime dari DB ke timezone-aware (UTC).
+
+    - None  -> None (biar short-circuit `x is not None and ...` tetap jalan)
+    - naive -> dipasang UTC
+    - aware -> dikembalikan apa adanya
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _utcnow() -> datetime:
+    """Shorthand untuk datetime aware (UTC)."""
+    return datetime.now(UTC)
+
+
 # ============================================================================
 # LOCAL DEFINITIONS
 # ============================================================================
+
 
 @dataclass
 class LoginAttempt:
@@ -97,6 +127,7 @@ class LoginAttempt:
     failure_reason: str | None = None
     user_agent: str | None = None
     user_id: UUID | None = None
+
 
 # ============================================================================
 # LOGGING & CONSTANTS
@@ -111,60 +142,61 @@ LOCKOUT_DURATION_MINUTES = 30
 
 
 def _perm_str(value: Any) -> str:
-    """
-    Normalisasi field resource/action dari PermissionVO (domain/iam/permission_vo.py)
-    ke plain string sebelum dipakai di query SQL atau disimpan ke IAMPermissionTable.
-
-    BUG: PermissionVO.resource dan PermissionVO.action bertipe `ResourceType | str`
-    dan `ActionType | str` (union). Kolom iam_permission.resource/action di DB
-    adalah VARCHAR. Saat caller mengirim enum ResourceType/ActionType (bukan str),
-    asyncpg gagal encode objek enum sebagai VARCHAR:
-    "invalid input for query argument $1: <ResourceType.ACCOUNT: 'account'>
-    (expected str, got ResourceType)".
-    Enum di sini (ResourceType/ActionType) adalah str-value Enum biasa (bukan
-    subclass str), jadi harus diambil `.value`-nya secara eksplisit.
-    """
+    """Normalisasi field resource/action PermissionVO ke plain string."""
     if isinstance(value, Enum):
         return value.value
     return value
+
 
 # ============================================================================
 # EXCEPTIONS
 # ============================================================================
 
+
 class IAMRepositoryError(Exception):
     pass
+
 
 class DuplicateUsernameError(IAMRepositoryError):
     pass
 
+
 class DuplicateEmailError(IAMRepositoryError):
     pass
+
 
 class UserNotFoundError(IAMRepositoryError):
     pass
 
+
 class RoleNotFoundError(IAMRepositoryError):
     pass
+
 
 class PermissionNotFoundError(IAMRepositoryError):
     pass
 
+
 class InvalidCredentialsError(IAMRepositoryError):
     pass
+
 
 class AccountLockedError(IAMRepositoryError):
     pass
 
+
 class SessionNotFoundError(IAMRepositoryError):
     pass
+
 
 class OptimisticLockError(IAMRepositoryError):
     pass
 
+
 # ============================================================================
 # PASSWORD HELPER
 # ============================================================================
+
 
 class PasswordHelper:
     @staticmethod
@@ -182,19 +214,11 @@ class PasswordHelper:
     def needs_rehash(hashed_password: str) -> bool:
         return bcrypt.using(rounds=BCRYPT_ROUNDS).needs_update(hashed_password)
 
-# ============================================================================
-# REPOSITORY IMPLEMENTATION
-# ============================================================================
 
 # ============================================================================
-# REQUEST-SCOPED CONTEXT (per asyncio task, aman untuk request konkuren)
+# REQUEST-SCOPED CONTEXT (per asyncio task)
 # ============================================================================
-# Repository ini dipakai sebagai singleton (satu instance untuk semua
-# request), jadi context per-request TIDAK BOLEH disimpan sebagai atribut
-# instance biasa (self._session dkk) karena akan saling menimpa antar
-# request yang berjalan bersamaan. ContextVar menyimpan nilainya terpisah
-# untuk setiap asyncio Task (= setiap request FastAPI), jadi aman dipakai
-# bersama walau objek repository-nya sama.
+
 _iam_session_ctx: ContextVar[AsyncSession | None] = ContextVar(
     "iam_repo_session", default=None
 )
@@ -206,7 +230,11 @@ _iam_legal_entity_id_ctx: ContextVar[UUID | None] = ContextVar(
 class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     """Repository IAM – production grade, no fallback."""
 
-    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
+    def __init__(
+        self,
+        session: AsyncSession | None = None,
+        legal_entity_id: UUID | None = None,
+    ):
         if session is not None:
             _iam_session_ctx.set(session)
         if legal_entity_id is not None:
@@ -226,18 +254,26 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     def session(self) -> AsyncSession:
         session = _iam_session_ctx.get()
         if session is None:
-            raise IAMRepositoryError("Session not set – call set_session() before using repository")
+            raise IAMRepositoryError(
+                "Session not set – call set_session() before using repository"
+            )
         return session
 
     def _get_legal_entity_id(self) -> UUID:
         legal_entity_id = _iam_legal_entity_id_ctx.get()
         if legal_entity_id is None:
-            raise ValueError("legal_entity_id not set – call set_legal_entity_id() before using repository")
+            raise ValueError(
+                "legal_entity_id not set – call set_legal_entity_id() before using repository"
+            )
         return legal_entity_id
 
     # ---- Mapping ----
     def _to_domain(self, table: IAMUserTable) -> UserAggregate:
-        """Konversi ORM table ke UserAggregate (flat)."""
+        """Konversi ORM table ke UserAggregate (flat).
+
+        FIX v10: `locked_until` dari DB dinormalisasi ke aware sebelum
+        dibandingkan dengan `datetime.now(UTC)`.
+        """
         status_map = {
             "active": UserStatus.ACTIVE,
             "inactive": UserStatus.INACTIVE,
@@ -246,10 +282,16 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             "pending_activation": UserStatus.PENDING_ACTIVATION,
         }
         status = status_map.get(table.status, UserStatus.ACTIVE)
-        email = self._encryption.decrypt(table.email_encrypted) if table.email_encrypted else table.email
+        email = (
+            self._encryption.decrypt(table.email_encrypted)
+            if table.email_encrypted
+            else table.email
+        )
 
-        # Ambil role_ids dari relasi many-to-many
         role_ids = [role.id for role in table.roles] if table.roles else []
+
+        locked_until_aware = _ensure_aware(table.locked_until)
+        is_locked = locked_until_aware is not None and locked_until_aware > _utcnow()
 
         return UserAggregate(
             id=table.id,
@@ -272,7 +314,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             version=table.version,
             legal_entity_ids=table.legal_entity_ids or [],
             role_ids=role_ids,
-            is_locked=table.locked_until is not None and table.locked_until > datetime.utcnow(),
+            is_locked=is_locked,
             mfa_enabled=bool(getattr(table, "mfa_enabled", False)),
             mfa_secret=getattr(table, "mfa_secret", None),
             mfa_backup_codes=list(getattr(table, "mfa_backup_codes", None) or []),
@@ -281,13 +323,14 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         )
 
     async def _to_orm(self, aggregate: UserAggregate) -> IAMUserTable:
-        status_str = aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
-        email_encrypted = self._encryption.encrypt(aggregate.email) if aggregate.email else None
-        # FIX: kolom legal_entity_ids di DB adalah JSONB. Kalau aggregate.legal_entity_ids
-        # berisi objek UUID mentah (bukan string), json_serializer bawaan SQLAlchemy/
-        # psycopg gagal serialize pas INSERT/UPDATE ("TypeError: Object of type UUID
-        # is not JSON serializable"). JSONB butuh tipe yang JSON-native (str), jadi
-        # setiap elemen di-str()-kan di sini sebelum ditulis ke ORM.
+        status_str = (
+            aggregate.status.value
+            if hasattr(aggregate.status, "value")
+            else str(aggregate.status)
+        )
+        email_encrypted = (
+            self._encryption.encrypt(aggregate.email) if aggregate.email else None
+        )
         legal_entity_ids_json = [
             str(le_id) for le_id in (aggregate.legal_entity_ids or [])
         ]
@@ -310,7 +353,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             must_change_password=aggregate.must_change_password,
             password_changed_at=aggregate.password_changed_at,
             created_at=aggregate.created_at,
-            updated_at=datetime.utcnow(),
+            updated_at=_utcnow(),
             created_by=aggregate.created_by,
             version=aggregate.version,
             legal_entity_ids=legal_entity_ids_json,
@@ -322,12 +365,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         )
 
     def _to_domain_role(self, table: IAMRoleTable) -> Role:
-        """Konversi ORM role ke domain Role, termasuk permissions."""
         permissions = set()
         if table.permissions:
             for perm_table in table.permissions:
-                # Gunakan resource dan action dari tabel permission
-                # Permission value object: (resource, action)
                 permissions.add(Permission(perm_table.resource, perm_table.action))
         return Role(
             role_id=table.id,
@@ -341,11 +381,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         )
 
     def _to_domain_permission(self, table: IAMPermissionTable) -> Permission:
-        """Konversi ORM permission ke domain Permission."""
         return Permission(table.resource, table.action)
 
     def _to_user_entity(self, agg: UserAggregate) -> UserEntity:
-        """Konversi UserAggregate ke UserEntity (sesuai domain)."""
         profile = UserProfile(
             full_name=agg.full_name,
             email=agg.email,
@@ -378,7 +416,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             password_hash=PasswordHashedVO(agg.hashed_password),
             status=agg.status,
             profile=profile,
-            legal_entity_id=agg.legal_entity_ids[0] if agg.legal_entity_ids else _iam_legal_entity_id_ctx.get(),
+            legal_entity_id=(
+                agg.legal_entity_ids[0]
+                if agg.legal_entity_ids
+                else _iam_legal_entity_id_ctx.get()
+            ),
             role_ids=agg.role_ids,
             failed_login_attempts=agg.failed_login_count,
             locked_until=agg.locked_until,
@@ -387,13 +429,17 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             audit=audit,
         )
 
-    async def _log_audit(self, action: str, user_id: UUID, details: dict[str, Any]) -> None:
-        self._audit_log.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": action,
-            "user_id": str(user_id),
-            "details": details,
-        })
+    async def _log_audit(
+        self, action: str, user_id: UUID, details: dict[str, Any]
+    ) -> None:
+        self._audit_log.append(
+            {
+                "timestamp": _utcnow().isoformat(),
+                "action": action,
+                "user_id": str(user_id),
+                "details": details,
+            }
+        )
         if len(self._audit_log) > 10000:
             self._audit_log = self._audit_log[-5000:]
 
@@ -408,13 +454,17 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     async def find_by_id(self, user_id: UUID) -> UserAggregate | None:
         return await self.get_by_id(user_id)
 
-    async def find_by_username(self, username: str, legal_entity_id: UUID) -> UserAggregate | None:
+    async def find_by_username(
+        self, username: str, legal_entity_id: UUID
+    ) -> UserAggregate | None:
         return await self.get_by_username(username, legal_entity_id)
 
-    async def find_all(self, legal_entity_id: UUID, limit: int = 100, offset: int = 0) -> list[UserAggregate]:
+    async def find_all(
+        self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[UserAggregate]:
         conditions = [
             IAMUserTable.deleted_at.is_(None),
-            _legal_entity_overlap(legal_entity_id)
+            _legal_entity_overlap(legal_entity_id),
         ]
         stmt = (
             select(IAMUserTable)
@@ -430,13 +480,24 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def add(self, user: UserAggregate) -> None:
         try:
-            if await self.exists_by_username(user.username, user.legal_entity_ids[0] if user.legal_entity_ids else self._get_legal_entity_id()):
-                raise DuplicateUsernameError(f"Username '{user.username}' already exists")
+            le_id = (
+                user.legal_entity_ids[0]
+                if user.legal_entity_ids
+                else self._get_legal_entity_id()
+            )
+            if await self.exists_by_username(user.username, le_id):
+                raise DuplicateUsernameError(
+                    f"Username '{user.username}' already exists"
+                )
             if user.email and await self.exists_by_email(user.email):
-                raise DuplicateEmailError(f"Email '{user.email}' already registered")
+                raise DuplicateEmailError(
+                    f"Email '{user.email}' already registered"
+                )
 
             if user.hashed_password and not user.hashed_password.startswith("$2b$"):
-                user.hashed_password = PasswordHelper.hash_password(user.hashed_password)
+                user.hashed_password = PasswordHelper.hash_password(
+                    user.hashed_password
+                )
 
             table = await self._to_orm(user)
             self.session.add(table)
@@ -460,7 +521,10 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         try:
             stmt = (
                 select(IAMUserTable)
-                .where(IAMUserTable.id == user_id, IAMUserTable.deleted_at.is_(None))
+                .where(
+                    IAMUserTable.id == user_id,
+                    IAMUserTable.deleted_at.is_(None),
+                )
                 .options(selectinload(IAMUserTable.roles))
             )
             result = await self.session.execute(stmt)
@@ -469,7 +533,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         except Exception as e:
             raise IAMRepositoryError(f"Failed to get user: {e}") from e
 
-    async def get_by_username(self, username: str, legal_entity_id: UUID) -> UserAggregate | None:
+    async def get_by_username(
+        self, username: str, legal_entity_id: UUID
+    ) -> UserAggregate | None:
         try:
             stmt = (
                 select(IAMUserTable)
@@ -490,7 +556,10 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         try:
             stmt = (
                 select(IAMUserTable)
-                .where(IAMUserTable.email == email, IAMUserTable.deleted_at.is_(None))
+                .where(
+                    IAMUserTable.email == email,
+                    IAMUserTable.deleted_at.is_(None),
+                )
                 .options(selectinload(IAMUserTable.roles))
             )
             result = await self.session.execute(stmt)
@@ -507,11 +576,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             if current_version is None:
                 raise UserNotFoundError(f"User {user.id} not found")
             if current_version != user.version:
-                raise OptimisticLockError(f"Version mismatch: expected {user.version}, got {current_version}")
+                raise OptimisticLockError(
+                    f"Version mismatch: expected {user.version}, got {current_version}"
+                )
 
             table = await self._to_orm(user)
             table.version = user.version + 1
-            table.updated_at = datetime.utcnow()
+            table.updated_at = _utcnow()
             await self.session.merge(table)
             await self.session.flush()
             await self._log_audit("UPDATE", user.id, {"username": user.username})
@@ -522,10 +593,16 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             await self.session.rollback()
             raise IAMRepositoryError(f"Failed to update user: {e}") from e
 
-    async def delete(self, user_id: UUID, actor_id: UUID, permanent: bool = False) -> bool:
+    async def delete(
+        self, user_id: UUID, actor_id: UUID, permanent: bool = False
+    ) -> bool:
         try:
             async with self.session.begin_nested():
-                stmt_lock = select(IAMUserTable).where(IAMUserTable.id == user_id).with_for_update()
+                stmt_lock = (
+                    select(IAMUserTable)
+                    .where(IAMUserTable.id == user_id)
+                    .with_for_update()
+                )
                 result = await self.session.execute(stmt_lock)
                 user = result.scalar_one_or_none()
                 if not user:
@@ -534,25 +611,35 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 if permanent:
                     await self.session.delete(user)
                 else:
-                    user.deleted_at = datetime.utcnow()
+                    user.deleted_at = _utcnow()
                     user.is_active = False
                     user.status = "inactive"
-                    user.updated_at = datetime.utcnow()
+                    user.updated_at = _utcnow()
                     user.updated_by = actor_id
                 await self.session.flush()
-                await self._log_audit("DELETE", user_id, {"actor_id": str(actor_id), "permanent": permanent})
+                await self._log_audit(
+                    "DELETE",
+                    user_id,
+                    {"actor_id": str(actor_id), "permanent": permanent},
+                )
                 logger.info("User %s deleted by %s", user_id, actor_id)
                 return True
         except Exception as e:
             await self.session.rollback()
             raise IAMRepositoryError(f"Failed to delete user: {e}") from e
 
-    async def exists_by_username(self, username: str, legal_entity_id: UUID) -> bool:
+    async def exists_by_username(
+        self, username: str, legal_entity_id: UUID
+    ) -> bool:
         try:
-            stmt = select(func.count()).select_from(IAMUserTable).where(
-                IAMUserTable.username == username,
-                _legal_entity_overlap(legal_entity_id),
-                IAMUserTable.deleted_at.is_(None),
+            stmt = (
+                select(func.count())
+                .select_from(IAMUserTable)
+                .where(
+                    IAMUserTable.username == username,
+                    _legal_entity_overlap(legal_entity_id),
+                    IAMUserTable.deleted_at.is_(None),
+                )
             )
             result = await self.session.execute(stmt)
             return result.scalar() > 0
@@ -561,8 +648,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def exists_by_email(self, email: str) -> bool:
         try:
-            stmt = select(func.count()).select_from(IAMUserTable).where(
-                IAMUserTable.email == email, IAMUserTable.deleted_at.is_(None)
+            stmt = (
+                select(func.count())
+                .select_from(IAMUserTable)
+                .where(
+                    IAMUserTable.email == email,
+                    IAMUserTable.deleted_at.is_(None),
+                )
             )
             result = await self.session.execute(stmt)
             return result.scalar() > 0
@@ -570,59 +662,85 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             raise IAMRepositoryError(f"Failed to check email: {e}") from e
 
     # ---- Authentication ----
-    async def authenticate(self, username: str, password: str, ip_address: str, legal_entity_id: UUID) -> UserAggregate | None:
+    async def authenticate(
+        self,
+        username: str,
+        password: str,
+        ip_address: str,
+        legal_entity_id: UUID,
+    ) -> UserAggregate | None:
         user = await self.get_by_username(username, legal_entity_id)
         if not user:
             return None
 
-        if user.locked_until and user.locked_until > datetime.utcnow():
+        # FIX v10: normalisasi locked_until ke aware sebelum dibandingkan.
+        locked_until_aware = _ensure_aware(user.locked_until)
+        if locked_until_aware is not None and locked_until_aware > _utcnow():
             raise AccountLockedError(f"Account locked until {user.locked_until}")
 
         if not PasswordHelper.verify_password(password, user.hashed_password):
             new_failed_count = (user.failed_login_count or 0) + 1
             locked_until = None
             if new_failed_count >= MAX_LOGIN_ATTEMPTS:
-                locked_until = datetime.utcnow() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+                locked_until = _utcnow() + timedelta(
+                    minutes=LOCKOUT_DURATION_MINUTES
+                )
 
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user.id).values(
-                failed_login_count=new_failed_count,
-                locked_until=locked_until,
-                status="locked" if locked_until else user.status.value,
-                updated_at=datetime.utcnow(),
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user.id)
+                .values(
+                    failed_login_count=new_failed_count,
+                    locked_until=locked_until,
+                    status="locked" if locked_until else user.status.value,
+                    updated_at=_utcnow(),
+                )
             )
             await self.session.execute(stmt)
             await self.session.flush()
             return None
 
-        # Update login info
-        stmt = update(IAMUserTable).where(IAMUserTable.id == user.id).values(
-            failed_login_count=0,
-            locked_until=None,
-            last_login_at=datetime.utcnow(),
-            last_login_ip=ip_address,
-            status="active" if user.status == UserStatus.LOCKED else user.status.value,
-            updated_at=datetime.utcnow(),
+        stmt = (
+            update(IAMUserTable)
+            .where(IAMUserTable.id == user.id)
+            .values(
+                failed_login_count=0,
+                locked_until=None,
+                last_login_at=_utcnow(),
+                last_login_ip=ip_address,
+                status="active" if user.status == UserStatus.LOCKED else user.status.value,
+                updated_at=_utcnow(),
+            )
         )
         await self.session.execute(stmt)
         await self.session.flush()
 
-        # Refresh user dengan eager load roles agar role_ids tersedia
         refreshed = await self.get_by_id(user.id)
         if refreshed:
             return refreshed
         user.failed_login_count = 0
         user.locked_until = None
-        user.last_login_at = datetime.utcnow()
+        user.last_login_at = _utcnow()
         user.last_login_ip = ip_address
         return user
 
-    async def change_password(self, user_id: UUID, old_password: str, new_password: str, actor_id: UUID) -> bool:
+    async def change_password(
+        self,
+        user_id: UUID,
+        old_password: str,
+        new_password: str,
+        actor_id: UUID,
+    ) -> bool:
         user = await self.get_by_id(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
         async with self.session.begin_nested():
-            stmt_lock = select(IAMUserTable).where(IAMUserTable.id == user_id).with_for_update()
+            stmt_lock = (
+                select(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .with_for_update()
+            )
             result = await self.session.execute(stmt_lock)
             row = result.scalar_one_or_none()
             if not row:
@@ -631,42 +749,56 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             if actor_id != user_id:
                 hashed = PasswordHelper.hash_password(new_password)
                 row.password_hash = hashed
-                row.password_changed_at = datetime.utcnow()
+                row.password_changed_at = _utcnow()
                 row.must_change_password = True
-                row.updated_at = datetime.utcnow()
+                row.updated_at = _utcnow()
                 row.updated_by = actor_id
                 await self.session.flush()
-                await self._log_audit("CHANGE_PASSWORD_FORCE", user_id, {"actor_id": str(actor_id)})
-                logger.info("Password forced changed for user %s by %s", user_id, actor_id)
+                await self._log_audit(
+                    "CHANGE_PASSWORD_FORCE", user_id, {"actor_id": str(actor_id)}
+                )
+                logger.info(
+                    "Password forced changed for user %s by %s", user_id, actor_id
+                )
                 return True
 
-            if not PasswordHelper.verify_password(old_password, user.hashed_password):
+            if not PasswordHelper.verify_password(
+                old_password, user.hashed_password
+            ):
                 raise InvalidCredentialsError("Invalid old password")
 
             hashed = PasswordHelper.hash_password(new_password)
             row.password_hash = hashed
-            row.password_changed_at = datetime.utcnow()
+            row.password_changed_at = _utcnow()
             row.must_change_password = False
-            row.updated_at = datetime.utcnow()
+            row.updated_at = _utcnow()
             row.updated_by = actor_id
             await self.session.flush()
-            await self._log_audit("CHANGE_PASSWORD_SELF", user_id, {"actor_id": str(actor_id)})
+            await self._log_audit(
+                "CHANGE_PASSWORD_SELF", user_id, {"actor_id": str(actor_id)}
+            )
             logger.info("Password changed for user %s", user_id)
             return True
 
     async def unlock_user(self, user_id: UUID, actor_id: UUID) -> bool:
         try:
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
-                failed_login_count=0,
-                locked_until=None,
-                status="active",
-                updated_at=datetime.utcnow(),
-                updated_by=actor_id,
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .values(
+                    failed_login_count=0,
+                    locked_until=None,
+                    status="active",
+                    updated_at=_utcnow(),
+                    updated_by=actor_id,
+                )
             )
             result = await self.session.execute(stmt)
             await self.session.flush()
             if result.rowcount > 0:
-                await self._log_audit("UNLOCK_USER", user_id, {"actor": str(actor_id)})
+                await self._log_audit(
+                    "UNLOCK_USER", user_id, {"actor": str(actor_id)}
+                )
                 logger.info("User %s unlocked by %s", user_id, actor_id)
             return result.rowcount > 0
         except Exception as e:
@@ -675,6 +807,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def get_admin_credentials(self) -> str | None:
         import os
+
         return os.getenv("DEFAULT_ADMIN_PASSWORD", None)
 
     # ---- Role Management ----
@@ -687,7 +820,14 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         description: str | None = None,
     ) -> Role:
         try:
-            stmt = select(func.count()).select_from(IAMRoleTable).where(IAMRoleTable.name == role_code, IAMRoleTable.deleted_at.is_(None))
+            stmt = (
+                select(func.count())
+                .select_from(IAMRoleTable)
+                .where(
+                    IAMRoleTable.name == role_code,
+                    IAMRoleTable.deleted_at.is_(None),
+                )
+            )
             result = await self.session.execute(stmt)
             if result.scalar() > 0:
                 raise IAMRepositoryError(f"Role '{role_code}' already exists")
@@ -698,23 +838,26 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 description=description,
                 is_active=True,
                 is_system_role=False,
-                created_at=datetime.utcnow(),
+                created_at=_utcnow(),
                 created_by=created_by,
             )
             self.session.add(table)
             await self.session.flush()
 
-            # Bulk create permissions
-            perm_keys = [(_perm_str(p.resource), _perm_str(p.action)) for p in permissions]
+            perm_keys = [
+                (_perm_str(p.resource), _perm_str(p.action)) for p in permissions
+            ]
             if perm_keys:
                 from sqlalchemy import or_
-                conditions = [and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a) for r, a in perm_keys]
-                # FIX: IAMPermissionTable tidak punya kolom deleted_at (cuma
-                # IAMRoleTable/IAMUserTable yang pakai SoftDeleteMixin;
-                # IAMPermissionTable cuma TimestampMixin) -> filter ini dibuang.
-                existing_stmt = select(IAMPermissionTable).where(
-                    or_(*conditions)
-                )
+
+                conditions = [
+                    and_(
+                        IAMPermissionTable.resource == r,
+                        IAMPermissionTable.action == a,
+                    )
+                    for r, a in perm_keys
+                ]
+                existing_stmt = select(IAMPermissionTable).where(or_(*conditions))
                 existing_result = await self.session.execute(existing_stmt)
                 existing_perms = existing_result.scalars().all()
                 existing_map = {(p.resource, p.action): p for p in existing_perms}
@@ -730,7 +873,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                             name=resource_str + ":" + action_str,
                             resource=resource_str,
                             action=action_str,
-                            description=p.description if hasattr(p, 'description') else None,
+                            description=(
+                                p.description if hasattr(p, "description") else None
+                            ),
                         )
                         self.session.add(perm_table)
                         new_perms.append(perm_table)
@@ -763,7 +908,10 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         try:
             stmt = (
                 select(IAMRoleTable)
-                .where(IAMRoleTable.name == role_code, IAMRoleTable.deleted_at.is_(None))
+                .where(
+                    IAMRoleTable.name == role_code,
+                    IAMRoleTable.deleted_at.is_(None),
+                )
                 .options(selectinload(IAMRoleTable.permissions))
             )
             result = await self.session.execute(stmt)
@@ -776,7 +924,10 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         try:
             stmt = (
                 select(IAMRoleTable)
-                .where(IAMRoleTable.id == role_id, IAMRoleTable.deleted_at.is_(None))
+                .where(
+                    IAMRoleTable.id == role_id,
+                    IAMRoleTable.deleted_at.is_(None),
+                )
                 .options(selectinload(IAMRoleTable.permissions))
             )
             result = await self.session.execute(stmt)
@@ -792,7 +943,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         new_permissions: list[Permission],
         updated_by: UUID,
     ) -> bool:
-        return await self._update_role_impl(role_id, new_name, new_permissions, updated_by)
+        return await self._update_role_impl(
+            role_id, new_name, new_permissions, updated_by
+        )
 
     async def delete_role(self, role_id: UUID, actor_id: UUID) -> bool:
         return await self._delete_role_impl(role_id, actor_id)
@@ -804,54 +957,57 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         new_permissions: list[Permission] | None,
         updated_by: UUID,
     ) -> bool:
-        # FIX: sebelumnya pakai `async with self.session.begin():`. Session
-        # di sini dipakai sepanjang request (di-inject via set_context()) dan
-        # SQLAlchemy AsyncSession autobegin transaksi implisit begitu
-        # statement pertama (mis. service.get_role()/self._iam_repo.get() di
-        # atas endpoint ini) dieksekusi. Jadi begin() eksplisit di sini
-        # SELALU nabrak "A transaction is already begun on this Session"
-        # kecuali kebetulan dipanggil sebagai statement pertama di session.
-        # begin_nested() aman di kedua kondisi: kalau sudah ada transaksi
-        # aktif (kasus umum), ini cuma bikin SAVEPOINT; kalau belum ada,
-        # dia autobegin transaksi induk lebih dulu baru bikin SAVEPOINT.
-        # Commit final tetap terjadi lewat IAMService._commit() di layer atas.
         try:
             async with self.session.begin_nested():
-                stmt_lock = select(IAMRoleTable).where(IAMRoleTable.id == role_id).with_for_update()
+                stmt_lock = (
+                    select(IAMRoleTable)
+                    .where(IAMRoleTable.id == role_id)
+                    .with_for_update()
+                )
                 result = await self.session.execute(stmt_lock)
                 role = result.scalar_one_or_none()
                 if not role:
                     return False
 
-                # FIX: "updated_by" DIHAPUS dari values — IAMRoleTable tidak
-                # punya kolom ini (beda dari IAMUserTable). SQLAlchemy Core
-                # update().values() menolak key yang bukan kolom asli tabel
-                # -> CompileError: "Unconsumed column names: updated_by".
-                # Info pelaku perubahan tetap terekam lewat _log_audit() di
-                # bawah, jadi tidak ada audit trail yang hilang.
-                values = {"updated_at": datetime.utcnow()}
+                values = {"updated_at": _utcnow()}
                 if new_name:
                     values["name"] = new_name
                     role.name = new_name
-                stmt = update(IAMRoleTable).where(IAMRoleTable.id == role_id).values(**values)
+                stmt = (
+                    update(IAMRoleTable)
+                    .where(IAMRoleTable.id == role_id)
+                    .values(**values)
+                )
                 await self.session.execute(stmt)
 
                 if new_permissions is not None:
                     await self.session.execute(
-                        delete(iam_role_permission).where(iam_role_permission.c.role_id == role_id)
+                        delete(iam_role_permission).where(
+                            iam_role_permission.c.role_id == role_id
+                        )
                     )
-                    perm_keys = [(_perm_str(p.resource), _perm_str(p.action)) for p in new_permissions]
+                    perm_keys = [
+                        (_perm_str(p.resource), _perm_str(p.action))
+                        for p in new_permissions
+                    ]
                     if perm_keys:
                         from sqlalchemy import or_
-                        conditions = [and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a) for r, a in perm_keys]
-                        # FIX: sama seperti create_role() — IAMPermissionTable
-                        # tidak punya kolom deleted_at.
+
+                        conditions = [
+                            and_(
+                                IAMPermissionTable.resource == r,
+                                IAMPermissionTable.action == a,
+                            )
+                            for r, a in perm_keys
+                        ]
                         existing_stmt = select(IAMPermissionTable).where(
                             or_(*conditions)
                         )
                         existing_result = await self.session.execute(existing_stmt)
                         existing_perms = existing_result.scalars().all()
-                        existing_map = {(p.resource, p.action): p for p in existing_perms}
+                        existing_map = {
+                            (p.resource, p.action): p for p in existing_perms
+                        }
 
                         new_perms_tables = []
                         for p in new_permissions:
@@ -864,7 +1020,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                                     name=resource_str + ":" + action_str,
                                     resource=resource_str,
                                     action=action_str,
-                                    description=p.description if hasattr(p, 'description') else None,
+                                    description=(
+                                        p.description
+                                        if hasattr(p, "description")
+                                        else None
+                                    ),
                                 )
                                 self.session.add(perm_table)
                                 new_perms_tables.append(perm_table)
@@ -880,7 +1040,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                             )
 
                 await self.session.flush()
-                await self._log_audit("UPDATE_ROLE", role_id, {"new_name": new_name, "updated_by": str(updated_by)})
+                await self._log_audit(
+                    "UPDATE_ROLE",
+                    role_id,
+                    {"new_name": new_name, "updated_by": str(updated_by)},
+                )
                 logger.info("Role %s updated", role_id)
                 return True
         except Exception as e:
@@ -890,29 +1054,42 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     async def _delete_role_impl(self, role_id: UUID, actor_id: UUID) -> bool:
         try:
             async with self.session.begin_nested():
-                stmt_lock = select(IAMRoleTable).where(IAMRoleTable.id == role_id).with_for_update()
+                stmt_lock = (
+                    select(IAMRoleTable)
+                    .where(IAMRoleTable.id == role_id)
+                    .with_for_update()
+                )
                 result = await self.session.execute(stmt_lock)
                 role = result.scalar_one_or_none()
                 if not role:
                     return False
 
-                assign_stmt = select(func.count()).select_from(iam_user_role).where(iam_user_role.c.role_id == role_id)
+                assign_stmt = (
+                    select(func.count())
+                    .select_from(iam_user_role)
+                    .where(iam_user_role.c.role_id == role_id)
+                )
                 assign_result = await self.session.execute(assign_stmt)
                 if assign_result.scalar() > 0:
-                    raise IAMRepositoryError("Cannot delete role assigned to users")
+                    raise IAMRepositoryError(
+                        "Cannot delete role assigned to users"
+                    )
 
-                # FIX: sama seperti _update_role_impl — "updated_by" bukan
-                # kolom IAMRoleTable, dibuang dari values() supaya tidak
-                # CompileError. Pelaku hapus tetap terekam via _log_audit().
                 values = {
-                    "deleted_at": datetime.utcnow(),
+                    "deleted_at": _utcnow(),
                     "is_active": False,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": _utcnow(),
                 }
-                stmt = update(IAMRoleTable).where(IAMRoleTable.id == role_id).values(**values)
+                stmt = (
+                    update(IAMRoleTable)
+                    .where(IAMRoleTable.id == role_id)
+                    .values(**values)
+                )
                 await self.session.execute(stmt)
                 await self.session.flush()
-                await self._log_audit("DELETE_ROLE", role_id, {"actor": str(actor_id)})
+                await self._log_audit(
+                    "DELETE_ROLE", role_id, {"actor": str(actor_id)}
+                )
                 logger.info("Role %s deleted by %s", role_id, actor_id)
                 return True
         except Exception as e:
@@ -934,56 +1111,84 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             raise IAMRepositoryError(f"Failed to list roles: {e}") from e
 
     # ---- User Role Assignment ----
-    async def assign_role(self, user_id: UUID, role_code: str, actor_id: UUID) -> bool:
+    async def assign_role(
+        self, user_id: UUID, role_code: str, actor_id: UUID
+    ) -> bool:
         role = await self.get_role_by_code(role_code)
         if not role:
             raise RoleNotFoundError(f"Role with code '{role_code}' not found")
-        stmt = select(func.count()).select_from(iam_user_role).where(
-            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.role_id
+        stmt = (
+            select(func.count())
+            .select_from(iam_user_role)
+            .where(
+                iam_user_role.c.user_id == user_id,
+                iam_user_role.c.role_id == role.role_id,
+            )
         )
         result = await self.session.execute(stmt)
         if result.scalar() > 0:
             return True
         await self.session.execute(
             iam_user_role.insert().values(
-                user_id=user_id, role_id=role.role_id, assigned_at=datetime.utcnow(), assigned_by=actor_id
+                user_id=user_id,
+                role_id=role.role_id,
+                assigned_at=_utcnow(),
+                assigned_by=actor_id,
             )
         )
         await self.session.flush()
-        await self._log_audit("ASSIGN_ROLE", user_id, {"role": role.role_name, "actor": str(actor_id)})
+        await self._log_audit(
+            "ASSIGN_ROLE",
+            user_id,
+            {"role": role.role_name, "actor": str(actor_id)},
+        )
         logger.info("Role %s assigned to user %s", role.role_name, user_id)
         return True
 
-    async def revoke_role(self, user_id: UUID, role_code: str, actor_id: UUID) -> bool:
+    async def revoke_role(
+        self, user_id: UUID, role_code: str, actor_id: UUID
+    ) -> bool:
         role = await self.get_role_by_code(role_code)
         if not role:
             return False
         stmt = delete(iam_user_role).where(
-            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.role_id
+            iam_user_role.c.user_id == user_id,
+            iam_user_role.c.role_id == role.role_id,
         )
         result = await self.session.execute(stmt)
         await self.session.flush()
         if result.rowcount > 0:
-            await self._log_audit("REVOKE_ROLE", user_id, {"role": role.role_name, "actor": str(actor_id)})
+            await self._log_audit(
+                "REVOKE_ROLE",
+                user_id,
+                {"role": role.role_name, "actor": str(actor_id)},
+            )
             logger.info("Role %s revoked from user %s", role.role_name, user_id)
         return result.rowcount > 0
 
-    async def has_permission(self, user_id: UUID, permission: str, legal_entity_id: UUID) -> bool:
+    async def has_permission(
+        self, user_id: UUID, permission: str, legal_entity_id: UUID
+    ) -> bool:
         try:
-            stmt = select(IAMPermissionTable).join(
-                iam_role_permission,
-                IAMPermissionTable.id == iam_role_permission.c.permission_id
-            ).join(
-                iam_user_role,
-                iam_role_permission.c.role_id == iam_user_role.c.role_id
-            ).join(
-                IAMRoleTable,
-                IAMRoleTable.id == iam_role_permission.c.role_id
-            ).where(
-                iam_user_role.c.user_id == user_id,
-                IAMRoleTable.is_active == True,
-                IAMRoleTable.deleted_at.is_(None),
-                # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
+            stmt = (
+                select(IAMPermissionTable)
+                .join(
+                    iam_role_permission,
+                    IAMPermissionTable.id == iam_role_permission.c.permission_id,
+                )
+                .join(
+                    iam_user_role,
+                    iam_role_permission.c.role_id == iam_user_role.c.role_id,
+                )
+                .join(
+                    IAMRoleTable,
+                    IAMRoleTable.id == iam_role_permission.c.role_id,
+                )
+                .where(
+                    iam_user_role.c.user_id == user_id,
+                    IAMRoleTable.is_active == True,
+                    IAMRoleTable.deleted_at.is_(None),
+                )
             )
             result = await self.session.execute(stmt)
             perms = result.scalars().all()
@@ -1000,10 +1205,12 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         try:
             stmt = (
                 select(IAMRoleTable)
-                .join(iam_user_role, IAMRoleTable.id == iam_user_role.c.role_id)
+                .join(
+                    iam_user_role, IAMRoleTable.id == iam_user_role.c.role_id
+                )
                 .where(
                     iam_user_role.c.user_id == user_id,
-                    IAMRoleTable.deleted_at.is_(None)
+                    IAMRoleTable.deleted_at.is_(None),
                 )
                 .options(selectinload(IAMRoleTable.permissions))
             )
@@ -1016,11 +1223,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def get_role_permissions(self, role_id: UUID) -> list[Permission]:
         try:
-            stmt = select(IAMPermissionTable).join(
-                iam_role_permission, IAMPermissionTable.id == iam_role_permission.c.permission_id
-            ).where(
-                iam_role_permission.c.role_id == role_id
-                # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
+            stmt = (
+                select(IAMPermissionTable)
+                .join(
+                    iam_role_permission,
+                    IAMPermissionTable.id == iam_role_permission.c.permission_id,
+                )
+                .where(iam_role_permission.c.role_id == role_id)
             )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
@@ -1030,38 +1239,43 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             return []
 
     # ---- Find by role ----
-    async def find_by_role(self, role_code: str, legal_entity_id: UUID) -> list[UserAggregate]:
+    async def find_by_role(
+        self, role_code: str, legal_entity_id: UUID
+    ) -> list[UserAggregate]:
         role = await self.get_role_by_code(role_code)
         if not role:
             return []
         try:
-            stmt = select(IAMUserTable).join(
-                iam_user_role, IAMUserTable.id == iam_user_role.c.user_id
-            ).where(
-                iam_user_role.c.role_id == role.role_id,
-                IAMUserTable.deleted_at.is_(None),
-                _legal_entity_overlap(legal_entity_id)
-            ).options(selectinload(IAMUserTable.roles))
+            stmt = (
+                select(IAMUserTable)
+                .join(
+                    iam_user_role, IAMUserTable.id == iam_user_role.c.user_id
+                )
+                .where(
+                    iam_user_role.c.role_id == role.role_id,
+                    IAMUserTable.deleted_at.is_(None),
+                    _legal_entity_overlap(legal_entity_id),
+                )
+                .options(selectinload(IAMUserTable.roles))
+            )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [self._to_domain(t) for t in tables]
         except Exception as e:
             raise IAMRepositoryError(f"Failed to find users by role: {e}") from e
 
-    # ---- MFA (implementasi lengkap port lama - WAJIB ada karena
-    # IAMRepositoryPort mendeklarasikan enable_mfa/verify_mfa sebagai
-    # @abstractmethod; kalau tidak di-override, Python akan menolak
-    # instantiate SQLAlchemyIAMRepository sama sekali dengan
-    # "Can't instantiate abstract class ... with abstract methods
-    # enable_mfa, verify_mfa" - ini persis error yang muncul saat startup.
-    # Method di bawah sebelumnya stub (enable_mfa tidak nulis ke DB,
-    # verify_mfa selalu return True); sekarang keduanya benar2 bekerja,
-    # dan didelegasikan ke set_mfa_secret/set_mfa_enabled di bawah supaya
-    # tidak ada duplikasi logic.)
-    async def enable_mfa(self, user_id: UUID, mfa_type: "MFAType", secret: str | None = None, actor_id: UUID | None = None) -> str:
+    # ---- MFA ----
+    async def enable_mfa(
+        self,
+        user_id: UUID,
+        mfa_type: "MFAType",
+        secret: str | None = None,
+        actor_id: UUID | None = None,
+    ) -> str:
         if not secret:
             try:
                 import pyotp
+
                 secret = pyotp.random_base32()
             except ImportError:
                 secret = secrets.token_hex(16)
@@ -1074,6 +1288,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             return False
         try:
             import pyotp
+
             if pyotp.TOTP(user.mfa_secret).verify(code.strip(), valid_window=1):
                 return True
         except ImportError:
@@ -1081,21 +1296,18 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         backup_codes = user.mfa_backup_codes or []
         return code.strip().upper() in [c.upper() for c in backup_codes]
 
-    # ---- MFA ----
-    # CATATAN: dua method di bawah ini sebelumnya stub total (enable_mfa
-    # tidak menulis apapun ke DB, verify_mfa selalu return True tanpa
-    # mengecek kode sama sekali - lubang keamanan). Verifikasi kode TOTP
-    # yang sesungguhnya dilakukan di IAMService (application layer, pakai
-    # pyotp) karena butuh akses ke secret yang sudah didekripsi/di-decode;
-    # repository di sini hanya bertanggung jawab untuk PERSISTENSI kolom
-    # mfa_enabled/mfa_secret/mfa_backup_codes ke tabel iam_user.
-    async def set_mfa_secret(self, user_id: UUID, secret: str | None, backup_codes: list[str] | None = None) -> None:
-        """Simpan/replace secret MFA (dipanggil saat setup, sebelum enabled=True)."""
+    async def set_mfa_secret(
+        self, user_id: UUID, secret: str | None, backup_codes: list[str] | None = None
+    ) -> None:
         try:
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
-                mfa_secret=secret,
-                mfa_backup_codes=backup_codes,
-                updated_at=datetime.utcnow(),
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .values(
+                    mfa_secret=secret,
+                    mfa_backup_codes=backup_codes,
+                    updated_at=_utcnow(),
+                )
             )
             await self.session.execute(stmt)
             await self.session.flush()
@@ -1106,36 +1318,56 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def set_mfa_enabled(self, user_id: UUID, enabled: bool) -> None:
         try:
-            values = {"mfa_enabled": enabled, "updated_at": datetime.utcnow()}
+            values = {"mfa_enabled": enabled, "updated_at": _utcnow()}
             if not enabled:
                 values["mfa_secret"] = None
                 values["mfa_backup_codes"] = None
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(**values)
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .values(**values)
+            )
             await self.session.execute(stmt)
             await self.session.flush()
-            logger.info("MFA %s for user %s", "enabled" if enabled else "disabled", user_id)
+            logger.info(
+                "MFA %s for user %s",
+                "enabled" if enabled else "disabled",
+                user_id,
+            )
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to set MFA enabled flag: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to set MFA enabled flag: {e}"
+            ) from e
 
-    # ---- Sessions (list per user, dipakai halaman "Sesi Login Aktif") ----
-    async def list_sessions_for_user(self, user_id: UUID, active_only: bool = False) -> list[IAMSessionTable]:
+    # ---- Sessions ----
+    async def list_sessions_for_user(
+        self, user_id: UUID, active_only: bool = False
+    ) -> list[IAMSessionTable]:
         try:
             conditions = [IAMSessionTable.user_id == user_id]
             if active_only:
                 conditions.append(IAMSessionTable.is_active == True)
-            stmt = select(IAMSessionTable).where(and_(*conditions)).order_by(IAMSessionTable.last_accessed_at.desc())
+            stmt = (
+                select(IAMSessionTable)
+                .where(and_(*conditions))
+                .order_by(IAMSessionTable.last_accessed_at.desc())
+            )
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
             raise IAMRepositoryError(f"Failed to list sessions: {e}") from e
 
-    async def revoke_session_for_user(self, session_id: UUID, user_id: UUID, reason: str = "user_revoke") -> bool:
-        """Revoke satu sesi, hanya jika memang milik user_id (proteksi IDOR)."""
+    async def revoke_session_for_user(
+        self, session_id: UUID, user_id: UUID, reason: str = "user_revoke"
+    ) -> bool:
         try:
             stmt = (
                 update(IAMSessionTable)
-                .where(IAMSessionTable.id == session_id, IAMSessionTable.user_id == user_id)
+                .where(
+                    IAMSessionTable.id == session_id,
+                    IAMSessionTable.user_id == user_id,
+                )
                 .values(is_active=False, is_revoked=True, revoke_reason=reason)
             )
             result = await self.session.execute(stmt)
@@ -1145,8 +1377,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             await self.session.rollback()
             raise IAMRepositoryError(f"Failed to revoke session: {e}") from e
 
-    async def revoke_all_other_sessions_for_user(self, user_id: UUID, keep_session_id: UUID | None = None) -> int:
-        """Revoke semua sesi aktif user, kecuali keep_session_id (biasanya sesi yang sedang dipakai)."""
+    async def revoke_all_other_sessions_for_user(
+        self, user_id: UUID, keep_session_id: UUID | None = None
+    ) -> int:
         try:
             conditions = [
                 IAMSessionTable.user_id == user_id,
@@ -1154,55 +1387,81 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             ]
             if keep_session_id is not None:
                 conditions.append(IAMSessionTable.id != keep_session_id)
-            stmt = update(IAMSessionTable).where(and_(*conditions)).values(
-                is_active=False, is_revoked=True, revoke_reason="revoke_all_other_sessions"
+            stmt = (
+                update(IAMSessionTable)
+                .where(and_(*conditions))
+                .values(
+                    is_active=False,
+                    is_revoked=True,
+                    revoke_reason="revoke_all_other_sessions",
+                )
             )
             result = await self.session.execute(stmt)
             await self.session.flush()
             return result.rowcount
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to revoke other sessions: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to revoke other sessions: {e}"
+            ) from e
 
-    # ---- Password reset via token (alur "Lupa Password" self-service) ----
-    async def set_password_reset_token(self, user_id: UUID, token_hash: str | None, expires_at: datetime | None) -> None:
+    # ---- Password reset ----
+    async def set_password_reset_token(
+        self,
+        user_id: UUID,
+        token_hash: str | None,
+        expires_at: datetime | None,
+    ) -> None:
         try:
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
-                password_reset_token_hash=token_hash,
-                password_reset_expires_at=expires_at,
-                updated_at=datetime.utcnow(),
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .values(
+                    password_reset_token_hash=token_hash,
+                    password_reset_expires_at=expires_at,
+                    updated_at=_utcnow(),
+                )
             )
             await self.session.execute(stmt)
             await self.session.flush()
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to set password reset token: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to set password reset token: {e}"
+            ) from e
 
-    async def get_by_password_reset_token_hash(self, token_hash: str) -> UserAggregate | None:
+    async def get_by_password_reset_token_hash(
+        self, token_hash: str
+    ) -> UserAggregate | None:
         try:
-            stmt = select(IAMUserTable).where(IAMUserTable.password_reset_token_hash == token_hash)
+            stmt = select(IAMUserTable).where(
+                IAMUserTable.password_reset_token_hash == token_hash
+            )
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
             return self._to_domain(table) if table else None
         except Exception as e:
-            raise IAMRepositoryError(f"Failed to look up password reset token: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to look up password reset token: {e}"
+            ) from e
 
     async def set_password_direct(self, user_id: UUID, new_password: str) -> None:
-        """Ganti password langsung tanpa verifikasi old_password - dipakai
-        setelah token reset password sudah tervalidasi (bukan untuk dipakai
-        di alur ganti password biasa, yang harus tetap lewat change_password())."""
         try:
             user = await self.get_by_id(user_id)
             if not user:
                 raise UserNotFoundError(f"User {user_id} not found")
             hashed = PasswordHelper.hash_password(new_password)
-            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
-                password_hash=hashed,
-                password_changed_at=datetime.utcnow(),
-                must_change_password=False,
-                password_reset_token_hash=None,
-                password_reset_expires_at=None,
-                updated_at=datetime.utcnow(),
+            stmt = (
+                update(IAMUserTable)
+                .where(IAMUserTable.id == user_id)
+                .values(
+                    password_hash=hashed,
+                    password_changed_at=_utcnow(),
+                    must_change_password=False,
+                    password_reset_token_hash=None,
+                    password_reset_expires_at=None,
+                    updated_at=_utcnow(),
+                )
             )
             await self.session.execute(stmt)
             await self.session.flush()
@@ -1224,7 +1483,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     ) -> list[UserAggregate]:
         conditions = [
             IAMUserTable.deleted_at.is_(None),
-            _legal_entity_overlap(legal_entity_id)
+            _legal_entity_overlap(legal_entity_id),
         ]
         if not include_inactive:
             conditions.append(IAMUserTable.is_active == True)
@@ -1242,22 +1501,37 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     # ---- Export / Import ----
     async def export_users_to_csv(self, legal_entity_id: UUID) -> str:
-        users = await self.get_all_users(legal_entity_id, include_inactive=True, limit=10000)
+        users = await self.get_all_users(
+            legal_entity_id, include_inactive=True, limit=10000
+        )
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["username", "email", "full_name", "status", "is_superuser", "last_login"])
+        writer.writerow(
+            [
+                "username",
+                "email",
+                "full_name",
+                "status",
+                "is_superuser",
+                "last_login",
+            ]
+        )
         for u in users:
-            writer.writerow([
-                u.username,
-                u.email,
-                u.full_name,
-                u.status.value,
-                "1" if u.is_superuser else "0",
-                u.last_login_at.isoformat() if u.last_login_at else "",
-            ])
+            writer.writerow(
+                [
+                    u.username,
+                    u.email,
+                    u.full_name,
+                    u.status.value,
+                    "1" if u.is_superuser else "0",
+                    u.last_login_at.isoformat() if u.last_login_at else "",
+                ]
+            )
         return output.getvalue()
 
-    async def import_users_from_csv(self, csv_content: str, legal_entity_id: UUID, actor_id: UUID) -> int:
+    async def import_users_from_csv(
+        self, csv_content: str, legal_entity_id: UUID, actor_id: UUID
+    ) -> int:
         reader = csv.DictReader(io.StringIO(csv_content))
         count = 0
         for row in reader:
@@ -1282,10 +1556,16 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         return count
 
     # ---- Session Management ----
-    async def create_session(self, user_id: UUID, ip_address: str, user_agent: str, expires_in_hours: int = 8) -> str:
+    async def create_session(
+        self,
+        user_id: UUID,
+        ip_address: str,
+        user_agent: str,
+        expires_in_hours: int = 8,
+    ) -> str:
         try:
             session_id = uuid4()
-            expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
+            expires_at = _utcnow() + timedelta(hours=expires_in_hours)
             token = str(uuid4())
             table = IAMSessionTable(
                 id=session_id,
@@ -1295,7 +1575,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 user_agent=user_agent,
                 expires_at=expires_at,
                 is_active=True,
-                created_at=datetime.utcnow(),
+                created_at=_utcnow(),
             )
             self.session.add(table)
             await self.session.flush()
@@ -1310,7 +1590,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             stmt = select(IAMSessionTable).where(
                 IAMSessionTable.session_token == token,
                 IAMSessionTable.is_active == True,
-                IAMSessionTable.expires_at > datetime.utcnow(),
+                IAMSessionTable.expires_at > _utcnow(),
             )
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
@@ -1323,17 +1603,27 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def invalidate_session(self, session_id: UUID) -> None:
         try:
-            stmt = update(IAMSessionTable).where(IAMSessionTable.id == session_id).values(is_active=False)
+            stmt = (
+                update(IAMSessionTable)
+                .where(IAMSessionTable.id == session_id)
+                .values(is_active=False)
+            )
             await self.session.execute(stmt)
             await self.session.flush()
             logger.info("Session %s invalidated", session_id)
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to invalidate session: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to invalidate session: {e}"
+            ) from e
 
     async def invalidate_all_sessions(self, user_id: UUID) -> int:
         try:
-            stmt = update(IAMSessionTable).where(IAMSessionTable.user_id == user_id).values(is_active=False)
+            stmt = (
+                update(IAMSessionTable)
+                .where(IAMSessionTable.user_id == user_id)
+                .values(is_active=False)
+            )
             result = await self.session.execute(stmt)
             await self.session.flush()
             count = result.rowcount
@@ -1341,43 +1631,55 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             return count
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to invalidate sessions: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to invalidate sessions: {e}"
+            ) from e
 
     # ---- Statistics ----
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         try:
             total_stmt = select(func.count()).where(
                 IAMUserTable.deleted_at.is_(None),
-                _legal_entity_overlap(legal_entity_id)
+                _legal_entity_overlap(legal_entity_id),
             )
             total = (await self.session.execute(total_stmt)).scalar() or 0
 
             active_stmt = select(func.count()).where(
                 IAMUserTable.is_active == True,
                 IAMUserTable.deleted_at.is_(None),
-                _legal_entity_overlap(legal_entity_id)
+                _legal_entity_overlap(legal_entity_id),
             )
             active = (await self.session.execute(active_stmt)).scalar() or 0
 
             locked_stmt = select(func.count()).where(
                 IAMUserTable.status == "locked",
                 IAMUserTable.deleted_at.is_(None),
-                _legal_entity_overlap(legal_entity_id)
+                _legal_entity_overlap(legal_entity_id),
             )
             locked = (await self.session.execute(locked_stmt)).scalar() or 0
 
             super_stmt = select(func.count()).where(
                 IAMUserTable.is_superuser == True,
                 IAMUserTable.deleted_at.is_(None),
-                _legal_entity_overlap(legal_entity_id)
+                _legal_entity_overlap(legal_entity_id),
             )
             superusers = (await self.session.execute(super_stmt)).scalar() or 0
 
-            role_stmt = select(func.count()).select_from(IAMRoleTable).where(IAMRoleTable.deleted_at.is_(None))
+            role_stmt = (
+                select(func.count())
+                .select_from(IAMRoleTable)
+                .where(IAMRoleTable.deleted_at.is_(None))
+            )
             total_roles = (await self.session.execute(role_stmt)).scalar() or 0
 
-            session_stmt = select(func.count()).select_from(IAMSessionTable).where(IAMSessionTable.is_active == True)
-            active_sessions = (await self.session.execute(session_stmt)).scalar() or 0
+            session_stmt = (
+                select(func.count())
+                .select_from(IAMSessionTable)
+                .where(IAMSessionTable.is_active == True)
+            )
+            active_sessions = (
+                await self.session.execute(session_stmt)
+            ).scalar() or 0
 
             attempt_stmt = select(func.count()).select_from(LoginAttemptTable)
             login_attempts = (await self.session.execute(attempt_stmt)).scalar() or 0
@@ -1435,13 +1737,17 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 for t in tables
             ]
         except Exception as e:
-            raise IAMRepositoryError(f"Failed to get login attempts: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to get login attempts: {e}"
+            ) from e
 
     # ---- Audit Log ----
-    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def get_audit_log(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
         logs = self._audit_log
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        return logs[offset:offset + limit]
+        return logs[offset : offset + limit]
 
     # ---- Health Check ----
     async def health_check(self) -> dict[str, Any]:
@@ -1449,7 +1755,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             await self.session.execute(select(1))
             return {"status": "healthy", "repository": "IAMUserRepository"}
         except Exception as e:
-            return {"status": "unhealthy", "repository": "IAMUserRepository", "error": str(e)}
+            return {
+                "status": "unhealthy",
+                "repository": "IAMUserRepository",
+                "error": str(e),
+            }
 
     # ---- Alias methods ----
     async def add_user(self, user: UserAggregate) -> UserAggregate:
@@ -1463,7 +1773,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         return await self.delete(user_id, user_id)
 
     async def add_role(self, role: Role) -> Role:
-        return await self.create_role(role.role_name, role.role_name, role.permissions or [], role.created_by or UUID(int=0), role.description)
+        return await self.create_role(
+            role.role_name,
+            role.role_name,
+            role.permissions or [],
+            role.created_by or UUID(int=0),
+            role.description,
+        )
 
     async def assign_role_to_user(self, user_id: UUID, role_id: UUID) -> bool:
         role = await self.get_role_by_id(role_id)
@@ -1486,12 +1802,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     async def get_user_by_email(self, email: str) -> UserAggregate | None:
         return await self.get_by_email(email)
 
-    async def list_users(self, limit: int = 100, offset: int = 0) -> list[UserAggregate]:
+    async def list_users(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[UserAggregate]:
         return await self.find_all(self._get_legal_entity_id(), limit, offset)
 
     async def get_all_permissions(self) -> list[Permission]:
         try:
-            # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
             stmt = select(IAMPermissionTable)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
@@ -1508,11 +1825,6 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         user_agent: str | None = None,
     ) -> None:
         try:
-            # FIX BUG: sebelumnya di sini "user_agent=failure_reason" - kolom
-            # user_agent di tabel iam_login_attempt sebelumnya tidak ada sama
-            # sekali, jadi baris ini akan TypeError kalau sampai terpanggil.
-            # Sekarang tabel sudah punya kolom user_agent DAN failure_reason
-            # (migration e5f6a7b8c9d0), masing2 diisi dengan benar.
             attempt = LoginAttemptTable(
                 id=uuid4(),
                 username=username,
@@ -1520,40 +1832,66 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 ip_address=ip_address,
                 user_agent=user_agent,
                 failure_reason=failure_reason,
-                attempted_at=datetime.utcnow(),
+                attempted_at=_utcnow(),
             )
             self.session.add(attempt)
             await self.session.flush()
             logger.debug("Login attempt recorded for %s", username)
         except Exception as e:
             await self.session.rollback()
-            raise IAMRepositoryError(f"Failed to record login attempt: {e}") from e
-
-    # ========================================================================
-    # REQUEST CONTEXT SETTERS (dipanggil oleh service.set_context)
-    # ========================================================================
-    # CATATAN: override ini sebelumnya menulis ke self._session /
-    # self._legal_entity_id (atribut instance biasa), sehingga menimpa balik
-    # perbaikan ContextVar di base class SQLAlchemyIAMUserRepository -
-    # sekarang cukup dihapus dan biarkan resolve ke method base class yang
-    # sudah pakai ContextVar (aman untuk request konkuren). Method ini
-    # sengaja TIDAK didefinisikan ulang di sini.
+            raise IAMRepositoryError(
+                f"Failed to record login attempt: {e}"
+            ) from e
 
 
 # ============================================================================
-# FULL IAM REPOSITORY (for IAMRepositoryPort)
+# FULL IAM REPOSITORY
 # ============================================================================
+
 
 class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
     """Full IAM repository implementing both user and full IAM operations."""
 
-    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
+    def __init__(
+        self,
+        session: AsyncSession | None = None,
+        legal_entity_id: UUID | None = None,
+    ):
         super().__init__(session, legal_entity_id)
+
+    # ============================================================
+    # HELPER untuk konversi UserEntity -> UserAggregate
+    # ============================================================
+    # CATATAN (FIX v11): domain UserEntity mendefinisikan is_active dan
+    # is_locked sebagai METHOD (bukan atribut/property), karena itu akses
+    # getattr(user, "is_active") mengembalikan bound method — bukan bool.
+    # SQLAlchemy kemudian gagal saat mengirim method ini ke kolom BOOLEAN
+    # dengan error:
+    #   TypeError: Not a boolean value: <bound method ...>
+    # Helper di bawah menormalkan baik method maupun atribut ke bool.
+
+    @staticmethod
+    def _entity_is_active(user: UserEntity) -> bool:
+        v = getattr(user, "is_active", True)
+        return bool(v() if callable(v) else v)
+
+    @staticmethod
+    def _entity_is_superuser(user: UserEntity) -> bool:
+        # UserEntity tidak mendefinisikan is_superuser; kembalikan default.
+        v = getattr(user, "is_superuser", False)
+        return bool(v() if callable(v) else v)
+
+    @staticmethod
+    def _entity_is_locked(user: UserEntity) -> bool:
+        v = getattr(user, "is_locked", False)
+        return bool(v() if callable(v) else v)
 
     async def get(self) -> IAM | None:
         legal_entity_id = self._get_legal_entity_id()
-        users_list = await self.get_all_users(legal_entity_id, include_inactive=True, limit=10000)
-        roles_list = await self.list_roles()  # sudah eager load permissions
+        users_list = await self.get_all_users(
+            legal_entity_id, include_inactive=True, limit=10000
+        )
+        roles_list = await self.list_roles()
 
         users = {u.id: self._to_user_entity(u) for u in users_list}
         roles = {r.role_id: r for r in roles_list}
@@ -1572,23 +1910,27 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
         await self.session.commit()
         logger.info("IAM saved (commit)")
 
-    # ---- Helper untuk konversi Role -> RoleEntity ----
     def _to_role_entity(self, role: Role) -> RoleEntity:
         return RoleEntity(
             role_id=role.role_id,
             role_name=role.role_name,
             description=role.description,
-            permissions=[p.name for p in role.permissions] if hasattr(role, 'permissions') else [],
+            permissions=(
+                [p.name for p in role.permissions]
+                if hasattr(role, "permissions")
+                else []
+            ),
             parent_role_id=None,
             is_default=False,
             is_system=role.is_system_role,
             created_by=str(role.created_by) if role.created_by else None,
             created_at=role.created_at,
-            updated_at=role.updated_at if hasattr(role, 'updated_at') else role.created_at,
+            updated_at=(
+                role.updated_at if hasattr(role, "updated_at") else role.created_at
+            ),
             version=1,
         )
 
-    # ---- Overrides for IAMRepositoryPort ----
     async def get_user_by_id(self, user_id: UUID) -> UserEntity | None:
         agg = await self.get_by_id(user_id)
         return self._to_user_entity(agg) if agg else None
@@ -1610,7 +1952,9 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
                 return self._to_user_entity(agg)
             return None
         except Exception as e:
-            raise IAMRepositoryError(f"Failed to get user by username: {e}") from e
+            raise IAMRepositoryError(
+                f"Failed to get user by username: {e}"
+            ) from e
 
     async def get_user_by_email(self, email: str) -> UserEntity | None:
         agg = await self.get_by_email(email)
@@ -1636,49 +1980,83 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
             username=user.username,
             email=user.email,
             full_name=user.profile.full_name,
-            hashed_password=user.password_hash.hashed_value if hasattr(user.password_hash, 'hashed_value') else str(user.password_hash),
+            hashed_password=(
+                user.password_hash.hashed_value
+                if hasattr(user.password_hash, "hashed_value")
+                else str(user.password_hash)
+            ),
             status=user.status,
-            is_superuser=getattr(user, 'is_superuser', False),
-            is_active=getattr(user, 'is_active', True),
-            last_login_at=user.audit.last_login_at if hasattr(user, 'audit') else None,
-            last_login_ip=user.audit.last_login_ip if hasattr(user, 'audit') else None,
+            is_superuser=self._entity_is_superuser(user),
+            is_active=self._entity_is_active(user),
+            last_login_at=user.audit.last_login_at if hasattr(user, "audit") else None,
+            last_login_ip=user.audit.last_login_ip if hasattr(user, "audit") else None,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=getattr(user, 'must_change_password', False),
-            password_changed_at=user.audit.last_password_change_at if hasattr(user, 'audit') else None,
-            created_at=user.audit.created_at if hasattr(user, 'audit') else datetime.utcnow(),
-            updated_at=user.audit.updated_at if hasattr(user, 'audit') else datetime.utcnow(),
-            created_by=user.audit.created_by if hasattr(user, 'audit') else None,
-            version=user.audit.version if hasattr(user, 'audit') else 1,
-            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            must_change_password=getattr(user, "must_change_password", False),
+            password_changed_at=(
+                user.audit.last_password_change_at
+                if hasattr(user, "audit")
+                else None
+            ),
+            created_at=(
+                user.audit.created_at if hasattr(user, "audit") else _utcnow()
+            ),
+            updated_at=(
+                user.audit.updated_at if hasattr(user, "audit") else _utcnow()
+            ),
+            created_by=user.audit.created_by if hasattr(user, "audit") else None,
+            version=user.audit.version if hasattr(user, "audit") else 1,
+            legal_entity_ids=(
+                [user.legal_entity_id] if user.legal_entity_id else []
+            ),
             role_ids=user.role_ids,
-            is_locked=user.locked_until is not None and user.locked_until > datetime.utcnow(),
+            is_locked=self._entity_is_locked(user)
+            or (
+                _ensure_aware(user.locked_until) is not None
+                and _ensure_aware(user.locked_until) > _utcnow()
+            ),
         )
         await self.add(agg)
 
     async def update_user(self, user: UserEntity) -> None:
+        locked_until_aware = _ensure_aware(user.locked_until)
         agg = UserAggregate(
             id=user.user_id,
             username=user.username,
             email=user.email,
             full_name=user.profile.full_name,
-            hashed_password=user.password_hash.hashed_value if hasattr(user.password_hash, 'hashed_value') else str(user.password_hash),
+            hashed_password=(
+                user.password_hash.hashed_value
+                if hasattr(user.password_hash, "hashed_value")
+                else str(user.password_hash)
+            ),
             status=user.status,
-            is_superuser=getattr(user, 'is_superuser', False),
-            is_active=getattr(user, 'is_active', True),
-            last_login_at=user.audit.last_login_at if hasattr(user, 'audit') else None,
-            last_login_ip=user.audit.last_login_ip if hasattr(user, 'audit') else None,
+            is_superuser=self._entity_is_superuser(user),
+            is_active=self._entity_is_active(user),
+            last_login_at=user.audit.last_login_at if hasattr(user, "audit") else None,
+            last_login_ip=user.audit.last_login_ip if hasattr(user, "audit") else None,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=getattr(user, 'must_change_password', False),
-            password_changed_at=user.audit.last_password_change_at if hasattr(user, 'audit') else None,
-            created_at=user.audit.created_at if hasattr(user, 'audit') else datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            created_by=user.audit.created_by if hasattr(user, 'audit') else None,
-            version=user.audit.version if hasattr(user, 'audit') else 1,
-            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            must_change_password=getattr(user, "must_change_password", False),
+            password_changed_at=(
+                user.audit.last_password_change_at
+                if hasattr(user, "audit")
+                else None
+            ),
+            created_at=(
+                user.audit.created_at if hasattr(user, "audit") else _utcnow()
+            ),
+            updated_at=_utcnow(),
+            created_by=user.audit.created_by if hasattr(user, "audit") else None,
+            version=user.audit.version if hasattr(user, "audit") else 1,
+            legal_entity_ids=(
+                [user.legal_entity_id] if user.legal_entity_id else []
+            ),
             role_ids=user.role_ids,
-            is_locked=user.locked_until is not None and user.locked_until > datetime.utcnow(),
+            is_locked=self._entity_is_locked(user)
+            or (
+                locked_until_aware is not None and locked_until_aware > _utcnow()
+            ),
         )
         await self.update(agg)
 
@@ -1695,14 +2073,16 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
 
     async def list_roles(self, limit: int = 100, offset: int = 0) -> list[RoleEntity]:
         roles = await super().list_roles()
-        return roles[offset:offset+limit]
+        return roles[offset : offset + limit]
 
     async def add_role(self, role: RoleEntity) -> None:
         role_obj = Role(
             id=role.role_id,
             name=role.role_name,
             description=role.description,
-            permissions=role.permissions if hasattr(role, 'permissions') else [],
+            permissions=(
+                role.permissions if hasattr(role, "permissions") else []
+            ),
             created_at=role.created_at,
             updated_at=role.updated_at,
             created_by=UUID(role.created_by) if role.created_by else UUID(int=0),
@@ -1713,14 +2093,13 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
         await super().add_role(role_obj)
 
     async def update_role(self, role: RoleEntity) -> None:
-        # FIX: sebelumnya di-convert paksa ke Permission(p) — pasti ValueError,
-        # karena role.permissions isinya PermissionVO (PermissionVO.__eq__ cuma
-        # True vs sesama PermissionVO), dan Permission enum literal juga tidak
-        # punya atribut .resource/.action yang dibutuhkan _update_role_impl.
-        # Konsisten dengan create_role(): kirim PermissionVO apa adanya.
-        permissions = list(role.permissions) if hasattr(role, 'permissions') else []
+        permissions = (
+            list(role.permissions) if hasattr(role, "permissions") else []
+        )
         updated_by = UUID(role.updated_by) if role.updated_by else UUID(int=0)
-        await self._update_role_impl(role.role_id, role.role_name, permissions, updated_by)
+        await self._update_role_impl(
+            role.role_id, role.role_name, permissions, updated_by
+        )
 
     async def delete_role(self, role_id: UUID) -> None:
         await self._delete_role_impl(role_id, UUID(int=0))

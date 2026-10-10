@@ -3,6 +3,14 @@
 Module: sqlalchemy_ledger_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository Ledger dengan SQLAlchemy.
+
+Catatan revisi:
+- get_balance_sheet() sekarang mengisi ``balance_previous`` per baris bila
+  compare_with_previous=True (default: saldo per 31 Des tahun sebelumnya).
+- Ditambahkan method opsional untuk arus kas 3 sektor:
+  get_working_capital_changes, get_investing_activities, get_financing_activities.
+  Klasifikasi memakai kolom AccountTable.cashflow_type bila ada; kalau kolom
+  belum tersedia di skema, method akan mengembalikan list kosong (aman).
 """
 
 from __future__ import annotations
@@ -442,12 +450,17 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         as_of_date: date,
         compare_with_previous: bool = True,
     ) -> dict[str, Any]:
+        """Neraca dengan opsi pembanding periode lalu.
+
+        Bila compare_with_previous=True, setiap line diberi field
+        ``balance_previous`` (saldo per 31 Desember tahun sebelumnya, yaitu hari
+        terakhir sebelum awal tahun berjalan tempat as_of_date berada).
+        """
         tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
 
-        # Pre-fetch all accounts for this legal entity to avoid query in loop
         acc_stmt = select(
             AccountTable.account_code,
-            AccountTable.account_type
+            AccountTable.account_type,
         ).where(
             AccountTable.legal_entity_id == legal_entity_id,
             AccountTable.is_active == True,
@@ -455,27 +468,52 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         acc_result = await self.session.execute(acc_stmt)
         account_type_map = {row.account_code: row.account_type for row in acc_result.all()}
 
-        assets = []
-        liabilities = []
-        equity = []
+        # Ambil saldo pembanding (akhir tahun sebelumnya) bila diminta.
+        prev_balance_map: dict[str, Decimal] = {}
+        if compare_with_previous:
+            prev_as_of = date(as_of_date.year - 1, 12, 31)
+            tb_prev = await self.get_trial_balance(
+                legal_entity_id, prev_as_of, include_zero_balance=False
+            )
+            for row in tb_prev:
+                bal = row.debit_balance if row.debit_balance > 0 else row.credit_balance
+                prev_balance_map[row.account_code] = bal
+
+        assets: list[dict[str, Any]] = []
+        liabilities: list[dict[str, Any]] = []
+        equity: list[dict[str, Any]] = []
         total_assets = Decimal(0)
         total_liabilities = Decimal(0)
         total_equity = Decimal(0)
+        total_assets_prev = Decimal(0)
+        total_liabilities_prev = Decimal(0)
+        total_equity_prev = Decimal(0)
+
         for row in tb:
             acc_type = account_type_map.get(row.account_code)
             if not acc_type:
                 continue
             balance = row.debit_balance if row.debit_balance > 0 else row.credit_balance
-            item = {"account_code": row.account_code, "account_name": row.account_name, "balance": str(balance)}
+            prev_balance = prev_balance_map.get(row.account_code, Decimal(0))
+            item = {
+                "account_code": row.account_code,
+                "account_name": row.account_name,
+                "balance": str(balance),
+                "balance_previous": str(prev_balance),
+            }
             if acc_type in ["Asset", "ContraAsset"]:
                 assets.append(item)
                 total_assets += balance
+                total_assets_prev += prev_balance
             elif acc_type in ["Liability", "ContraLiability"]:
                 liabilities.append(item)
                 total_liabilities += balance
+                total_liabilities_prev += prev_balance
             elif acc_type in ["Equity", "ContraEquity"]:
                 equity.append(item)
                 total_equity += balance
+                total_equity_prev += prev_balance
+
         return {
             "as_of_date": as_of_date.isoformat(),
             "total_assets": str(total_assets),
@@ -485,6 +523,9 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             "asset_details": assets,
             "liability_details": liabilities,
             "equity_details": equity,
+            "total_assets_previous": str(total_assets_prev),
+            "total_liabilities_previous": str(total_liabilities_prev),
+            "total_equity_previous": str(total_equity_prev),
         }
 
     async def get_cash_flow_indirect(
@@ -532,6 +573,104 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         }
 
     # ========================================================================
+    # CASH FLOW 3-SECTOR HELPERS (opsional, best-effort)
+    # ========================================================================
+    #
+    # Klasifikasi memakai AccountTable.cashflow_type bila kolom tsb tersedia.
+    # Nilai yang diharapkan: 'operating' | 'investing' | 'financing' | ''.
+    # Bila kolom tidak ada, method akan mengembalikan list kosong (aman).
+
+    async def get_working_capital_changes(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Perubahan modal kerja untuk arus kas metode tidak langsung:
+        piutang, persediaan, utang usaha, dll. Dihitung dari selisih saldo
+        awal vs akhir periode. Best-effort, kembalikan [] bila kolom tidak ada.
+        """
+        try:
+            # Ambil saldo awal (hari sebelum start_date) & akhir.
+            opening_tb = await self.get_trial_balance(
+                legal_entity_id, start_date - timedelta(days=1), include_zero_balance=True
+            )
+            closing_tb = await self.get_trial_balance(
+                legal_entity_id, end_date, include_zero_balance=True
+            )
+            opening_map = {r.account_code: (r.debit_balance - r.credit_balance) for r in opening_tb}
+
+            changes: list[dict[str, Any]] = []
+            for row in closing_tb:
+                code = row.account_code
+                if not (code.startswith("11") or code.startswith("12") or code.startswith("21")):
+                    continue  # hanya aset lancar & kewajiban jangka pendek
+                closing = row.debit_balance - row.credit_balance
+                opening = opening_map.get(code, Decimal(0))
+                delta = closing - opening
+                if delta == 0:
+                    continue
+                # Aset naik = pemakaian kas (negatif); Kewajiban naik = sumber kas.
+                sign = Decimal(-1) if code.startswith("11") or code.startswith("12") else Decimal(1)
+                changes.append({
+                    "description": f"Perubahan {row.account_name}",
+                    "amount": sign * delta,
+                })
+            return changes
+        except Exception as e:
+            logger.warning(f"get_working_capital_changes failed: {e}")
+            return []
+
+    async def get_investing_activities(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Arus kas dari aktivitas investasi. Bila COA punya kolom
+        ``cashflow_type='investing'``, pakai itu; kalau tidak, kembalikan []."""
+        return await self._cashflow_by_type(legal_entity_id, start_date, end_date, "investing")
+
+    async def get_financing_activities(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Arus kas dari aktivitas pendanaan."""
+        return await self._cashflow_by_type(legal_entity_id, start_date, end_date, "financing")
+
+    async def _cashflow_by_type(
+        self, legal_entity_id: UUID, start_date: date, end_date: date, flow_type: str
+    ) -> list[dict[str, Any]]:
+        """Helper: agregat per akun untuk cashflow_type tertentu."""
+        try:
+            has_col = hasattr(AccountTable, "cashflow_type")
+            if not has_col:
+                return []
+            stmt = (
+                select(
+                    AccountTable.account_code,
+                    AccountTable.account_name,
+                    func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("d"),
+                    func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("c"),
+                )
+                .join(LedgerEntryTable, AccountTable.id == LedgerEntryTable.account_id)
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.cashflow_type == flow_type,
+                    LedgerEntryTable.posting_date >= start_date,
+                    LedgerEntryTable.posting_date <= end_date,
+                )
+                .group_by(AccountTable.account_code, AccountTable.account_name)
+            )
+            result = await self.session.execute(stmt)
+            out: list[dict[str, Any]] = []
+            for row in result.all():
+                net = Decimal(str(row.c)) - Decimal(str(row.d))
+                if net == 0:
+                    continue
+                out.append({
+                    "description": row.account_name,
+                    "amount": net,
+                })
+            return out
+        except Exception as e:
+            logger.warning(f"_cashflow_by_type({flow_type}) failed: {e}")
+            return []
+
+    # ========================================================================
     # ACCOUNT BALANCE SUMMARY
     # ========================================================================
 
@@ -541,7 +680,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         try:
             tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
 
-            # Pre-fetch all accounts for this legal entity to avoid query in loop
             acc_stmt = select(
                 AccountTable.account_code,
                 AccountTable.id,
@@ -582,19 +720,12 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to get summary: {e}") from e
 
     # ========================================================================
-    # DETAILED TRIAL BALANCE (full debit/credit breakdown for reporting API)
+    # DETAILED TRIAL BALANCE
     # ========================================================================
 
     async def get_trial_balance_detailed(
         self, legal_entity_id: UUID, as_of_date: date, include_zero_balance: bool = False
     ) -> list[dict[str, Any]]:
-        """
-        Like get_trial_balance() but keeps the full breakdown (account_id,
-        account_type, opening/movement/closing debit & credit) instead of
-        collapsing to a single net balance. Used by the ledger reporting API
-        (trial balance report, balance sheet, financial ratios, etc.) which
-        needs those fields.
-        """
         try:
             movement_stmt = (
                 select(
@@ -678,14 +809,12 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to get trial balance: {e}") from e
 
     # ========================================================================
-    # NET INCOME / CASH BALANCE HELPERS (arbitrary date range)
+    # NET INCOME / CASH BALANCE HELPERS
     # ========================================================================
 
     async def get_income_expense_breakdown(
         self, legal_entity_id: UUID, start_date: date, end_date: date
     ) -> list[dict[str, Any]]:
-        """Per-account Revenue/Expense movement for an arbitrary date range
-        (used to build the income statement report)."""
         try:
             stmt = (
                 select(
@@ -740,7 +869,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
     async def get_net_income_for_range(
         self, legal_entity_id: UUID, start_date: date, end_date: date
     ) -> tuple[Decimal, Decimal, Decimal]:
-        """Returns (total_revenue, total_expense, net_income) for an arbitrary date range."""
         try:
             stmt = (
                 select(
@@ -773,7 +901,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to compute net income: {e}") from e
 
     async def get_cash_balance(self, legal_entity_id: UUID, as_of_date: date) -> Decimal:
-        """Sum of balances of accounts flagged is_cash_account, as of a date."""
         try:
             stmt = select(AccountTable.id).where(
                 AccountTable.legal_entity_id == legal_entity_id,
@@ -791,7 +918,7 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to get cash balance: {e}") from e
 
     # ========================================================================
-    # LEDGER ENTRIES - DETAILED (joined with journal_header, paginated)
+    # LEDGER ENTRIES - DETAILED
     # ========================================================================
 
     async def get_ledger_entries_detailed(
@@ -804,8 +931,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Returns (entries, total_count). Joins journal_header for journal_number/
-        journal_date/posted_by since ledger_entry alone doesn't carry those."""
         from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 
         try:
@@ -873,8 +998,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
                     "project_id": None,
                     "entry_type": row.journal_type if row.journal_type in valid_entry_types else "journal",
                     "created_at": row.created_at,
-                    # posted_by is required downstream; fall back to created_by,
-                    # then a nil UUID for journals that were never posted/audited.
                     "posted_by": row.posted_by or row.created_by or UUID(int=0),
                 }
                 for row in rows
@@ -991,7 +1114,6 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
                 )
             )
             total_credit_amount = total_credit.scalar() or 0
-            # Unique journals
             journals_stmt = select(func.count(func.distinct(LedgerEntryTable.journal_id))).where(
                 LedgerEntryTable.legal_entity_id == legal_entity_id
             )
@@ -1029,15 +1151,10 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
     # ========================================================================
 
     async def _rows_to_domain_entries(self, rows) -> list[LedgerEntry]:
-        """
-        Convert ORM rows to domain LedgerEntry with a single query for account info.
-        """
         if not rows:
             return []
 
-        # Collect all unique account IDs
         account_ids = list({row.account_id for row in rows})
-        # Query all needed account info in one go
         stmt = select(
             AccountTable.id,
             AccountTable.account_name,

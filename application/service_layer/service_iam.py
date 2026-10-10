@@ -528,7 +528,7 @@ class IAMService:
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version + 1,
+            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -598,7 +598,7 @@ class IAMService:
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version + 1,
+            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -664,7 +664,7 @@ class IAMService:
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version + 1,
+            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -809,7 +809,7 @@ class IAMService:
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version + 1,
+            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )

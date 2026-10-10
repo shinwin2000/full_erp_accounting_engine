@@ -195,6 +195,12 @@ class TaxCalculationError(PayrollServiceError):
 
 
 class PayrollService:
+    # BUG FIX: PayrollService sekarang transient (instance baru tiap request
+    # - lihat catatan di service_registry.py). _stats dipindah jadi atribut
+    # level-class supaya counter /payroll/stats tidak selalu balik ke nol
+    # tiap request.
+    _stats: dict[str, int] = {"payroll_runs": 0, "payslips_generated": 0, "journals_posted": 0}
+
     """
     Service untuk penggajian.
     """
@@ -219,7 +225,6 @@ class PayrollService:
         self._event_publisher = event_publisher
         self._tax_engine = TaxWithholdingEngine()
         self._validator = PayrollInvariantsValidator()
-        self._stats = {"payroll_runs": 0, "payslips_generated": 0, "journals_posted": 0}
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.info("PayrollService initialized")

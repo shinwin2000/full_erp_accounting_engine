@@ -14,7 +14,7 @@ Audit: Setiap perubahan status approval dicatat di event store.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -162,7 +162,11 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     @property
     def is_overdue(self) -> bool:
         if self.deadline and self.status == "pending":
-            return datetime.utcnow() > self.deadline
+            deadline = self.deadline
+            if deadline.tzinfo is None:
+                # Kolom bertipe timestamptz; nilai naive dianggap UTC.
+                deadline = deadline.replace(tzinfo=UTC)
+            return datetime.now(UTC) > deadline
         return False
 
     # ========================================================================
@@ -174,7 +178,7 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             raise ValueError(f"Cannot approve request with status {self.status}")
         self.status = "approved"
         self.approved_by = approved_by
-        self.approved_at = datetime.utcnow()
+        self.approved_at = datetime.now(UTC)
         if comments:
             self.approval_comments = comments
         self.increment_version()
@@ -185,19 +189,62 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             raise ValueError(f"Cannot reject request with status {self.status}")
         self.status = "rejected"
         self.approved_by = approved_by
-        self.approved_at = datetime.utcnow()
+        self.approved_at = datetime.now(UTC)
         self.approval_comments = comments
         self.increment_version()
 
-    def escalate(self, escalated_to: uuid.UUID, reason: str) -> None:
-        """Escalate request to a higher authority."""
+    def escalate(
+        self,
+        escalated_to: uuid.UUID,
+        reason: str,
+        to_level: int | None = None,
+        keep_pending: bool = False,
+    ) -> None:
+        """Escalate request to a higher authority.
+
+        Args:
+            escalated_to: user (approver) tujuan eskalasi.
+            reason: alasan eskalasi.
+            to_level: level tujuan. Default: current_level + 1. Harus > current_level.
+            keep_pending: True -> request tetap ``pending`` di level baru
+                (dipakai service agar approver level baru bisa langsung memproses).
+        """
         if self.status != "pending":
             raise ValueError(f"Cannot escalate request with status {self.status}")
-        self.status = "escalated"
+        target = to_level if to_level is not None else self.current_level + 1
+        if target <= self.current_level:
+            raise ValueError(
+                f"Escalation level ({target}) must be higher than current level ({self.current_level})"
+            )
+        self.status = "pending" if keep_pending else "escalated"
         self.escalated_to = escalated_to
-        self.escalated_at = datetime.utcnow()
+        self.escalated_at = datetime.now(UTC)
         self.approval_comments = reason
-        self.current_level += 1
+        self.current_level = target
+        self.increment_version()
+
+    def advance_level(
+        self,
+        next_level: int,
+        approver_id: uuid.UUID,
+        approver_name: str,
+        approver_role: str | None = None,
+    ) -> None:
+        """Pindah ke level approval berikutnya (setelah level saat ini disetujui).
+
+        Status tetap ``pending``; ``approved_by/approved_at`` baru diisi saat level
+        terakhir disetujui lewat :meth:`approve`.
+        """
+        if self.status != "pending":
+            raise ValueError(f"Cannot advance request with status {self.status}")
+        if next_level <= self.current_level:
+            raise ValueError(
+                f"Next level ({next_level}) must be higher than current level ({self.current_level})"
+            )
+        self.current_level = next_level
+        self.approver_id = approver_id
+        self.approver_name = approver_name
+        self.approver_role = approver_role
         self.increment_version()
 
     def cancel(self, cancelled_by: uuid.UUID, reason: str) -> None:
@@ -206,7 +253,7 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             raise ValueError(f"Cannot cancel request with status {self.status}")
         self.status = "cancelled"
         self.cancelled_by = cancelled_by
-        self.cancelled_at = datetime.utcnow()
+        self.cancelled_at = datetime.now(UTC)
         self.cancellation_reason = reason
         self.increment_version()
 

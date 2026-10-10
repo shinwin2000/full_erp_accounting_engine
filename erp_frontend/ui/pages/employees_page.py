@@ -109,6 +109,15 @@ CONFIG = ModuleConfig(
 class EmployeesPage(GenericListPage):
     """Halaman Karyawan, + tombol Detail untuk data tanggungan/keluarga & foto."""
 
+    # Tombol -> permission yang dibutuhkan (sama dengan yang ditegakkan server).
+    button_permissions = (
+        ("new_btn", "employee:create"),
+        ("edit_btn", "employee:update"),
+        ("action_btn", "employee:update"),
+        ("delete_btn", "employee:delete"),
+        ("import_btn", "employee:import"),
+    )
+
     def __init__(self, parent=None):
         super().__init__(CONFIG, parent)
         self._add_detail_button()

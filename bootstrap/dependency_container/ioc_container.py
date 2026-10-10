@@ -7,6 +7,7 @@ Layer: Bootstrap (Dependency Container)
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import logging
 import types
@@ -17,6 +18,19 @@ from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# BUG FIX: sebelumnya `self._resolving` adalah satu set yang dipakai bersama
+# SEMUA thread/request. FastAPI menjalankan dependency sync di threadpool
+# (tiap resolve() membuat event loop sendiri), jadi saat dua request
+# me-resolve service yang sama bersamaan (mis. 6 tab Detail Customer
+# memuat sekaligus), request kedua melihat service itu sedang "resolving"
+# dan melempar CircularDependencyError palsu -> middleware auth membalas
+# 401 -> frontend refresh token berulang. Sekarang jejak resolve disimpan
+# per-konteks eksekusi (ContextVar), jadi hanya rantai dependency di
+# request yang SAMA yang dianggap circular.
+_RESOLVING_STACK: contextvars.ContextVar[frozenset] = contextvars.ContextVar(
+    "ioc_resolving_stack", default=frozenset()
+)
 
 
 class Lifetime(Enum):
@@ -121,11 +135,21 @@ class IoCContainer:
     ) -> None:
         self.register(interface, implementation, Lifetime.SINGLETON, factory)
 
-    def register_transient(self, interface: type[T] | str, implementation: type | None = None) -> None:
-        self.register(interface, implementation, Lifetime.TRANSIENT)
+    def register_transient(
+        self,
+        interface: type[T] | str,
+        implementation: type | Callable | None = None,
+        factory: Callable[..., T] | None = None,
+    ) -> None:
+        self.register(interface, implementation, Lifetime.TRANSIENT, factory)
 
-    def register_scoped(self, interface: type[T] | str, implementation: type | None = None) -> None:
-        self.register(interface, implementation, Lifetime.SCOPED)
+    def register_scoped(
+        self,
+        interface: type[T] | str,
+        implementation: type | Callable | None = None,
+        factory: Callable[..., T] | None = None,
+    ) -> None:
+        self.register(interface, implementation, Lifetime.SCOPED, factory)
 
     def register_instance(self, interface: type[T] | str, instance: T) -> None:
         definition = DependencyDefinition(
@@ -162,7 +186,8 @@ class IoCContainer:
         canonical = self._canonicalize(interface)
         if self._parent and canonical in self._scoped_instances:
             return self._scoped_instances[canonical]
-        if canonical in self._resolving:
+        resolving_key = (id(self), canonical)
+        if resolving_key in _RESOLVING_STACK.get():
             raise CircularDependencyError(f"Circular dependency on {canonical}")
 
         definition = self._registrations.get(canonical)
@@ -174,31 +199,31 @@ class IoCContainer:
         if definition.lifetime == Lifetime.SINGLETON:
             if canonical in self._singletons:
                 return self._singletons[canonical]
-            self._resolving.add(canonical)
+            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
             try:
                 instance = await self._create_instance(definition, **kwargs)
                 self._singletons[canonical] = instance
                 return instance
             finally:
-                self._resolving.remove(canonical)
+                _RESOLVING_STACK.reset(_token)
 
         elif definition.lifetime == Lifetime.SCOPED:
             if canonical in self._scoped_instances:
                 return self._scoped_instances[canonical]
-            self._resolving.add(canonical)
+            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
             try:
                 instance = await self._create_instance(definition, **kwargs)
                 self._scoped_instances[canonical] = instance
                 return instance
             finally:
-                self._resolving.remove(canonical)
+                _RESOLVING_STACK.reset(_token)
 
         else:
-            self._resolving.add(canonical)
+            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
             try:
                 return await self._create_instance(definition, **kwargs)
             finally:
-                self._resolving.remove(canonical)
+                _RESOLVING_STACK.reset(_token)
 
     async def _create_instance(self, definition: DependencyDefinition, **kwargs) -> Any:
         if definition.factory:

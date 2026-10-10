@@ -49,7 +49,11 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+import contextvars
+import hashlib
+import os
+
+from sqlalchemy import func, or_, select, text
 
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -117,6 +121,14 @@ class AccountCodeFormatError(COAServiceError):
 
 class InvalidBulkImportDataError(COAServiceError):
     pass
+
+
+class COAAuthorizationError(COAServiceError):
+    """Aksi sensitif dicoba tanpa identitas pengguna (SoD / jejak audit wajib)."""
+
+
+class COAApprovalRequiredError(COAServiceError):
+    """Aksi ini wajib lewat permintaan perubahan + persetujuan orang lain (maker-checker)."""
 
 
 class AccountLockedError(COAServiceError):
@@ -276,6 +288,105 @@ VALID_ACCOUNT_TYPES = (
 # ============================================================================
 
 
+# ============================================================================
+# AUDIT TRAIL PERSISTEN (tabel `coa_audit_log` di database erp_db)
+# ============================================================================
+# Append-only: trigger database menolak UPDATE/DELETE/TRUNCATE sehingga jejak
+# perubahan COA tidak bisa diubah/dihapus -- syarat umum audit eksternal
+# (ISA 315/330 pengujian general IT control: integritas log perubahan master
+# data). Setiap baris punya `row_hash` (SHA-256 atas isi baris) supaya
+# manipulasi lewat akses langsung ke DB (mis. trigger dimatikan) bisa
+# terdeteksi lewat `verify_audit_integrity()`. Tabel dibuat oleh migration
+# `coa_audit_log_001`; DDL di bawah (IF NOT EXISTS) adalah pengaman supaya
+# fitur tetap jalan walau migration belum sempat dijalankan.
+_COA_CR_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS coa_change_request (
+        id              UUID PRIMARY KEY,
+        legal_entity_id UUID NOT NULL,
+        account_id      UUID NOT NULL,
+        account_code    VARCHAR(20) NOT NULL,
+        action          VARCHAR(30) NOT NULL,
+        reason          VARCHAR(500),
+        status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+        requested_by    UUID NOT NULL,
+        requested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        decided_by      UUID,
+        decided_at      TIMESTAMPTZ,
+        decision_note   VARCHAR(500),
+        CONSTRAINT ck_coa_cr_status CHECK (status IN ('pending','processing','approved','rejected','cancelled')),
+        CONSTRAINT ck_coa_cr_action CHECK (action IN ('delete','unlock'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_coa_cr_status ON coa_change_request (legal_entity_id, status, requested_at DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_coa_cr_pending ON coa_change_request (account_id, action) "
+    "WHERE status IN ('pending','processing')",
+)
+
+# Diset True hanya selama persetujuan dieksekusi (maker-checker).
+_APPROVAL_EXEC: contextvars.ContextVar[bool] = contextvars.ContextVar("coa_approval_exec", default=False)
+
+_COA_AUDIT_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS coa_audit_log (
+        id            UUID PRIMARY KEY,
+        legal_entity_id UUID NOT NULL,
+        account_id    UUID,
+        account_code  VARCHAR(20),
+        action        VARCHAR(50) NOT NULL,
+        field_name    VARCHAR(100),
+        old_value     TEXT,
+        new_value     TEXT,
+        details       JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reason        VARCHAR(500),
+        actor_id      UUID,
+        occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        row_hash      CHAR(64) NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_coa_audit_account ON coa_audit_log (legal_entity_id, account_id, occurred_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_coa_audit_code ON coa_audit_log (legal_entity_id, account_code)",
+    """
+    CREATE OR REPLACE FUNCTION coa_audit_log_immutable() RETURNS trigger AS $$
+    BEGIN
+        RAISE EXCEPTION 'coa_audit_log bersifat append-only: % tidak diizinkan', TG_OP;
+    END;
+    $$ LANGUAGE plpgsql
+    """,
+    "DROP TRIGGER IF EXISTS trg_coa_audit_log_no_change ON coa_audit_log",
+    """
+    CREATE TRIGGER trg_coa_audit_log_no_change
+        BEFORE UPDATE OR DELETE ON coa_audit_log
+        FOR EACH ROW EXECUTE FUNCTION coa_audit_log_immutable()
+    """,
+    "DROP TRIGGER IF EXISTS trg_coa_audit_log_no_truncate ON coa_audit_log",
+    """
+    CREATE TRIGGER trg_coa_audit_log_no_truncate
+        BEFORE TRUNCATE ON coa_audit_log
+        FOR EACH STATEMENT EXECUTE FUNCTION coa_audit_log_immutable()
+    """,
+)
+
+
+def _audit_row_hash(
+    *, row_id: UUID, legal_entity_id: UUID, account_id: UUID | None, account_code: str | None,
+    action: str, field_name: str | None, old_value: str | None, new_value: str | None,
+    details_json: str, reason: str | None, actor_id: UUID | None, occurred_at: datetime,
+) -> str:
+    payload = "|".join([
+        str(row_id), str(legal_entity_id), str(account_id or ""), account_code or "", action,
+        field_name or "", old_value or "", new_value or "", details_json, reason or "",
+        str(actor_id or ""), occurred_at.astimezone(UTC).isoformat(timespec="microseconds"),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _audit_str(v: Any) -> str | None:
+    if v is None:
+        return None
+    return v if isinstance(v, str) else json.dumps(v, default=str, ensure_ascii=False)
+
+
 class COAService:
     """Service untuk Chart of Accounts (COA). Satu jalur implementasi, langsung
     ke ``AccountTable`` lewat ``UnitOfWork`` — lihat catatan modul di atas."""
@@ -299,13 +410,155 @@ class COAService:
 
         logger.info("COAService initialized")
 
+    _audit_table_ready: bool = False  # per proses; DDL IF NOT EXISTS dijalankan sekali
+
+    async def _audit_db(
+        self,
+        session: Any,
+        *,
+        legal_entity_id: UUID,
+        action: str,
+        account_id: UUID | None,
+        account_code: str | None,
+        actor_id: UUID | None,
+        details: dict[str, Any] | None = None,
+        field_name: str | None = None,
+        old_value: Any = None,
+        new_value: Any = None,
+        reason: str | None = None,
+    ) -> None:
+        """Tulis satu baris ke `coa_audit_log` DI DALAM transaksi yang sama dengan
+        perubahan akunnya (atomik: perubahan commit <=> jejak audit commit).
+        Memakai savepoint; kegagalan menulis audit dicatat sebagai ERROR tapi
+        tidak menjatuhkan operasi bisnis (mis. DB user tanpa hak DDL)."""
+        try:
+            async with session.begin_nested():
+                if not COAService._audit_table_ready:
+                    exists = (await session.execute(text("SELECT to_regclass('public.coa_audit_log')"))).scalar()
+                    if exists is None:
+                        for stmt in _COA_AUDIT_DDL:
+                            await session.execute(text(stmt))
+                row_id = uuid4()
+                occurred_at = datetime.now(UTC)
+                details_json = json.dumps(details or {}, default=str, ensure_ascii=False, sort_keys=True)
+                old_s, new_s = _audit_str(old_value), _audit_str(new_value)
+                row_hash = _audit_row_hash(
+                    row_id=row_id, legal_entity_id=legal_entity_id, account_id=account_id,
+                    account_code=account_code, action=action, field_name=field_name,
+                    old_value=old_s, new_value=new_s, details_json=details_json,
+                    reason=reason, actor_id=actor_id, occurred_at=occurred_at,
+                )
+                await session.execute(
+                    text(
+                        "INSERT INTO coa_audit_log (id, legal_entity_id, account_id, account_code, action, "
+                        "field_name, old_value, new_value, details, reason, actor_id, occurred_at, row_hash) "
+                        "VALUES (:id, :le, :acc, :code, :action, :field, :old, :new, CAST(:details AS jsonb), "
+                        ":reason, :actor, :ts, :hash)"
+                    ),
+                    {
+                        "id": row_id, "le": legal_entity_id, "acc": account_id, "code": account_code,
+                        "action": action, "field": field_name, "old": old_s, "new": new_s,
+                        "details": details_json, "reason": (reason or None) and reason[:500],
+                        "actor": actor_id, "ts": occurred_at, "hash": row_hash,
+                    },
+                )
+            COAService._audit_table_ready = True
+        except Exception:
+            logger.exception("GAGAL menulis coa_audit_log (action=%s account=%s)", action, account_code)
+
+    async def _read_audit_rows(
+        self, account_id: UUID, legal_entity_id: UUID, *, limit: int = 1000,
+        start_date: datetime | None = None, end_date: datetime | None = None,
+    ) -> list[Any] | None:
+        """Baca jejak audit dari DB. None = tabel belum ada/gagal baca (pemanggil
+        fallback ke jejak in-memory)."""
+        conds = ["legal_entity_id = :le", "account_id = :acc"]
+        params: dict[str, Any] = {"le": legal_entity_id, "acc": account_id, "lim": limit}
+        if start_date:
+            conds.append("occurred_at >= :s")
+            params["s"] = start_date
+        if end_date:
+            conds.append("occurred_at <= :e")
+            params["e"] = end_date
+        try:
+            async with self._uow:
+                session = self._uow.session
+                async with session.begin_nested():
+                    res = await session.execute(
+                        text(
+                            "SELECT occurred_at, action, field_name, old_value, new_value, details, "
+                            "reason, actor_id FROM coa_audit_log WHERE " + " AND ".join(conds) +
+                            " ORDER BY occurred_at DESC LIMIT :lim"
+                        ),
+                        params,
+                    )
+                    return list(res.all())
+        except Exception:
+            logger.warning("coa_audit_log belum bisa dibaca; fallback ke jejak in-memory", exc_info=True)
+            return None
+
+    async def verify_audit_integrity(self, legal_entity_id: UUID, account_id: UUID | None = None) -> dict[str, Any]:
+        """Hitung ulang SHA-256 tiap baris `coa_audit_log` dan laporkan baris yang
+        hash-nya tidak cocok (indikasi data diubah di luar aplikasi)."""
+        sql = (
+            "SELECT id, legal_entity_id, account_id, account_code, action, field_name, old_value, "
+            "new_value, details, reason, actor_id, occurred_at, row_hash FROM coa_audit_log "
+            "WHERE legal_entity_id = :le" + (" AND account_id = :acc" if account_id else "")
+        )
+        params: dict[str, Any] = {"le": legal_entity_id}
+        if account_id:
+            params["acc"] = account_id
+        checked, bad = 0, []
+        async with self._uow:
+            res = await self._uow.session.execute(text(sql), params)
+            for r in res.all():
+                checked += 1
+                details_json = json.dumps(r.details or {}, default=str, ensure_ascii=False, sort_keys=True)
+                expected = _audit_row_hash(
+                    row_id=r.id, legal_entity_id=r.legal_entity_id, account_id=r.account_id,
+                    account_code=r.account_code, action=r.action, field_name=r.field_name,
+                    old_value=r.old_value, new_value=r.new_value, details_json=details_json,
+                    reason=r.reason, actor_id=r.actor_id, occurred_at=r.occurred_at,
+                )
+                if expected != r.row_hash:
+                    bad.append(str(r.id))
+        return {"checked": checked, "tampered_count": len(bad), "tampered_ids": bad[:100], "ok": not bad}
+
     # ==================== AUTHORITY CHECK (SOD) ====================
 
+    # Aksi yang wajib punya identitas pelaku (tidak boleh anonim/sistem) agar
+    # jejak audit dan pemisahan tugas (SoD) bermakna. RBAC per-permission
+    # ditegakkan di router lewat require_permission("coa:*"); di sini lapisan
+    # kedua (defence in depth) untuk pemanggil non-HTTP (job, skrip, service lain).
+    _ACTOR_REQUIRED = frozenset({
+        "create_account", "update_account", "deactivate_account", "activate_account",
+        "void_account", "lock_account", "unlock_account", "delete_account",
+        "bulk_update_status", "bulk_update_parent", "import_coa",
+    })
+
     def _check_authority(self, user_id: UUID | None, permission: str) -> None:
-        if user_id is None:
-            logger.debug(f"System action for permission '{permission}' (no user_id)")
-            return
-        logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
+        if (user_id is None or user_id == UUID(int=0)) and permission in self._ACTOR_REQUIRED:
+            raise COAAuthorizationError(
+                f"Aksi '{permission}' membutuhkan identitas pengguna (jejak audit wajib)."
+            )
+
+    async def _actor_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Nama pelaku dari tabel iam_user (best effort; kosong jika gagal)."""
+        ids = {i for i in ids if i and i != UUID(int=0)}
+        if not ids:
+            return {}
+        try:
+            async with self._uow:
+                session = self._uow.session
+                async with session.begin_nested():
+                    res = await session.execute(
+                        text("SELECT id, full_name, username FROM iam_user WHERE id = ANY(:ids)"),
+                        {"ids": list(ids)},
+                    )
+                    return {r.id: (r.full_name or r.username) for r in res.all()}
+        except Exception:
+            logger.warning("Gagal membaca nama pelaku dari iam_user", exc_info=True)
+            return {}
 
     # ==================== AUDIT TRAIL (in-memory, best effort) ====================
     # CATATAN: codebase ini tidak punya tabel audit khusus untuk COA yang siap
@@ -353,9 +606,17 @@ class COAService:
         parent_code_map: dict[UUID, str],
         usage_map: dict[str, tuple[bool, Decimal]] | None = None,
     ) -> AccountDTO:
-        used, balance = (False, Decimal("0"))
+        used, net_movement = (False, Decimal("0"))
         if usage_map is not None:
-            used, balance = usage_map.get(row.account_code, (False, Decimal("0")))
+            used, net_movement = usage_map.get(row.account_code, (False, Decimal("0")))
+        # usage_map menyimpan mutasi bersih mentah (debit - kredit). Saldo
+        # berjalan harus: (a) memperhitungkan saldo awal dan (b) searah
+        # saldo normal akun (akun credit-normal spt Kewajiban/Ekuitas/
+        # Pendapatan positif kalau kreditnya lebih besar) -- sebelumnya
+        # keduanya diabaikan sehingga saldo akun kredit tampil negatif dan
+        # saldo awal tidak pernah ikut terhitung.
+        movement = net_movement if str(row.normal_balance).lower() == "debit" else -net_movement
+        balance = Decimal(row.opening_balance or 0) + movement
         return AccountDTO(
             id=row.id,
             account_code=row.account_code,
@@ -405,7 +666,8 @@ class COAService:
         return {pid: code for pid, code in result.all()}
 
     async def _usage_map_for_codes(
-        self, session: Any, legal_entity_id: UUID, account_codes: list[str]
+        self, session: Any, legal_entity_id: UUID, account_codes: list[str],
+        statuses: tuple[str, ...] = ("posted", "reversed"),
     ) -> dict[str, tuple[bool, Decimal]]:
         """Hitung apakah tiap kode akun sudah dipakai jurnal (posted) dan
         saldo berjalannya, dalam SATU query agregat (hindari N+1)."""
@@ -425,7 +687,10 @@ class COAService:
             .where(
                 JournalLineTable.legal_entity_id == legal_entity_id,
                 JournalLineTable.account_code.in_(account_codes),
-                JournalHeaderTable.status == "posted",
+                # 'reversed' = jurnal asli yang sudah dibalik; jurnal pembaliknya
+                # berstatus 'posted'. Keduanya HARUS dihitung, kalau tidak efek
+                # pembalik tercatat sendirian dan saldo akun jadi salah.
+                JournalHeaderTable.status.in_(statuses),
                 JournalLineTable.deleted_at.is_(None),
             )
             .group_by(JournalLineTable.account_code)
@@ -605,6 +870,16 @@ class COAService:
 
             parent_code_map = {parent_id: parent_account_code} if parent_id else {}
             dto = self._row_to_dto(row, parent_code_map)
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action="create_account",
+                account_id=row.id, account_code=account_code, actor_id=created_by,
+                details={
+                    "account_name": account_name, "account_type": account_type,
+                    "normal_balance": normal_balance, "parent_account_code": parent_account_code,
+                    "is_header": is_header, "allow_posting": row.allow_posting,
+                    "opening_balance": str(opening), "currency_code": row.currency_code,
+                },
+            )
             await self._uow.commit()
 
         self._stats["accounts_created"] += 1
@@ -746,8 +1021,15 @@ class COAService:
             rows = (await session.execute(stmt)).scalars().all()
 
             parent_code_map = await self._parent_code_map(session, rows)
+            # BUGFIX: sebelumnya list_accounts tidak menghitung usage_map,
+            # sehingga current_balance SELALU 0 dan is_used_in_transaction
+            # SELALU False di daftar akun (Total Aset/Kewajiban/dst di layar
+            # COA selalu Rp 0 walau jurnal sudah diposting).
+            usage_map = await self._usage_map_for_codes(
+                session, legal_entity_id, [r.account_code for r in rows]
+            )
 
-        items = [self._row_to_dto(r, parent_code_map) for r in rows]
+        items = [self._row_to_dto(r, parent_code_map, usage_map) for r in rows]
         return AccountListResult(items=items, total=total)
 
     async def get_account_hierarchy(
@@ -817,7 +1099,7 @@ class COAService:
                 .where(
                     JournalLineTable.legal_entity_id == legal_entity_id,
                     JournalLineTable.account_code == row.account_code,
-                    JournalHeaderTable.status == "posted",
+                    JournalHeaderTable.status.in_(("posted", "reversed")),
                     JournalHeaderTable.journal_date <= as_of_date.date(),
                     JournalLineTable.deleted_at.is_(None),
                 )
@@ -970,6 +1252,7 @@ class COAService:
                         changes["parent_account_id"] = {"old": row.parent_account_id, "new": None}
                         row.parent_account_id = None
                         row.level = 0
+                        await self._relevel_descendants(session, row.id, 0)
                 else:
                     presult = await session.execute(
                         select(AccountTable.id, AccountTable.level, AccountTable.allow_posting).where(
@@ -992,6 +1275,7 @@ class COAService:
                     changes["parent_account_id"] = {"old": row.parent_account_id, "new": prow[0]}
                     row.parent_account_id = prow[0]
                     row.level = prow[1] + 1
+                    await self._relevel_descendants(session, row.id, row.level)
                     parent_code_map = {prow[0]: parent_account_code}
 
             if not changes:
@@ -1010,6 +1294,11 @@ class COAService:
                 parent_code_map.update(full_parent_map)
 
             dto = self._row_to_dto(row, parent_code_map)
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action="update_account",
+                account_id=row.id, account_code=row.account_code, actor_id=updated_by,
+                details={"changes": changes},
+            )
             await self._uow.commit()
 
         self._stats["accounts_updated"] += 1
@@ -1018,6 +1307,27 @@ class COAService:
 
     # Alias historis dipakai beberapa pemanggil lama.
     update_account = update_account_write
+
+    async def _relevel_descendants(self, session: Any, account_id: UUID, level: int) -> None:
+        """Hitung ulang `level` SEMUA keturunan (anak, cucu, dst) setelah sebuah
+        akun dipindah induknya. Sebelumnya hanya akun yang dipindah yang
+        di-update, sehingga sub-akunnya tetap memakai level lama (data hirarki
+        tidak konsisten, filter level & ekspor salah)."""
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        frontier = [(account_id, level)]
+        visited: set[UUID] = {account_id}
+        while frontier:
+            parent_id, parent_level = frontier.pop()
+            result = await session.execute(
+                select(AccountTable).where(AccountTable.parent_account_id == parent_id)
+            )
+            for child in result.scalars().all():
+                if child.id in visited:
+                    continue
+                visited.add(child.id)
+                child.level = parent_level + 1
+                frontier.append((child.id, child.level))
 
     async def _would_create_cycle(self, session: Any, account_id: UUID, new_parent_id: UUID) -> bool:
         from infrastructure.persistence_orm.account_table import AccountTable
@@ -1049,6 +1359,7 @@ class COAService:
         lock: bool | None = None,
         reason: str | None = None,
         require_no_usage: bool = False,
+        require_no_active_children: bool = False,
     ) -> AccountDTO | None:
         async with self._uow:
             session = self._uow.session
@@ -1069,6 +1380,22 @@ class COAService:
                         f"Account {row.account_code} masih punya sub-akun, pindahkan/hapus dulu sub-akunnya"
                     )
 
+            old_status, old_locked = row.status, row.is_locked
+            if require_no_active_children:
+                from infrastructure.persistence_orm.account_table import AccountTable
+
+                active_children = (await session.execute(
+                    select(func.count()).select_from(AccountTable).where(
+                        AccountTable.parent_account_id == row.id,
+                        AccountTable.status == "active",
+                    )
+                )).scalar_one()
+                if active_children:
+                    raise AccountHasChildrenError(
+                        f"Account {row.account_code} masih punya {active_children} sub-akun aktif; "
+                        "nonaktifkan/arsipkan sub-akunnya dulu"
+                    )
+
             if new_status is not None:
                 row.status = new_status
                 row.is_active = new_status == "active"
@@ -1083,6 +1410,22 @@ class COAService:
             await session.refresh(row)
             parent_code_map = await self._parent_code_map(session, [row])
             dto = self._row_to_dto(row, parent_code_map)
+            if lock is True:
+                t_action = "lock_account"
+            elif lock is False:
+                t_action = "unlock_account"
+            else:
+                t_action = {
+                    "archived": "void_account", "inactive": "deactivate_account", "active": "activate_account",
+                }.get(new_status or "", "status_change")
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action=t_action,
+                account_id=row.id, account_code=row.account_code, actor_id=user_id, reason=reason,
+                field_name="is_locked" if lock is not None else "status",
+                old_value=old_locked if lock is not None else old_status,
+                new_value=row.is_locked if lock is not None else row.status,
+                details={"reason": reason},
+            )
             await self._uow.commit()
         return dto
 
@@ -1113,8 +1456,9 @@ class COAService:
         atau masih punya sub-akun — akun COA yang sudah dipakai TIDAK PERNAH
         benar-benar dihapus dari database, hanya diarsipkan (soft delete)."""
         self._check_authority(user_id, "void_account")
+        self._require_approval_ctx("void_account")
         dto = await self._transition(
-            account_id, user_id, legal_entity_id, new_status="archived", require_no_usage=True
+            account_id, user_id, legal_entity_id, new_status="archived", require_no_active_children=True
         )
         if dto:
             self._record_audit("void_account", account_id, user_id, {"reason": reason}, reason=reason)
@@ -1133,6 +1477,7 @@ class COAService:
     @audit
     async def unlock_account(self, account_id: UUID, user_id: UUID, legal_entity_id: UUID) -> AccountDTO | None:
         self._check_authority(user_id, "unlock_account")
+        self._require_approval_ctx("unlock_account")
         dto = await self._transition(account_id, user_id, legal_entity_id, lock=False)
         if dto:
             self._record_audit("unlock_account", account_id, user_id, {})
@@ -1147,15 +1492,30 @@ class COAService:
         tidak, router akan otomatis fallback ke void_account (arsip)."""
 
         self._check_authority(user_id, "delete_account")
+        self._require_approval_ctx("delete_account")
         async with self._uow:
             session = self._uow.session
             row = await self._get_row_or_raise(session, account_id, legal_entity_id)
-            usage = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+            # Hard delete juga harus ditolak kalau ada jurnal DRAFT/submitted/approved
+            # yang memakai akun ini (bukan cuma yang sudah posted) -- kalau tidak,
+            # baris jurnal itu jadi yatim / ditolak foreign key (error 500).
+            usage = await self._usage_map_for_codes(
+                session, legal_entity_id, [row.account_code],
+                statuses=("draft", "submitted", "approved", "posted", "reversed"),
+            )
             used, _ = usage.get(row.account_code, (False, Decimal("0")))
             if used:
                 raise AccountHasTransactionsError(f"Account {row.account_code} sudah dipakai transaksi")
             if await self._has_children(session, row.id):
                 raise AccountHasChildrenError(f"Account {row.account_code} masih punya sub-akun")
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action="delete_account",
+                account_id=row.id, account_code=row.account_code, actor_id=user_id, reason=reason,
+                details={
+                    "account_name": row.account_name, "account_type": row.account_type,
+                    "normal_balance": row.normal_balance, "reason": reason,
+                },
+            )
             await session.delete(row)
             await self._uow.commit()
         self._record_audit("delete_account", account_id, user_id, {"reason": reason}, reason=reason)
@@ -1309,59 +1669,294 @@ class COAService:
             failed_ids=failed_ids, errors=errors,
         )
 
+    # ==================== MAKER-CHECKER (PERSETUJUAN) ====================
+
+    @property
+    def maker_checker_enabled(self) -> bool:
+        """Default AKTIF. Matikan hanya untuk deployment satu-pengguna: COA_MAKER_CHECKER=0."""
+        return os.environ.get("COA_MAKER_CHECKER", "1").strip().lower() not in ("0", "false", "off", "no")
+
+    def _require_approval_ctx(self, what: str) -> None:
+        if self.maker_checker_enabled and not _APPROVAL_EXEC.get():
+            raise COAApprovalRequiredError(
+                f"Aksi '{what}' wajib diajukan sebagai permintaan perubahan dan disetujui pengguna lain."
+            )
+
+    async def _ensure_cr_table(self, session: Any) -> None:
+        if COAService._cr_table_ready:
+            return
+        exists = (await session.execute(text("SELECT to_regclass('public.coa_change_request')"))).scalar()
+        if exists is None:
+            for stmt in _COA_CR_DDL:
+                await session.execute(text(stmt))
+        COAService._cr_table_ready = True
+
+    _cr_table_ready: bool = False
+
+    @staticmethod
+    def _cr_dict(r: Any) -> dict[str, Any]:
+        return {
+            "id": str(r.id), "account_id": str(r.account_id), "account_code": r.account_code,
+            "action": r.action, "reason": r.reason, "status": r.status,
+            "requested_by": str(r.requested_by), "requested_at": r.requested_at,
+            "decided_by": str(r.decided_by) if r.decided_by else None, "decided_at": r.decided_at,
+            "decision_note": r.decision_note,
+        }
+
+    async def submit_change_request(
+        self, action: str, account_id: UUID, legal_entity_id: UUID, user_id: UUID, reason: str | None = None
+    ) -> dict[str, Any]:
+        self._check_authority(user_id, "update_account")
+        if action not in ("delete", "unlock"):
+            raise ValueError(f"Aksi permintaan tidak dikenal: {action}")
+        if action == "delete" and not (reason or "").strip():
+            raise ValueError("Alasan wajib diisi untuk permintaan hapus/arsip akun.")
+        async with self._uow:
+            session = self._uow.session
+            row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            await self._ensure_cr_table(session)
+            dup = (await session.execute(
+                text("SELECT 1 FROM coa_change_request WHERE account_id=:a AND action=:ac "
+                     "AND status IN ('pending','processing')"), {"a": account_id, "ac": action},
+            )).first()
+            if dup:
+                raise ValueError(f"Sudah ada permintaan '{action}' yang menunggu persetujuan untuk akun ini.")
+            rid = uuid4()
+            res = await session.execute(
+                text("INSERT INTO coa_change_request (id, legal_entity_id, account_id, account_code, action, "
+                     "reason, requested_by) VALUES (:id,:le,:a,:c,:ac,:r,:u) RETURNING *"),
+                {"id": rid, "le": legal_entity_id, "a": account_id, "c": row.account_code,
+                 "ac": action, "r": (reason or "")[:500] or None, "u": user_id},
+            )
+            created = res.one()
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action="change_requested",
+                account_id=account_id, account_code=row.account_code, actor_id=user_id, reason=reason,
+                details={"request_id": str(rid), "requested_action": action},
+            )
+            await self._uow.commit()
+            return self._cr_dict(created)
+
+    async def list_change_requests(
+        self, legal_entity_id: UUID, status: str | None = None, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        async with self._uow:
+            session = self._uow.session
+            await self._ensure_cr_table(session)
+            sql = "SELECT * FROM coa_change_request WHERE legal_entity_id=:le"
+            params: dict[str, Any] = {"le": legal_entity_id, "lim": min(max(limit, 1), 1000)}
+            if status:
+                sql += " AND status=:st"
+                params["st"] = status
+            sql += " ORDER BY requested_at DESC LIMIT :lim"
+            out = [self._cr_dict(r) for r in (await session.execute(text(sql), params)).all()]
+        names = await self._actor_names(
+            {UUID(x[k]) for x in out for k in ("requested_by", "decided_by") if x.get(k)}
+        )
+        for x in out:
+            x["requested_by_name"] = names.get(UUID(x["requested_by"])) if x.get("requested_by") else None
+            x["decided_by_name"] = names.get(UUID(x["decided_by"])) if x.get("decided_by") else None
+        return out
+
+    async def _claim_cr(self, request_id: UUID, legal_entity_id: UUID, new_status: str, user_id: UUID,
+                        note: str | None, require_other: bool, require_same: bool = False) -> Any:
+        """Ubah status dari 'pending' secara atomik (cegah dua pemutus bersamaan)."""
+        async with self._uow:
+            session = self._uow.session
+            await self._ensure_cr_table(session)
+            cur = (await session.execute(
+                text("SELECT * FROM coa_change_request WHERE id=:id AND legal_entity_id=:le FOR UPDATE"),
+                {"id": request_id, "le": legal_entity_id},
+            )).first()
+            if cur is None:
+                raise AccountNotFoundError(f"Permintaan {request_id} tidak ditemukan")
+            if cur.status != "pending":
+                raise ValueError(f"Permintaan sudah berstatus '{cur.status}'.")
+            if require_other and cur.requested_by == user_id:
+                raise COAAuthorizationError(
+                    "Pemisahan tugas (SoD): pengaju tidak boleh memutuskan permintaannya sendiri."
+                )
+            if require_same and cur.requested_by != user_id:
+                raise COAAuthorizationError("Hanya pengaju yang dapat membatalkan permintaannya.")
+            await session.execute(
+                text("UPDATE coa_change_request SET status=:st, decided_by=:u, decided_at=now(), "
+                     "decision_note=:n WHERE id=:id"),
+                {"st": new_status, "u": user_id, "n": (note or "")[:500] or None, "id": request_id},
+            )
+            if new_status in ("rejected", "cancelled"):
+                await self._audit_db(
+                    session, legal_entity_id=legal_entity_id, action=f"change_{new_status}",
+                    account_id=cur.account_id, account_code=cur.account_code, actor_id=user_id, reason=note,
+                    details={"request_id": str(request_id), "requested_action": cur.action,
+                             "requested_by": str(cur.requested_by)},
+                )
+            await self._uow.commit()
+            return cur
+
+    async def reject_change_request(self, request_id: UUID, legal_entity_id: UUID, user_id: UUID,
+                                    note: str | None = None) -> dict[str, Any]:
+        self._check_authority(user_id, "update_account")
+        await self._claim_cr(request_id, legal_entity_id, "rejected", user_id, note, require_other=True)
+        return {"id": str(request_id), "status": "rejected"}
+
+    async def cancel_change_request(self, request_id: UUID, legal_entity_id: UUID, user_id: UUID) -> dict[str, Any]:
+        self._check_authority(user_id, "update_account")
+        await self._claim_cr(request_id, legal_entity_id, "cancelled", user_id, None,
+                             require_other=False, require_same=True)
+        return {"id": str(request_id), "status": "cancelled"}
+
+    async def approve_change_request(self, request_id: UUID, legal_entity_id: UUID, approver_id: UUID,
+                                     note: str | None = None) -> dict[str, Any]:
+        self._check_authority(approver_id, "update_account")
+        cur = await self._claim_cr(request_id, legal_entity_id, "processing", approver_id, note, require_other=True)
+        token = _APPROVAL_EXEC.set(True)
+        outcome = ""
+        try:
+            if cur.action == "unlock":
+                await self.unlock_account(cur.account_id, approver_id, legal_entity_id)
+                outcome = "Akun dibuka kuncinya."
+            else:
+                try:
+                    await self.delete_account(cur.account_id, approver_id, legal_entity_id, cur.reason)
+                    outcome = "Akun dihapus permanen."
+                except (AccountHasChildrenError, AccountHasTransactionsError):
+                    await self.void_account(cur.account_id, approver_id, legal_entity_id, cur.reason)
+                    outcome = "Akun sudah dipakai/punya sub-akun; diarsipkan (bukan dihapus permanen)."
+        except Exception:
+            # eksekusi gagal -> kembalikan ke pending supaya bisa diputuskan ulang
+            async with self._uow:
+                await self._uow.session.execute(
+                    text("UPDATE coa_change_request SET status='pending', decided_by=NULL, decided_at=NULL "
+                         "WHERE id=:id"), {"id": request_id})
+                await self._uow.commit()
+            raise
+        finally:
+            _APPROVAL_EXEC.reset(token)
+        async with self._uow:
+            session = self._uow.session
+            await session.execute(
+                text("UPDATE coa_change_request SET status='approved', decision_note=:n WHERE id=:id"),
+                {"id": request_id, "n": (note or outcome)[:500]},
+            )
+            await self._audit_db(
+                session, legal_entity_id=legal_entity_id, action="change_approved",
+                account_id=cur.account_id, account_code=cur.account_code, actor_id=approver_id, reason=note,
+                details={"request_id": str(request_id), "requested_action": cur.action,
+                         "requested_by": str(cur.requested_by), "outcome": outcome},
+            )
+            await self._uow.commit()
+        return {"id": str(request_id), "status": "approved", "message": outcome}
+
     # ==================== IMPORT / EXPORT ====================
 
+    _EXPORT_COLUMNS = (
+        "account_code", "account_name", "account_name_en", "account_type", "account_group",
+        "normal_balance", "parent_account_code", "level", "description", "status",
+        "currency_code", "is_header", "allow_posting", "budget_control", "tax_code",
+        "cashflow_type", "opening_balance",
+    )
+
+    @staticmethod
+    def _unguard(v: Any) -> Any:
+        """Kebalikan guard formula-injection CSV: "'=abc" -> "=abc" (round-trip)."""
+        if isinstance(v, str) and len(v) > 1 and v[0] == "'" and v[1] in ("=", "+", "-", "@", "\t", "\r"):
+            return v[1:]
+        return v
+
     async def export_coa(self, legal_entity_id: UUID, fmt: str, include_inactive: bool = False) -> bytes:
+        fmt = (fmt or "").lower()
+        if fmt not in ("json", "csv", "excel", "xlsx"):
+            raise ValueError(f"Unsupported export format: {fmt}")
         items = await self.list_accounts_raw(legal_entity_id, include_inactive=include_inactive)
+        cols = self._EXPORT_COLUMNS
+
+        def _row(a: Any) -> dict[str, Any]:
+            return {
+                "account_code": a.account_code, "account_name": a.account_name,
+                "account_name_en": a.account_name_en or "", "account_type": a.account_type,
+                "account_group": a.account_group or "", "normal_balance": a.normal_balance,
+                "parent_account_code": a.parent_account_code or "", "level": a.level,
+                "description": a.description or "", "status": a.status,
+                "currency_code": a.currency_code, "is_header": bool(a.is_header),
+                "allow_posting": bool(a.allow_posting), "budget_control": bool(a.budget_control),
+                "tax_code": a.tax_code or "", "cashflow_type": a.cashflow_type or "",
+                "opening_balance": Decimal(str(a.opening_balance or 0)),
+            }
+
+        rows = [_row(a) for a in items]
 
         if fmt == "json":
             payload = [
-                {
-                    "account_code": a.account_code,
-                    "account_name": a.account_name,
-                    "account_name_en": a.account_name_en,
-                    "account_type": a.account_type,
-                    "account_group": a.account_group,
-                    "normal_balance": a.normal_balance,
-                    "parent_account_code": a.parent_account_code,
-                    "level": a.level,
-                    "description": a.description,
-                    "status": a.status,
-                    "currency_code": a.currency_code,
-                    "is_header": a.is_header,
-                    "allow_posting": a.allow_posting,
-                    "budget_control": a.budget_control,
-                    "tax_code": a.tax_code,
-                    "cashflow_type": a.cashflow_type,
-                    "opening_balance": str(a.opening_balance),
-                }
-                for a in items
+                {**r, "opening_balance": str(r["opening_balance"]),
+                 "account_name_en": r["account_name_en"] or None,
+                 "parent_account_code": r["parent_account_code"] or None,
+                 "description": r["description"] or None, "account_group": r["account_group"] or None,
+                 "tax_code": r["tax_code"] or None, "cashflow_type": r["cashflow_type"] or None}
+                for r in rows
             ]
             return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
 
-        if fmt in ("csv", "excel"):
+        def _safe(v: Any) -> Any:
+            """Cegah CSV/formula injection: sel teks yang diawali = + - @ (atau tab/CR)
+            akan dieksekusi sebagai rumus oleh Excel. Diberi awalan apostrof."""
+            if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+                return "'" + v
+            return v
+
+        if fmt == "csv":
             buf = io.StringIO()
             writer = csv.writer(buf)
-            writer.writerow([
-                "account_code", "account_name", "account_name_en", "account_type", "account_group",
-                "normal_balance", "parent_account_code", "level", "description", "status",
-                "currency_code", "is_header", "allow_posting", "budget_control", "tax_code",
-                "cashflow_type", "opening_balance",
-            ])
-            for a in items:
+            writer.writerow(cols)
+            for r in rows:
                 writer.writerow([
-                    a.account_code, a.account_name, a.account_name_en or "", a.account_type,
-                    a.account_group or "", a.normal_balance, a.parent_account_code or "", a.level,
-                    a.description or "", a.status, a.currency_code, a.is_header, a.allow_posting,
-                    a.budget_control, a.tax_code or "", a.cashflow_type or "", str(a.opening_balance),
+                    _safe(r[c]) if isinstance(r[c], str) else
+                    (str(r[c]) if isinstance(r[c], Decimal) else r[c])
+                    for c in cols
                 ])
-            content = buf.getvalue().encode("utf-8-sig")
-            # Format "excel" belum benar-benar menghasilkan .xlsx biner (butuh
-            # openpyxl); untuk saat ini disajikan sebagai CSV yang tetap bisa
-            # dibuka Excel langsung. Lihat TODO di router kalau perlu .xlsx asli.
-            return content
+            return buf.getvalue().encode("utf-8-sig")
 
-        raise ValueError(f"Unsupported export format: {fmt}")
+        # ---- Excel (.xlsx asli) ----
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Chart of Accounts"
+        ws.append(list(cols))
+        head_fill = PatternFill("solid", fgColor="1F3A5F")
+        thin = Side(style="thin", color="D0D7E2")
+        for c in ws[1]:
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = head_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+        for r in rows:
+            ws.append([
+                float(r[c]) if isinstance(r[c], Decimal) else r[c]
+                for c in cols
+            ])
+            row_idx = ws.max_row
+            for ci, c in enumerate(cols, start=1):
+                cell = ws.cell(row=row_idx, column=ci)
+                cell.border = Border(bottom=thin)
+                if isinstance(r[c], str) and r[c][:1] in ("=", "+", "-", "@", "\t", "\r"):
+                    cell.value = r[c]
+                    cell.data_type = "s"          # paksa teks, bukan rumus (setelah value!)
+                if c == "opening_balance":
+                    cell.number_format = "#,##0.00;[Red]-#,##0.00"
+                    cell.alignment = Alignment(horizontal="right")
+                if c == "account_code":
+                    cell.number_format = "@"
+                if r["is_header"]:
+                    cell.font = Font(bold=True)
+        ws.freeze_panes = "C2"
+        ws.auto_filter.ref = ws.dimensions
+        for ci, c in enumerate(cols, start=1):
+            longest = max([len(str(c))] + [len(str(r[c])) for r in rows[:500]])
+            ws.column_dimensions[get_column_letter(ci)].width = min(max(longest + 3, 10), 50)
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
 
     async def import_coa(
         self,
@@ -1374,41 +1969,171 @@ class COAService:
     ) -> ImportExportResultDTO:
         self._check_authority(imported_by, "import_coa")
 
-        if isinstance(file_content, bytes):
-            file_content = file_content.decode("utf-8-sig")
+        file_format = (file_format or "").lower().lstrip(".")
+        if mode not in ("merge", "replace"):
+            raise InvalidBulkImportDataError(f"Mode import tidak dikenal: {mode}")
+
+        def _clean(v: Any) -> Any:
+            if isinstance(v, bool) or v is None:
+                return v
+            if isinstance(v, float) and v.is_integer():
+                return str(int(v))
+            if isinstance(v, (int, float, Decimal)):
+                return str(v)
+            if isinstance(v, datetime):
+                return v.isoformat()
+            if isinstance(v, str):
+                return self._unguard(v.strip())
+            return str(v)
+
+        def _norm_rows(raw: list[dict[Any, Any]]) -> list[dict[str, Any]]:
+            out_rows = []
+            for line_no, rec in enumerate(raw, start=2):   # baris 1 = header
+                row = {str(k).strip().lower(): _clean(v) for k, v in rec.items() if k is not None}
+                if any(v not in (None, "") for v in row.values()):
+                    row["_line"] = line_no
+                    out_rows.append(row)
+            return out_rows
 
         try:
             if file_format == "json":
-                rows = json.loads(file_content)
-            elif file_format in ("csv", "excel", "xlsx", "xls"):
-                rows = list(csv.DictReader(io.StringIO(file_content)))
+                text_in = file_content.decode("utf-8-sig") if isinstance(file_content, bytes) else file_content
+                data = json.loads(text_in)
+                if not isinstance(data, list) or not all(isinstance(x, dict) for x in data):
+                    raise InvalidBulkImportDataError("JSON harus berupa array objek akun.")
+                rows = _norm_rows(data)
+            elif file_format == "csv":
+                text_in = file_content.decode("utf-8-sig") if isinstance(file_content, bytes) else file_content
+                rows = _norm_rows(list(csv.DictReader(io.StringIO(text_in))))
+            elif file_format in ("xlsx", "excel"):
+                from openpyxl import load_workbook
+                raw_bytes = file_content if isinstance(file_content, bytes) else file_content.encode("latin-1")
+                wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+                ws = wb.worksheets[0]
+                it = ws.iter_rows(values_only=True)
+                header = next(it, None)
+                if not header:
+                    raise InvalidBulkImportDataError("File Excel kosong.")
+                keys = [str(h).strip().lower() if h is not None else None for h in header]
+                rows = _norm_rows([dict(zip(keys, rec)) for rec in it])
+                wb.close()
             else:
-                raise InvalidBulkImportDataError(f"Unsupported import format: {file_format}")
-        except (json.JSONDecodeError, csv.Error) as exc:
-            raise InvalidBulkImportDataError(f"Failed to parse {file_format}: {exc}") from exc
+                raise InvalidBulkImportDataError(
+                    f"Format import tidak didukung: {file_format} (gunakan csv, xlsx, atau json)"
+                )
+        except InvalidBulkImportDataError:
+            raise
+        except Exception as exc:
+            raise InvalidBulkImportDataError(f"Gagal membaca file {file_format}: {exc}") from exc
+
+        if not rows:
+            raise InvalidBulkImportDataError("File tidak berisi baris data.")
+        if "account_code" not in rows[0]:
+            raise InvalidBulkImportDataError("Kolom 'account_code' tidak ditemukan di header file.")
+        if len(rows) > 20000:
+            raise InvalidBulkImportDataError("Maksimal 20.000 baris per import.")
 
         imported = 0
         updated = 0
         skipped = 0
         errors: list[str] = []
 
-        # Urutkan supaya parent selalu diproses sebelum anak (asumsi: parent
-        # account_code lebih pendek / muncul lebih dulu di file yang wajar).
-        rows_sorted = sorted(rows, key=lambda r: (r.get("level") or 0, r.get("account_code") or ""))
+        def _nz(v: Any) -> Any:
+            """Sel kosong -> None (jangan menimpa nilai lama dengan "")."""
+            if isinstance(v, str):
+                v = v.strip()
+            return v if v not in ("", None) else None
+
+        _type_map = {t.lower().replace("_", "").replace(" ", ""): t for t in VALID_ACCOUNT_TYPES}
+
+        def _code(r: dict[str, Any]) -> str:
+            return str(r.get("account_code") or "").strip().upper()
+
+        def _parent(r: dict[str, Any]) -> str:
+            return str(_nz(r.get("parent_account_code")) or "").strip().upper()
+
+        # Urutan: induk yang ada di file diproses sebelum anaknya (topologis),
+        # tidak bergantung pada kolom level / panjang kode.
+        by_code: dict[str, dict[str, Any]] = {}
+        seen_dupe: set[str] = set()
+        for r in rows:
+            c = _code(r)
+            if c in by_code:
+                seen_dupe.add(c)
+            by_code[c] = r
+        ordered: list[dict[str, Any]] = []
+        placed: set[str] = set()
+
+        def _visit(r: dict[str, Any], stack: set[str]) -> None:
+            c = _code(r)
+            if c in placed or c in stack:
+                return
+            stack.add(c)
+            par = _parent(r)
+            if par and par in by_code and par != c:
+                _visit(by_code[par], stack)
+            stack.discard(c)
+            placed.add(c)
+            ordered.append(r)
+
+        for r in rows:
+            if _code(r):
+                _visit(r, set())
+        rows_sorted = ordered + [r for r in rows if not _code(r)]
+
+        def _validate_row(r: dict[str, Any], existing: Any) -> str | None:
+            """Validasi tanpa menulis apa pun. Return pesan error atau None."""
+            code = _code(r)
+            if code in seen_dupe:
+                return "kode akun duplikat di dalam file"
+            if existing is None or mode == "replace":
+                if existing is None and not _nz(r.get("account_name")):
+                    return "account_name wajib diisi"
+            if existing is None:
+                t = str(r.get("account_type") or "Asset").strip().replace("_", "").replace(" ", "").lower()
+                if t not in _type_map:
+                    return f"account_type tidak valid: {r.get('account_type')}"
+                nb = str(r.get("normal_balance") or "debit").strip().lower()
+                if nb not in ("debit", "credit"):
+                    return f"normal_balance harus debit/credit, bukan '{nb}'"
+            ob = _nz(r.get("opening_balance"))
+            if ob is not None:
+                try:
+                    Decimal(str(ob).replace(",", ""))
+                except Exception:
+                    return f"opening_balance bukan angka: {ob}"
+            par = _parent(r)
+            if par:
+                if par == code:
+                    return "akun tidak boleh menjadi induk dirinya sendiri"
+                if par not in by_code and par not in db_codes:
+                    return f"akun induk {par} tidak ditemukan (di file maupun di database)"
+            return None
+
+        db_codes: set[str] = set()
+        if validate_only:
+            for a_ in await self.list_accounts_raw(legal_entity_id, include_inactive=True):
+                db_codes.add(a_.account_code.upper())
 
         for idx, r in enumerate(rows_sorted, start=1):
             code = str(r.get("account_code") or "").strip().upper()
             if not code:
                 skipped += 1
-                errors.append(f"Row {idx}: missing account_code")
+                errors.append(f"Baris {r.get('_line', idx)}: missing account_code")
                 continue
             try:
                 existing = await self.get_account_by_code(code, legal_entity_id)
                 if validate_only:
-                    if not existing:
+                    problem = _validate_row(r, existing)
+                    if problem:
+                        skipped += 1
+                        errors.append(f"Baris {r.get('_line', idx)} ({code}): {problem}")
+                    elif not existing:
                         imported += 1
-                    else:
+                    elif mode == "replace":
                         updated += 1
+                    else:
+                        skipped += 1
                     continue
 
                 if existing:
@@ -1417,16 +2142,19 @@ class COAService:
                             account_id=existing.id,
                             legal_entity_id=legal_entity_id,
                             account_name=r.get("account_name") or existing.account_name,
-                            description=r.get("description"),
-                            status=r.get("status"),
-                            parent_account_code=r.get("parent_account_code"),
-                            currency_code=r.get("currency_code"),
+                            description=_nz(r.get("description")),
+                            status=(_nz(r.get("status")) or "").lower() or None,
+                            parent_account_code=(
+                                str(_nz(r.get("parent_account_code")) or "").upper()
+                                if r.get("parent_account_code") is not None else None
+                            ),
+                            currency_code=_nz(r.get("currency_code")),
                             is_bank_account=None,
                             is_cash_account=None,
                             is_intercompany=None,
-                            account_group=r.get("account_group"),
-                            tax_code=r.get("tax_code"),
-                            cashflow_type=r.get("cashflow_type"),
+                            account_group=_nz(r.get("account_group")),
+                            tax_code=_nz(r.get("tax_code")),
+                            cashflow_type=_nz(r.get("cashflow_type")),
                             updated_by=imported_by,
                         )
                         updated += 1
@@ -1437,26 +2165,36 @@ class COAService:
                         legal_entity_id=legal_entity_id,
                         account_code=code,
                         account_name=r.get("account_name") or code,
-                        account_type=r.get("account_type") or "Asset",
-                        normal_balance=r.get("normal_balance") or "debit",
-                        parent_account_code=r.get("parent_account_code") or None,
+                        account_type=_type_map.get(
+                            str(r.get("account_type") or "Asset").strip().replace("_", "").replace(" ", "").lower(),
+                            r.get("account_type") or "Asset",
+                        ),
+                        normal_balance=str(r.get("normal_balance") or "debit").strip().lower(),
+                        parent_account_code=(str(_nz(r.get("parent_account_code")) or "").upper() or None),
                         description=r.get("description"),
                         currency_code=r.get("currency_code") or "IDR",
                         is_bank_account=str(r.get("is_bank_account", "")).lower() in ("true", "1", "yes"),
                         is_cash_account=str(r.get("is_cash_account", "")).lower() in ("true", "1", "yes"),
                         is_intercompany=str(r.get("is_intercompany", "")).lower() in ("true", "1", "yes"),
                         is_header=str(r.get("is_header", "")).lower() in ("true", "1", "yes"),
+                        # kolom allow_posting ada di file hasil Export; kalau tidak ada
+                        # di file, default tetap True (seperti sebelumnya)
+                        allow_posting=(
+                            str(r.get("allow_posting")).strip().lower() in ("true", "1", "yes")
+                            if _nz(r.get("allow_posting")) is not None else True
+                        ),
+                        budget_control=str(r.get("budget_control", "")).strip().lower() in ("true", "1", "yes"),
                         level=None,
-                        opening_balance=Decimal(str(r.get("opening_balance") or "0")),
-                        account_group=r.get("account_group"),
-                        tax_code=r.get("tax_code"),
-                        cashflow_type=r.get("cashflow_type"),
+                        opening_balance=Decimal(str(r.get("opening_balance") or "0").replace(",", "")),
+                        account_group=_nz(r.get("account_group")),
+                        tax_code=_nz(r.get("tax_code")),
+                        cashflow_type=_nz(r.get("cashflow_type")),
                         created_by=imported_by,
                     )
                     imported += 1
             except Exception as exc:
                 skipped += 1
-                errors.append(f"Row {idx} ({code}): {exc}")
+                errors.append(f"Baris {r.get('_line', idx)} ({code}): {exc}")
 
         self._record_audit(
             "import_coa", None, imported_by,
@@ -1483,6 +2221,39 @@ class COAService:
         start_date: datetime | None,
         end_date: datetime | None,
     ) -> list[AccountHistoryEntryDTO]:
+        rows = await self._read_audit_rows(
+            account_id, legal_entity_id, start_date=start_date, end_date=end_date
+        )
+        if rows is not None:
+            out: list[AccountHistoryEntryDTO] = []
+            for r in rows:
+                changes = (r.details or {}).get("changes") if isinstance(r.details, dict) else None
+                if changes:
+                    for fname, ch in changes.items():
+                        out.append(AccountHistoryEntryDTO(
+                            timestamp=r.occurred_at, action=r.action, field=fname,
+                            old_value=ch.get("old") if isinstance(ch, dict) else None,
+                            new_value=ch.get("new") if isinstance(ch, dict) else None,
+                            actor_id=r.actor_id or UUID(int=0), actor_name=None, reason=r.reason,
+                        ))
+                else:
+                    out.append(AccountHistoryEntryDTO(
+                        timestamp=r.occurred_at, action=r.action, field=r.field_name or "-",
+                        old_value=r.old_value, new_value=r.new_value,
+                        actor_id=r.actor_id or UUID(int=0), actor_name=None, reason=r.reason,
+                    ))
+            return await self._with_actor_names(sorted(out, key=lambda h: h.timestamp, reverse=True))
+        return await self._with_actor_names(self._memory_history(account_id, start_date, end_date))
+
+    async def _with_actor_names(self, entries: list[Any]) -> list[Any]:
+        names = await self._actor_names({e.actor_id for e in entries})
+        for e in entries:
+            e.actor_name = names.get(e.actor_id) or ("Sistem" if e.actor_id == UUID(int=0) else None)
+        return entries
+
+    def _memory_history(
+        self, account_id: UUID, start_date: datetime | None, end_date: datetime | None
+    ) -> list[AccountHistoryEntryDTO]:
         out: list[AccountHistoryEntryDTO] = []
         for entry in self._audit_trail:
             if entry.get("account_id") != str(account_id):
@@ -1494,45 +2265,47 @@ class COAService:
                 continue
             for field_name, change in (entry.get("details", {}).get("changes") or {}).items():
                 out.append(AccountHistoryEntryDTO(
-                    timestamp=ts,
-                    action=entry["action"],
-                    field=field_name,
+                    timestamp=ts, action=entry["action"], field=field_name,
                     old_value=change.get("old") if isinstance(change, dict) else None,
                     new_value=change.get("new") if isinstance(change, dict) else None,
                     actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
-                    actor_name=None,
-                    reason=entry.get("reason"),
+                    actor_name=None, reason=entry.get("reason"),
                 ))
             if entry["action"] not in ("update_account",):
                 out.append(AccountHistoryEntryDTO(
-                    timestamp=ts,
-                    action=entry["action"],
-                    field=entry.get("field") or "-",
-                    old_value=entry.get("old_value"),
-                    new_value=entry.get("new_value"),
+                    timestamp=ts, action=entry["action"], field=entry.get("field") or "-",
+                    old_value=entry.get("old_value"), new_value=entry.get("new_value"),
                     actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
-                    actor_name=None,
-                    reason=entry.get("reason"),
+                    actor_name=None, reason=entry.get("reason"),
                 ))
         return sorted(out, key=lambda h: h.timestamp, reverse=True)
 
     async def get_account_audit_trail(
         self, account_id: UUID, legal_entity_id: UUID, limit: int = 100
     ) -> list[AccountAuditEntryDTO]:
+        rows = await self._read_audit_rows(account_id, legal_entity_id, limit=limit)
+        if rows is not None:
+            return await self._with_actor_names([
+                AccountAuditEntryDTO(
+                    timestamp=r.occurred_at, event_type=r.action,
+                    event_data=r.details if isinstance(r.details, dict) else {},
+                    actor_id=r.actor_id or UUID(int=0), actor_name=None,
+                    version=len(rows) - i,
+                )
+                for i, r in enumerate(rows)
+            ])
         out = [
             AccountAuditEntryDTO(
-                timestamp=entry["timestamp"],
-                event_type=entry["action"],
+                timestamp=entry["timestamp"], event_type=entry["action"],
                 event_data=entry.get("details", {}),
                 actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
-                actor_name=None,
-                version=entry.get("version", 1),
+                actor_name=None, version=entry.get("version", 1),
             )
             for entry in self._audit_trail
             if entry.get("account_id") == str(account_id)
         ]
         out.sort(key=lambda a: a.timestamp, reverse=True)
-        return out[:limit]
+        return await self._with_actor_names(out[:limit])
 
     # ==================== BULK IMPORT (CSV legacy helper) ====================
 

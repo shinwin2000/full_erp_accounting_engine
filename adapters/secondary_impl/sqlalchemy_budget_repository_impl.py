@@ -43,8 +43,19 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            # [FIX] Sebelumnya memanggil `get_async_session()` -- itu
+            # dependency FastAPI berbentuk async generator (punya `yield`,
+            # dipakai lewat `Depends()`), bukan fungsi yang langsung
+            # mengembalikan AsyncSession. Repository ini mengelola siklus
+            # hidup session-nya sendiri (`self._session`), jadi seharusnya
+            # pakai `get_async_session_direct()` yang memang didokumentasikan
+            # untuk kasus ini. Salah pakai ini yang menyebabkan
+            # "This session is provisioning a new connection; concurrent
+            # operations are not permitted" begitu ada query baru (method
+            # `get_actual_amounts_by_account` yang baru ditambahkan) yang
+            # memicu jalur ini untuk pertama kali.
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
+            self._session = await get_async_session_direct()
         return self._session
 
     # ========================================================================

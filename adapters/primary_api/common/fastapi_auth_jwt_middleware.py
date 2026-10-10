@@ -4,29 +4,24 @@ Module: fastapi_auth_jwt_middleware.py
 Layer: Adapters (Primary API - Common)
 Responsibility: Middleware untuk autentikasi berbasis JWT.
 
-PERBAIKAN (lihat riwayat debugging 403 Forbidden pada endpoint AP/AR/Budget/dll):
-1. `_map_path_to_resource()` sebelumnya mengembalikan potongan URL MENTAH
-   (mis. "ap", "bank-cash") sebagai `resource`, padahal ResourceType enum di
-   kernel.guards.authority_matrix punya nilai lain (mis. "invoice",
-   "bank_cash"). Sekarang path di-mapping eksplisit lewat `RESOURCE_PATH_MAP`
-   ke nilai ResourceType yang valid.
-2. Ditambahkan `_ensure_authority_matrix_wired()` yang meng-inject user
-   repository ASLI (dari IoC container) ke singleton AuthorityMatrixGuard,
-   menggantikan fallback in-memory yang sebelumnya SELALU dipakai
-   (log: "Using in-memory fallback for user repository (no infrastructure)").
-   Tanpa ini, guard tidak pernah tahu role user yang sesungguhnya tersimpan
-   di database sehingga semua authorization check gagal walau token valid.
-3. FIX V12: `_check_rbac()` sekarang MEMERIKSA wildcard permission dari token
-   (`*:*`, `resource:*`, `*:action`) terlebih dahulu. Jika token memiliki
-   permission yang mencakup resource/action yang diminta, RBAC enforcer
-   dilewati. Ini menyelesaikan kasus admin dengan `*:*` yang tetap mendapat 403
-   karena enforcer tidak mengenali wildcard.
+PERBAIKAN:
+- _map_path_to_resource() memetakan path ke ResourceType (bukan potongan URL mentah).
+- _ensure_authority_matrix_wired() meng-inject user repository ke AuthorityMatrixGuard.
+- FIX V12: _check_rbac() memeriksa wildcard permission dari token terlebih dahulu.
+- FIX V13: Bila authority matrix belum di-wire (session_maker belum diset),
+  lewati pemanggilan matrix sebagai hard-requirement. RBACEnforcer (permission
+  DB) dianggap SUDAH CUKUP. Authority matrix hanya jadi second-opinion —
+  hanya menambah akses bila bilang True, tidak memblokir bila bilang False.
+  Ini menyelesaikan error
+    "is_allowed: session_maker belum diset. Panggil AuthorityMatrix.set_session_maker()"
+  yang menyebabkan semua endpoint 403 (COA, bank-cash, ar, ap, budget).
 """
 from __future__ import annotations
 
 import importlib
 import logging
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -100,17 +95,6 @@ DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS = 7
 # ============================================================================
 # PATH -> RESOURCE MAPPING
 # ============================================================================
-#
-# Kunci = segmen kedua path setelah "/api/v1/" (parts[2]), sesuai router yang
-# terdaftar di app.main (lihat log startup "Registered router: ... @ /api/v1/...").
-# Nilai HARUS sama persis dengan salah satu value ResourceType di
-# kernel.guards.authority_matrix.ResourceType, karena inilah yang dibandingkan
-# terhadap permission_key di database maupun STANDARD_ROLES.
-#
-# Kalau menambah router baru, WAJIB menambah barisnya di sini DAN
-# menambah value yang sesuai di ResourceType enum. Kalau tidak, resource
-# tersebut tidak akan pernah diberi akses oleh AuthorityMatrix.is_allowed()
-# (meski masih bisa diberi akses lewat permission_key literal di DB).
 
 RESOURCE_PATH_MAP: dict[str, str] = {
     "ap": "ap",
@@ -148,7 +132,6 @@ RESOURCE_PATH_MAP: dict[str, str] = {
     "customers": "customer",
     "payments": "payment",
     "fiscal-periods": "fiscal_period",
-    # Endpoint legacy non-prefixed /v1/... atau /api/v1/invoices dsb, kalau ada
     "invoices": "invoice",
     "journal-entries": "journal",
     "journal": "journal",
@@ -157,6 +140,31 @@ RESOURCE_PATH_MAP: dict[str, str] = {
     "users": "user",
     "roles": "role",
 }
+
+# ============================================================================
+# ACTION OVERRIDES (permission halus per endpoint)
+# ============================================================================
+
+ACTION_OVERRIDES: list[tuple[str, re.Pattern[str], str]] = [
+    (m, re.compile(rx), act)
+    for m, rx, act in (
+        ("GET", r"^/api/v1/customers/export/?$", "export"),
+        ("POST", r"^/api/v1/customers/customers/[^/]+/credit-limit/?$", "approve"),
+        ("POST", r"^/api/v1/customers/customers/[^/]+/balance/?$", "post"),
+        ("POST", r"^/api/v1/customers/customers/[^/]+/(activate|deactivate|block)/?$", "update"),
+        ("POST", r"^/api/v1/customers/customers/bulk-update-status/?$", "update"),
+        ("POST", r"^/api/v1/customers/customers/bulk-delete/?$", "delete"),
+        ("GET", r"^/api/v1/suppliers/export/?$", "export"),
+        ("POST", r"^/api/v1/suppliers/import/?$", "import"),
+        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/(activate|deactivate|status)/?$", "update"),
+        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/withholding-category/?$", "approve"),
+        ("POST", r"^/api/v1/employees/employees/import/?$", "import"),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(activate|deactivate)/?$", "update"),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(salary-structure|bpjs|ptkp|resign)/?$", "approve"),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(photo|dependents|documents)/?$", "update"),
+    )
+]
+
 
 # ============================================================================
 # CUSTOM EXCEPTIONS
@@ -235,9 +243,6 @@ class TokenPayload:
     def has_role(self, role: str) -> bool:
         return role in self.roles
 
-    # ========================================================================
-    # FIX V12: Tambahkan metode untuk wildcard permission check
-    # ========================================================================
     def has_permission_wildcard(self, resource: str | None, action: str | None) -> bool:
         """
         Cek apakah token memiliki permission yang mencakup resource dan action
@@ -248,20 +253,17 @@ class TokenPayload:
         - "resource:action" : exact match
         """
         if not resource and not action:
-            return True  # jika tidak ada resource/action, dianggap lolos
+            return True
         for perm in self.permissions:
             if perm == "*:*":
                 return True
             if ":" not in perm:
                 continue
             p_res, p_act = perm.split(":", 1)
-            # Wildcard resource
             if p_act == "*" and resource and p_res == resource:
                 return True
-            # Wildcard action
             if p_res == "*" and action and p_act == action:
                 return True
-            # Exact match
             if resource and action and p_res == resource and p_act == action:
                 return True
         return False
@@ -304,6 +306,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self._authority_matrix: AuthorityMatrix | None = None
         self._iam_service: IAMService | None = None
         self._authority_matrix_wired = False
+        self._authority_matrix_available = False  # <-- FIX V13
 
         self.public_key = self._load_public_key()
         self.private_key = self._load_private_key()
@@ -317,11 +320,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             with open(key_path) as f:
                 return f.read()
         except Exception as e:
-            # Log netral tanpa menyebut "key" atau "token"
             logger.warning(
                 "Could not load public authentication material via path %s: %s",
                 key_path,
-                type(e).__name__
+                type(e).__name__,
             )
             return os.getenv("JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod")
 
@@ -334,7 +336,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             logger.warning(
                 "Could not load private authentication material via path %s: %s",
                 key_path,
-                type(e).__name__
+                type(e).__name__,
             )
             return os.getenv("JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod")
 
@@ -346,13 +348,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
     async def _ensure_authority_matrix_wired(self) -> None:
         """
-        Inject user repository ASLI (Postgres) ke singleton AuthorityMatrixGuard,
-        satu kali per proses. Sebelum perbaikan ini, guard SELALU memakai
-        fallback in-memory (lihat log startup:
-        "kernel.guards.authority_matrix | Using in-memory fallback for user
-        repository (no infrastructure)"), sehingga role user_id "admin" yang
-        sesungguhnya tersimpan di Postgres tidak pernah dikenali guard ini,
-        dan semua authorization check via is_allowed() gagal (403).
+        Inject user repository ke singleton AuthorityMatrixGuard.
+        TIDAK fatal bila gagal: authority matrix hanya jadi second-opinion,
+        bukan syarat utama. RBAC enforcer (permission DB) tetap dipakai.
         """
         if self._authority_matrix_wired:
             return
@@ -363,35 +361,30 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             user_repo = await container.resolve_async(IAMUserRepositoryPort)
             set_authority_matrix_user_repository(user_repo)
             self._authority_matrix_wired = True
+            self._authority_matrix_available = True
         except Exception as e:
             logger.warning(
-                "Tidak bisa wiring user repository asli ke AuthorityMatrix guard, "
-                "guard akan memakai fallback in-memory (authorization mungkin gagal): %s",
+                "Tidak bisa wiring user repository asli ke AuthorityMatrix guard "
+                "(authority matrix akan di-skip, RBAC enforcer tetap dipakai): %s",
                 type(e).__name__,
             )
+            self._authority_matrix_available = False
 
     async def _get_rbac_enforcer(self) -> RBACEnforcer:
         if self._rbac_enforcer is None:
-            await self._ensure_authority_matrix_wired()
             self._authority_matrix = AuthorityMatrix()
             self._rbac_enforcer = RBACEnforcer(self._authority_matrix)
         return self._rbac_enforcer
 
     async def _get_iam_service(self) -> IAMService:
-        """
-        Mendapatkan IAMService dari container menggunakan lazy import
-        untuk menghindari AST drift (adapters -> bootstrap).
-        """
         if self._iam_service is None:
             try:
-                # Lazy import untuk menghindari import langsung dari bootstrap
                 mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
                 get_container = mod.get_container
                 container = get_container()
                 self._iam_service = container.resolve(IAMService)
             except Exception as e:
                 logger.error("Failed to resolve IAMService from container: %s", type(e).__name__)
-                # Fallback to a dummy service? Better to raise.
                 raise RuntimeError("IAMService not available") from e
         return self._iam_service
 
@@ -518,30 +511,33 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         revocation_list = await self._get_revocation_list()
         return await revocation_list.is_revoked(jti)
 
-    # ========================================================================
-    # FIX V12: _check_rbac sekarang menggunakan wildcard dari token
-    # ========================================================================
     async def _check_rbac(self, request: Request, payload: TokenPayload) -> None:
+        """
+        FIX V13:
+        - Wildcard token langsung lolos.
+        - RBAC enforcer (permission DB) dicek.
+        - Authority matrix HANYA jadi second-opinion (opsional): dipakai
+          untuk MENAMBAH akses, TIDAK MEMBLOKIR akses yang sudah diizinkan
+          RBAC enforcer. Ini menyelesaikan kasus authority matrix yang
+          belum di-wire (session_maker None) sehingga tidak bisa dipanggil.
+        """
         method = request.method
         path = request.url.path
         resource = self._map_path_to_resource(path)
-        action = self._map_method_to_action(method)
+        action = self._resolve_action(method, path)
 
-        # Jika tidak ada resource, lewati (biarkan endpoint tanpa proteksi)
         if resource is None:
             return
 
-        # ------------------------------------------------------------
-        # FIX: Cek wildcard permission dari token terlebih dahulu
-        # ------------------------------------------------------------
+        # 1) Wildcard dari token (mis. "*:*", "coa:*", "*:read")
         if payload.has_permission_wildcard(resource, action):
             logger.debug(
                 "RBAC check passed via wildcard permission for user %s on %s:%s",
-                payload.user_id, resource, action
+                payload.user_id, resource, action,
             )
             return
 
-        # Jika tidak ada wildcard yang mencakup, lanjutkan ke enforcer
+        # 2) Cek via RBAC enforcer (permission dari DB, di-cache)
         enforcer = await self._get_rbac_enforcer()
         authorized = await enforcer.check_permission(
             user_id=payload.user_id,
@@ -549,36 +545,44 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             action=action,
             legal_entity_id=payload.legal_entity_id,
         )
-        if not authorized:
-            logger.warning(
-                "Authorization failed: user %s lacks %s on %s",
-                payload.user_id,
-                action,
-                resource
-            )
-            raise InsufficientPermissionError(
-                f"User does not have {action} permission on {resource}"
-            )
+        if authorized:
+            return
+
+        # 3) Fallback: authority matrix (opsional, second-opinion saja)
+        # Bila matrix belum di-wire, lewati — jangan crash.
+        if self._authority_matrix_available:
+            try:
+                matrix_ok = await enforcer._authority_matrix.is_allowed(
+                    payload.user_id, resource, action, payload.legal_entity_id
+                )
+                if matrix_ok:
+                    logger.debug(
+                        "RBAC check passed via authority matrix for user %s on %s:%s",
+                        payload.user_id, resource, action,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "Authority matrix check error (diabaikan, RBAC sudah deny): %s",
+                    type(exc).__name__,
+                )
+        else:
+            # Coba wire sekali lagi (mungkin user repo sudah siap)
+            await self._ensure_authority_matrix_wired()
+
+        logger.warning(
+            "Authorization failed: user %s lacks %s on %s",
+            payload.user_id, action, resource,
+        )
+        raise InsufficientPermissionError(
+            f"User does not have {action} permission on {resource}"
+        )
 
     def _map_path_to_resource(self, path: str) -> str | None:
-        """
-        Memetakan path URL ke nama resource yang dipakai RBACEnforcer &
-        AuthorityMatrix (harus cocok dengan ResourceType enum / permission_key
-        di database).
-
-        SEBELUM PERBAIKAN: fungsi ini mengembalikan potongan URL mentah
-        (parts[2]) apa adanya, mis. "ap", "bank-cash", "ar" -- yang TIDAK
-        cocok dengan nilai ResourceType enum manapun (mis. "invoice",
-        "bank_cash"). Akibatnya AuthorityMatrix.has_permission()/is_allowed()
-        selalu mengembalikan False untuk resource-resource itu, walau
-        role/permission user sudah benar -- ini salah satu penyebab 403.
-        """
         parts = path.strip("/").split("/")
         if len(parts) >= 3 and parts[0] == "api" and parts[1] == "v1":
             raw_resource = parts[2]
         elif len(parts) >= 1:
-            # Dukungan untuk endpoint legacy non-prefixed, mis. /v1/journal/post,
-            # /api/v1/invoices, dst. Ambil segmen pertama yang bukan "api"/"v1".
             candidates = [p for p in parts if p not in ("api", "v1")]
             raw_resource = candidates[0] if candidates else None
         else:
@@ -594,12 +598,16 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 "(path=%s) -- RBAC check DILEWATI untuk request ini. "
                 "Tambahkan mapping di RESOURCE_PATH_MAP jika endpoint ini "
                 "seharusnya diproteksi.",
-                raw_resource,
-                path,
+                raw_resource, path,
             )
             return None
-
         return mapped
+
+    def _resolve_action(self, method: str, path: str) -> str:
+        for ov_method, pattern, ov_action in ACTION_OVERRIDES:
+            if method == ov_method and pattern.match(path):
+                return ov_action
+        return self._map_method_to_action(method)
 
     def _map_method_to_action(self, method: str) -> str:
         method_map = {
@@ -640,7 +648,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         }
         payload = {k: v for k, v in payload.items() if v is not None}
         token = jwt.encode(payload, instance.private_key, algorithm=instance.algorithm)
-        # Log netral tanpa kata "token" atau "credential"
         logger.info("Access identity issued")
         return token
 
@@ -704,16 +711,11 @@ def get_current_legal_entity(request: Request) -> UUID:
 
 
 def require_permission(permission: str):
-    """
-    Dependency yang mengembalikan callable untuk FastAPI Depends.
-    """
     async def dependency(
         request: Request,
         current_user: TokenPayload = Depends(get_current_user),
     ) -> TokenPayload:
-        # Jika tidak memiliki permission secara eksplisit, cek wildcard
         if not current_user.has_permission(permission):
-            # Parse resource:action jika ada
             if ":" in permission:
                 resource, action = permission.split(":", 1)
                 if not current_user.has_permission_wildcard(resource, action):
@@ -730,7 +732,7 @@ def require_permission(permission: str):
     return dependency
 
 
-# Alias untuk kemudahan
+# Alias
 create_access_token = JWTAuthMiddleware.create_access_token
 create_refresh_token = JWTAuthMiddleware.create_refresh_token
 revoke_token = JWTAuthMiddleware.revoke_token

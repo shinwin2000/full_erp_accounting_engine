@@ -90,8 +90,8 @@ class ApprovalsPage(QWidget):
             values = [
                 rec.get("request_number", ""),
                 str(rec.get("entity_type", "")),
-                rec.get("requested_by_name") or str(rec.get("requested_by", "")),
-                format_datetime(rec.get("created_at")),
+                rec.get("requester_name") or rec.get("requested_by_name") or str(rec.get("requester_id", "")),
+                format_datetime(rec.get("submitted_at") or rec.get("created_at")),
                 str(rec.get("current_level", rec.get("level", ""))),
                 str(rec.get("status", "")),
             ]

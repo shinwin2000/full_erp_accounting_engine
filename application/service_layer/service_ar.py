@@ -480,7 +480,10 @@ class ARService:
         customer = customer_agg.customer
 
         # Check credit limit
-        total_outstanding = await self._ar_repo.get_customer_outstanding(request.customer_id)
+        # BUG FIX: get_customer_outstanding() tidak ada di ARRepositoryPort
+        # (cuma ada di aggregate root domain yang berbeda) - method asli yang
+        # benar adalah get_total_outstanding_for_customer().
+        total_outstanding = await self._ar_repo.get_total_outstanding_for_customer(request.customer_id)
         if customer.credit_limit and (total_outstanding + request.amount) > customer.credit_limit:
             raise ARCreditLimitExceededError(
                 f"Credit limit {customer.credit_limit} exceeded. "
@@ -971,7 +974,9 @@ class ARService:
 
     async def get_customer_balance(self, customer_id: UUID) -> Decimal:
         """Get customer outstanding balance."""
-        return await self._ar_repo.get_customer_outstanding(customer_id)
+        # BUG FIX: get_customer_outstanding() tidak ada di ARRepositoryPort -
+        # method asli yang benar adalah get_total_outstanding_for_customer().
+        return await self._ar_repo.get_total_outstanding_for_customer(customer_id)
 
     async def list_invoices(
         self,

@@ -291,6 +291,10 @@ class FormDialog(QDialog):
             w = QComboBox()
             w.setEditable(False)
             w.setMinimumHeight(_INPUT_MIN_HEIGHT)
+            # Popup dropdown dibuat cukup lebar untuk nama item/gudang yang
+            # panjang (mis. "BB-002 - HDT Hitam") - sebelumnya ikut lebar
+            # kolom form yang bisa terlalu sempit dan memotong nama.
+            w.view().setMinimumWidth(320)
             w.addItem("Memuat...", None)
             w.setEnabled(False)
             # Simpan value awal (mis. saat edit) di properti widget; akan

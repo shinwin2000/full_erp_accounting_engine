@@ -132,6 +132,12 @@ class SupplierHasTransactionsError(SupplierServiceError):
 
 
 class SupplierService:
+    # BUG FIX: SupplierService sekarang transient (instance baru tiap request
+    # - lihat catatan di service_registry.py). _stats dipindah jadi atribut
+    # level-class supaya counter /suppliers/stats tidak selalu balik ke nol
+    # tiap request.
+    _stats: dict[str, int] = {"suppliers_created": 0, "suppliers_updated": 0}
+
     """
     Service untuk mengelola Supplier. Semua data dibaca/ditulis melalui
     `SupplierRepositoryPort` (database) — TIDAK ADA state in-memory lagi.
@@ -150,7 +156,6 @@ class SupplierService:
             )
         self._repository = repository
         self._event_publisher = event_publisher
-        self._stats = {"suppliers_created": 0, "suppliers_updated": 0}
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.info("SupplierService initialized (database-backed)")

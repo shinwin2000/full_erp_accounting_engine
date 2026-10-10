@@ -77,13 +77,18 @@ class BudgetFormDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # [FIX/FITUR] QDialog secara default tidak menampilkan tombol
-        # minimize/maximize di title bar (cuma close). Set Qt.Window supaya
-        # dialog ini berperilaku seperti jendela biasa dengan tombol
-        # minimize & maximize, sesuai permintaan.
+        # [FIX] Dialog ini dibuka lewat `.exec()` (lihat budgets_page.py),
+        # yang selalu modal. Sebelumnya di sini ditambahkan juga
+        # Qt.WindowMinimizeButtonHint -- kombinasi modal + tombol minimize
+        # adalah bug klasik Qt yang SUDAH DIDOKUMENTASIKAN DAN SENGAJA
+        # DIHINDARI di ui/widgets/form_dialog.py (FormDialog generik):
+        # kalau dialog modal di-minimize, ia hilang dari layar tapi modal
+        # grab-nya tetap mengunci SELURUH aplikasi -- toolbar, menu, semua
+        # jadi tidak merespons, persis seperti hang, padahal sebenarnya ada
+        # dialog tak terlihat yang masih mengunci input. Tombol maximize
+        # aman (tidak punya masalah serupa) dan tetap dipertahankan.
         self.setWindowFlags(
-            Qt.Window
-            | Qt.WindowMinimizeButtonHint
+            Qt.Dialog
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
         )

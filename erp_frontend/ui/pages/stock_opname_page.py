@@ -218,6 +218,10 @@ class StockOpnameTab(QWidget):
         self.line_table = QTableWidget(0, 3)
         self.line_table.setHorizontalHeaderLabels(["Item", "Qty Sistem", "Qty Fisik"])
         self.line_table.horizontalHeader().setStretchLastSection(True)
+        # Kolom "Item" diperlebar - sebelumnya lebar default terlalu sempit
+        # sehingga nama barang yang panjang terpotong di dropdown.
+        self.line_table.setColumnWidth(0, 320)
+        self.line_table.setColumnWidth(1, 110)
         outer.addWidget(self.line_table, stretch=1)
 
         line_btns = QHBoxLayout()
@@ -265,6 +269,11 @@ class StockOpnameTab(QWidget):
         row = self.line_table.rowCount()
         self.line_table.insertRow(row)
         item_combo = QComboBox()
+        item_combo.setMinimumWidth(300)
+        # Dropdown popup dibuat mengikuti lebar konten (nama barang), bukan
+        # cuma lebar kolom tabel - supaya nama panjang tetap kebaca utuh
+        # saat combo dibuka.
+        item_combo.view().setMinimumWidth(360)
         _populate_item_combo(item_combo)
         self.line_table.setCellWidget(row, 0, item_combo)
         for col, default in ((1, "0"), (2, "0")):
