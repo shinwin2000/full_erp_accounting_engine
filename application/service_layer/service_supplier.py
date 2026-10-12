@@ -1,12 +1,5 @@
 # service_supplier.py - Database-backed rewrite (refactor sinkronisasi Supplier/Vendor)
-# v6.0.0 - SupplierService sekarang WAJIB memakai SupplierRepositoryPort.
-#          Versi sebelumnya menyimpan data di dict in-memory (`self._suppliers`)
-#          sehingga TIDAK PERNAH benar-benar tersimpan ke database — setiap
-#          restart server, seluruh data supplier hilang. Versi ini
-#          memperbaikinya total: semua operasi CRUD didelegasikan ke
-#          repository (SQLAlchemy -> tabel `supplier`), sehingga data yang
-#          dibuat/diubah dari Frontend benar-benar persist dan bisa dibaca
-#          kembali dari database.
+# v7.0.0 - Tambah method attachments & notes (2026-10-12)
 
 #!/usr/bin/env python3
 
@@ -20,6 +13,12 @@ Responsibility:
     persistensi ke SupplierRepositoryPort (database), menjaga aturan bisnis
     (kode unik, NPWP unik, tidak boleh hapus supplier yang sudah bertransaksi,
     dsb), dan mempublikasikan domain event untuk setiap perubahan penting.
+
+PERBAIKAN (2026-10-12):
+- Tambah method: list_attachments, add_attachment, delete_attachment,
+  list_notes, add_note, delete_note.
+- Method-method ini meneruskan ke repository (SQLAlchemySupplierRepository)
+  yang sudah punya implementasi konkretnya.
 """
 
 from __future__ import annotations
@@ -58,6 +57,8 @@ class SupplierStatus(str, Enum):
     INACTIVE = "inactive"
     BLOCKED = "blocked"
     SUSPENDED = "suspended"
+    BLACKLISTED = "blacklisted"
+    DRAFT = "draft"
 
 
 class WithholdingCategory(str, Enum):
@@ -132,10 +133,9 @@ class SupplierHasTransactionsError(SupplierServiceError):
 
 
 class SupplierService:
-    # BUG FIX: SupplierService sekarang transient (instance baru tiap request
-    # - lihat catatan di service_registry.py). _stats dipindah jadi atribut
-    # level-class supaya counter /suppliers/stats tidak selalu balik ke nol
-    # tiap request.
+    # BUG FIX: SupplierService sekarang transient (instance baru tiap request).
+    # _stats dipindah jadi atribut level-class supaya counter /suppliers/stats
+    # tidak selalu balik ke nol tiap request.
     _stats: dict[str, int] = {"suppliers_created": 0, "suppliers_updated": 0}
 
     """
@@ -166,11 +166,16 @@ class SupplierService:
         if user_id is None:
             logger.debug(f"System action for permission '{permission}' (no user_id)")
             return
-        logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
+        logger.debug(
+            f"Authority check: user {user_id} permission '{permission}' passed "
+            "(placeholder)"
+        )
 
     # ==================== AUDIT TRAIL ====================
 
-    def _record_audit(self, action: str, details: dict[str, Any] | None = None) -> None:
+    def _record_audit(
+        self, action: str, details: dict[str, Any] | None = None
+    ) -> None:
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "service": "SupplierService",
@@ -199,7 +204,9 @@ class SupplierService:
                 event_type=event_type,
                 aggregate_id=aggregate_id,
                 aggregate_type="Supplier",
-                metadata={"correlation_id": correlation_id} if correlation_id else None,
+                metadata={"correlation_id": correlation_id}
+                if correlation_id
+                else None,
                 priority=EventPriority.NORMAL,
             )
         except Exception as e:
@@ -275,14 +282,20 @@ class SupplierService:
             email=email,
         )
 
-        existing = await self._repository.get_by_code(legal_entity_id, supplier_code.strip())
+        existing = await self._repository.get_by_code(
+            legal_entity_id, supplier_code.strip()
+        )
         if existing:
-            raise SupplierServiceError(f"Supplier code {supplier_code} already exists")
+            raise SupplierServiceError(
+                f"Supplier code {supplier_code} already exists"
+            )
 
         if npwp:
             existing_npwp = await self._repository.get_by_tax_id(npwp)
             if existing_npwp:
-                raise SupplierServiceError(f"NPWP {npwp} sudah dipakai oleh supplier lain")
+                raise SupplierServiceError(
+                    f"NPWP {npwp} sudah dipakai oleh supplier lain"
+                )
 
         supplier = Supplier(
             legal_entity_id=legal_entity_id,
@@ -337,16 +350,21 @@ class SupplierService:
                 correlation_id=correlation_id,
             )
 
-        self._record_audit("create_supplier", {
-            "supplier_id": str(supplier.id),
-            "supplier_code": supplier_code,
-            "created_by": str(created_by) if created_by else None,
-        })
+        self._record_audit(
+            "create_supplier",
+            {
+                "supplier_id": str(supplier.id),
+                "supplier_code": supplier_code,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
 
         logger.info(f"Supplier created: {supplier.supplier_code} - {supplier.name}")
         return supplier
 
-    async def get_supplier(self, supplier_id: UUID, legal_entity_id: UUID) -> Supplier | None:
+    async def get_supplier(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> Supplier | None:
         return await self._repository.get_by_id(supplier_id, legal_entity_id)
 
     async def list_suppliers(
@@ -439,7 +457,10 @@ class SupplierService:
         _set("is_active", is_active)
         _set("status", status)
 
-        if payment_terms_days is not None and payment_terms_days != supplier.payment_terms_days:
+        if (
+            payment_terms_days is not None
+            and payment_terms_days != supplier.payment_terms_days
+        ):
             old_terms = supplier.payment_terms_days
             _set("payment_terms_days", payment_terms_days)
             if self._event_publisher:
@@ -466,7 +487,10 @@ class SupplierService:
                 raise SupplierServiceError("Saldo awal tidak boleh negatif.")
             _set("opening_balance", opening_balance)
 
-        if withholding_category is not None and withholding_category != supplier.withholding_category:
+        if (
+            withholding_category is not None
+            and withholding_category != supplier.withholding_category
+        ):
             old_category = supplier.withholding_category
             _set("withholding_category", withholding_category)
             if self._event_publisher:
@@ -493,11 +517,14 @@ class SupplierService:
 
         self._stats["suppliers_updated"] += 1
 
-        self._record_audit("update_supplier", {
-            "supplier_id": str(supplier_id),
-            "changes": changes,
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "update_supplier",
+            {
+                "supplier_id": str(supplier_id),
+                "changes": changes,
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
 
         return supplier
 
@@ -527,16 +554,16 @@ class SupplierService:
     ) -> None:
         """
         Soft-delete supplier. Menolak (raise SupplierHasTransactionsError) jika
-        supplier sudah memiliki transaksi PO/GRN/Invoice/Payment — sesuai
-        aturan bisnis "supplier yang sudah memiliki transaksi tidak boleh
-        dihapus permanen".
+        supplier sudah memiliki transaksi PO/GRN/Invoice/Payment.
         """
         self._check_authority(deleted_by, "delete_supplier")
         supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
         if not supplier:
             raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
 
-        deleted = await self._repository.soft_delete(supplier_id, legal_entity_id, deleted_by)
+        deleted = await self._repository.soft_delete(
+            supplier_id, legal_entity_id, deleted_by
+        )
         if not deleted:
             raise SupplierHasTransactionsError(
                 "Supplier tidak dapat dihapus karena sudah memiliki transaksi "
@@ -544,10 +571,13 @@ class SupplierService:
                 "Nonaktifkan supplier ini sebagai gantinya."
             )
 
-        self._record_audit("delete_supplier", {
-            "supplier_id": str(supplier_id),
-            "deleted_by": str(deleted_by),
-        })
+        self._record_audit(
+            "delete_supplier",
+            {
+                "supplier_id": str(supplier_id),
+                "deleted_by": str(deleted_by),
+            },
+        )
 
     async def get_outstanding_balance(self, supplier_id: UUID) -> Decimal:
         return await self._repository.get_outstanding_balance(supplier_id)
@@ -555,14 +585,15 @@ class SupplierService:
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         return await self._repository.get_statistics(legal_entity_id)
 
-    async def get_next_code(self, legal_entity_id: UUID, prefix: str = "SUP") -> str:
+    async def get_next_code(
+        self, legal_entity_id: UUID, prefix: str = "SUP"
+    ) -> str:
         return await self._repository.get_next_code(legal_entity_id, prefix)
 
     async def export_csv(self, legal_entity_id: UUID) -> str:
         repo = self._repository
         if hasattr(repo, "export_to_csv"):
             return await repo.export_to_csv(legal_entity_id)
-        # Fallback generik jika implementasi repository tidak menyediakan CSV khusus
         import csv
         import io
 
@@ -575,6 +606,130 @@ class SupplierService:
         for row in rows:
             writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
         return output.getvalue()
+
+    # ========================================================================
+    # ATTACHMENTS (detail supplier)
+    # ========================================================================
+
+    async def list_attachments(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_attachments(supplier_id)
+
+    async def add_attachment(
+        self,
+        supplier_id: UUID,
+        legal_entity_id: UUID,
+        document_type: str = "other",
+        file_name: str = "",
+        file_path: str = "",
+        file_size_bytes: int | None = None,
+        mime_type: str | None = None,
+        notes: str | None = None,
+        created_by: UUID | None = None,
+    ) -> dict:
+        self._check_authority(created_by, "update_supplier")
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        fields = {
+            "document_type": document_type,
+            "file_name": file_name,
+            "file_path": file_path,
+            "file_size_bytes": file_size_bytes,
+            "mime_type": mime_type,
+            "notes": notes,
+            "uploaded_by": created_by,
+        }
+        result = await self._repository.add_attachment(supplier_id, **fields)
+        self._record_audit(
+            "add_attachment",
+            {
+                "supplier_id": str(supplier_id),
+                "file_name": file_name,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
+        return result
+
+    async def delete_attachment(
+        self,
+        supplier_id: UUID,
+        attachment_id: UUID,
+        deleted_by: UUID | None = None,
+    ) -> bool:
+        self._check_authority(deleted_by, "update_supplier")
+        ok = await self._repository.delete_attachment(supplier_id, attachment_id)
+        if ok:
+            self._record_audit(
+                "delete_attachment",
+                {
+                    "supplier_id": str(supplier_id),
+                    "attachment_id": str(attachment_id),
+                    "deleted_by": str(deleted_by) if deleted_by else None,
+                },
+            )
+        return ok
+
+    # ========================================================================
+    # NOTES
+    # ========================================================================
+
+    async def list_notes(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_notes(supplier_id)
+
+    async def add_note(
+        self,
+        supplier_id: UUID,
+        legal_entity_id: UUID,
+        note: str,
+        created_by: UUID | None = None,
+    ) -> dict:
+        self._check_authority(created_by, "update_supplier")
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        note = (note or "").strip()
+        if not note:
+            raise SupplierServiceError("Catatan tidak boleh kosong")
+        result = await self._repository.add_note(
+            supplier_id, note, created_by=created_by
+        )
+        self._record_audit(
+            "add_note",
+            {
+                "supplier_id": str(supplier_id),
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
+        return result
+
+    async def delete_note(
+        self,
+        supplier_id: UUID,
+        note_id: UUID,
+        deleted_by: UUID | None = None,
+    ) -> bool:
+        self._check_authority(deleted_by, "update_supplier")
+        ok = await self._repository.delete_note(supplier_id, note_id)
+        if ok:
+            self._record_audit(
+                "delete_note",
+                {
+                    "supplier_id": str(supplier_id),
+                    "note_id": str(note_id),
+                    "deleted_by": str(deleted_by) if deleted_by else None,
+                },
+            )
+        return ok
 
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()

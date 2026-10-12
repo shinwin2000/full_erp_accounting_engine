@@ -2,7 +2,16 @@
 """
 Module: supplier_aggregate_root.py
 Layer: Domain / Customer, Supplier, Employee
-Responsibility: Aggregate root untuk Supplier management.
+Responsibility: Aggregate root untuk Supplier management (domain murni).
+
+PERBAIKAN (2026-10-12):
+- _events, _audit_trail, _snapshots dari ClassVar -> instance field.
+- SupplierAggregateRepository (in-memory) DIHAPUS dari file ini.
+  Implementasi nyata ada di adapter SQLAlchemy.
+- Immutable-style: setiap mutation mengembalikan instance baru.
+
+Catatan: File ini HANYA berisi domain logic. Tidak ada repository
+implementasi nyata di sini.
 """
 
 from __future__ import annotations
@@ -11,7 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, ClassVar
+from typing import Any
 from uuid import UUID, uuid4
 
 from domain.customer_supplier_employee.domain_events import (
@@ -74,12 +83,16 @@ def _validate_supplier_code_unique(
 
 
 def _validate_tax_id_unique(
-    tax_id: str | None, existing_tax_ids: dict[str, UUID], exclude_id: UUID | None = None
+    tax_id: str | None,
+    existing_tax_ids: dict[str, UUID],
+    exclude_id: UUID | None = None,
 ) -> None:
     if tax_id is None:
         return
     existing_owner = existing_tax_ids.get(tax_id)
-    if existing_owner is not None and (exclude_id is None or existing_owner != exclude_id):
+    if existing_owner is not None and (
+        exclude_id is None or existing_owner != exclude_id
+    ):
         raise DuplicateSupplierTaxIdError(f"Tax ID '{tax_id}' already exists")
 
 
@@ -96,6 +109,7 @@ def _validate_status_transition(current: SupplierStatus, new: SupplierStatus) ->
             SupplierStatus.INACTIVE,
             SupplierStatus.BLOCKED,
             SupplierStatus.SUSPENDED,
+            SupplierStatus.BLACKLISTED,
         },
         SupplierStatus.INACTIVE: {SupplierStatus.ACTIVE},
         SupplierStatus.BLOCKED: {
@@ -132,10 +146,10 @@ class SupplierAggregate:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
-
-    _events: ClassVar[list[DomainEvent]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
+    # Instance-level (bukan ClassVar!)
+    _events: list[DomainEvent] = field(default_factory=list, repr=False)
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         if self.version < 1:
@@ -155,7 +169,9 @@ class SupplierAggregate:
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+    def _record_audit(
+        self, action: str, performed_by: str, details: dict[str, Any]
+    ) -> None:
         entry = {
             "action": action,
             "performed_by": performed_by,
@@ -165,271 +181,11 @@ class SupplierAggregate:
             "details": details,
         }
         self._audit_trail.append(entry)
+        if len(self._audit_trail) > 1000:
+            self._audit_trail.pop(0)
 
     def _register_event(self, event: DomainEvent) -> None:
         self._events.append(event)
-
-    # ==================== ENTITY DASAR METHODS (untuk aggregate) ====================
-
-    def create(self, created_by: str) -> SupplierAggregate:
-        self._record_audit("CREATE", created_by, {"legal_entity_id": str(self.legal_entity_id)})
-        return self
-
-    def update(self, updated_by: str, **kwargs) -> SupplierAggregate:
-        data = self.to_dict()
-        for key, value in kwargs.items():
-            if key not in ("aggregate_id", "created_at", "version"):
-                data[key] = value
-        new_agg = SupplierAggregate(
-            aggregate_id=self.aggregate_id,
-            legal_entity_id=UUID(data["legal_entity_id"])
-            if "legal_entity_id" in data
-            else self.legal_entity_id,
-            suppliers=self.suppliers,
-            supplier_by_code=self.supplier_by_code,
-            supplier_by_tax_id=self.supplier_by_tax_id,
-            created_at=self.created_at,
-            updated_at=datetime.now(UTC),
-            version=self.version + 1,
-        )
-        new_agg._record_audit("UPDATE", updated_by, {"changes": kwargs})
-        return new_agg
-
-    def delete(self, deleted_by: str, reason: str | None = None) -> SupplierAggregate:
-        if len(self.suppliers) > 0:
-            raise SupplierAggregateError("Cannot delete aggregate with existing suppliers")
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("DELETE", deleted_by, {"reason": reason})
-        return new_agg
-
-    def restore(self, restored_by: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("RESTORE", restored_by, {})
-        return new_agg
-
-    def activate(self, activated_by: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("ACTIVATE", activated_by, {})
-        return new_agg
-
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
-        return new_agg
-
-    def lock(self, locked_by: str, reason: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("LOCK", locked_by, {"reason": reason})
-        return new_agg
-
-    def unlock(self, unlocked_by: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("UNLOCK", unlocked_by, {})
-        return new_agg
-
-    def validate(self) -> dict[str, Any]:
-        errors = []
-        tax_ids = {}
-        codes = {}
-        for supp in self.suppliers.values():
-            if supp.supplier_code in codes:
-                errors.append(f"Duplicate supplier code {supp.supplier_code}")
-            codes[supp.supplier_code] = supp.supplier_id
-            if supp.tax_id:
-                if supp.tax_id in tax_ids:
-                    errors.append(f"Duplicate tax ID {supp.tax_id}")
-                tax_ids[supp.tax_id] = supp.supplier_id
-        return {
-            "is_valid": len(errors) == 0,
-            "errors": errors,
-            "aggregate_id": str(self.aggregate_id),
-            "version": self.version,
-        }
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "aggregate_id": str(self.aggregate_id),
-            "legal_entity_id": str(self.legal_entity_id),
-            "suppliers": [s.to_dict() for s in self.suppliers.values()],
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "version": self.version,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SupplierAggregate:
-        suppliers = {}
-        for supp_data in data.get("suppliers", []):
-            supp = SupplierEntity.from_dict(supp_data)
-            suppliers[supp.supplier_id] = supp
-        return cls(
-            aggregate_id=UUID(data["aggregate_id"]),
-            legal_entity_id=UUID(data["legal_entity_id"]),
-            suppliers=suppliers,
-            supplier_by_code={s.supplier_code: s.supplier_id for s in suppliers.values()},
-            supplier_by_tax_id={s.tax_id: s.supplier_id for s in suppliers.values() if s.tax_id},
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]),
-            version=data.get("version", 1),
-        )
-
-    def clone(self) -> SupplierAggregate:
-        new_id = uuid4()
-        new_agg = SupplierAggregate(
-            aggregate_id=new_id,
-            legal_entity_id=self.legal_entity_id,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
-        )
-        for supp in self.suppliers.values():
-            # Clone using from_dict/to_dict because SupplierEntity.clone() may not exist
-            cloned_supp = SupplierEntity.from_dict(supp.to_dict())
-            new_agg = new_agg.add_supplier(cloned_supp, "system")
-        new_agg._record_audit("CLONE", "system", {"source": str(self.aggregate_id)})
-        return new_agg
-
-    def snapshot(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "aggregate_id": str(self.aggregate_id),
-            "supplier_count": len(self.suppliers),
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-
-    def get_version(self) -> int:
-        return self.version
-
-    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
-        return self._audit_trail[-limit:]
-
-    def touch(self, touched_by: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("TOUCH", touched_by, {})
-        return new_agg
-
-    # ==================== AGGREGATE ROOT METHODS ====================
-
-    def add_child(self, supplier: SupplierEntity, created_by: str) -> SupplierAggregate:
-        return self.add_supplier(supplier, created_by)
-
-    def remove_child(self, supplier_id: UUID, removed_by: str) -> SupplierAggregate:
-        return self.remove_supplier(supplier_id, removed_by)
-
-    def can_post(self, supplier_id: UUID) -> bool:
-        supp = self.get_supplier(supplier_id)
-        return supp is not None and supp.status == SupplierStatus.ACTIVE
-
-    def post(
-        self, supplier_id: UUID, amount: Decimal, posted_by: str, transaction_type: str = "purchase"
-    ) -> SupplierAggregate:
-        if transaction_type == "purchase":
-            return self.record_supplier_purchase(supplier_id, amount)
-        elif transaction_type == "payment":
-            return self.record_supplier_payment(supplier_id, amount)
-        else:
-            raise ValueError(f"Unknown transaction type: {transaction_type}")
-
-    def can_approve(self, supplier_id: UUID, user_role: str = "user") -> bool:
-        supp = self.get_supplier(supplier_id)
-        return (
-            supp is not None
-            and supp.status == SupplierStatus.DRAFT
-            and user_role in ("finance_manager", "admin")
-        )
-
-    def approve(self, supplier_id: UUID, approved_by: str) -> SupplierAggregate:
-        if not self.can_approve(supplier_id, "finance_manager"):
-            raise SupplierAggregateError(f"Cannot approve supplier {supplier_id}")
-        return self.update_supplier_status(
-            supplier_id, SupplierStatus.ACTIVE, approved_by, "Approved"
-        )
-
-    def can_reject(self, supplier_id: UUID, user_role: str = "user") -> bool:
-        supp = self.get_supplier(supplier_id)
-        return (
-            supp is not None
-            and supp.status == SupplierStatus.DRAFT
-            and user_role in ("finance_manager", "admin")
-        )
-
-    def reject(self, supplier_id: UUID, rejected_by: str, reason: str) -> SupplierAggregate:
-        if not self.can_reject(supplier_id, "finance_manager"):
-            raise SupplierAggregateError(f"Cannot reject supplier {supplier_id}")
-        return self.update_supplier_status(
-            supplier_id, SupplierStatus.INACTIVE, rejected_by, reason
-        )
-
-    def can_cancel(self, supplier_id: UUID) -> bool:
-        supp = self.get_supplier(supplier_id)
-        return supp is not None and supp.status in (SupplierStatus.DRAFT, SupplierStatus.SUSPENDED)
-
-    def cancel(self, supplier_id: UUID, cancelled_by: str, reason: str) -> SupplierAggregate:
-        if not self.can_cancel(supplier_id):
-            raise SupplierAggregateError(f"Cannot cancel supplier {supplier_id}")
-        return self.update_supplier_status(
-            supplier_id, SupplierStatus.INACTIVE, cancelled_by, reason
-        )
-
-    def can_reverse(self, supplier_id: UUID) -> bool:
-        return False
-
-    def reverse(self, supplier_id: UUID, reversed_by: str, reason: str) -> SupplierAggregate:
-        raise NotImplementedError("Reverse not applicable for supplier")
-
-    def can_close(self, supplier_id: UUID) -> bool:
-        supp = self.get_supplier(supplier_id)
-        return supp is not None and supp.status == SupplierStatus.ACTIVE
-
-    def close(self, supplier_id: UUID, closed_by: str, reason: str) -> SupplierAggregate:
-        if not self.can_close(supplier_id):
-            raise SupplierAggregateError(f"Cannot close supplier {supplier_id}")
-        return self.update_supplier_status(supplier_id, SupplierStatus.INACTIVE, closed_by, reason)
-
-    def can_reopen(self, supplier_id: UUID) -> bool:
-        supp = self.get_supplier(supplier_id)
-        return supp is not None and supp.status == SupplierStatus.INACTIVE
-
-    def reopen(self, supplier_id: UUID, reopened_by: str, reason: str) -> SupplierAggregate:
-        if not self.can_reopen(supplier_id):
-            raise SupplierAggregateError(f"Cannot reopen supplier {supplier_id}")
-        return self.update_supplier_status(supplier_id, SupplierStatus.ACTIVE, reopened_by, reason)
-
-    def can_archive(self) -> bool:
-        return len(self.suppliers) == 0
-
-    def archive(self, archived_by: str, reason: str | None = None) -> SupplierAggregate:
-        if not self.can_archive():
-            raise SupplierAggregateError("Cannot archive aggregate with suppliers")
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("ARCHIVE", archived_by, {"reason": reason})
-        return new_agg
-
-    def can_unarchive(self) -> bool:
-        return True
-
-    def unarchive(self, unarchived_by: str) -> SupplierAggregate:
-        new_agg = self._copy()
-        new_agg.updated_at = datetime.now(UTC)
-        new_agg.version = self.version + 1
-        new_agg._record_audit("UNARCHIVE", unarchived_by, {})
-        return new_agg
 
     # ==================== EVENT METHODS ====================
 
@@ -447,51 +203,9 @@ class SupplierAggregate:
     def clear_events(self) -> None:
         self._events.clear()
 
-    # ── Tambahan untuk kepatuhan checker (AGG-021) ──
     def apply(self, event: DomainEvent) -> None:
-        """Apply a domain event (event sourcing placeholder)."""
-        # Just record that event was applied.
+        """Event sourcing placeholder."""
         self._events.append(event)
-
-    # ==================== FACTORY METHODS ====================
-
-    @classmethod
-    def create_aggregate(cls, legal_entity_id: UUID, created_by: str = "system") -> SupplierAggregate:
-        """Factory method to create a new empty aggregate."""
-        agg = cls(
-            aggregate_id=uuid4(),
-            legal_entity_id=legal_entity_id,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
-        )
-        agg._record_audit("CREATE", created_by, {"legal_entity_id": str(legal_entity_id)})
-        return agg
-
-    @classmethod
-    def from_events(cls, events: list[DomainEvent]) -> SupplierAggregate:
-        """Reconstruct aggregate from event stream."""
-        if not events:
-            raise ValueError("No events provided")
-
-        first_event = events[0]
-        aggregate_id = getattr(first_event, "aggregate_id", uuid4())
-        legal_entity_id = getattr(first_event, "legal_entity_id", uuid4())
-
-        agg = cls(
-            aggregate_id=aggregate_id,
-            legal_entity_id=legal_entity_id,
-            suppliers={},
-            supplier_by_code={},
-            supplier_by_tax_id={},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
-        )
-        for event in events:
-            agg.apply(event)
-        agg.version = len(events)
-        return agg
 
     # ==================== QUERY METHODS ====================
 
@@ -519,10 +233,14 @@ class SupplierAggregate:
         return [s for s in self.suppliers.values() if s.status == status]
 
     def get_suppliers_with_withholding(self) -> list[SupplierEntity]:
-        return [s for s in self.suppliers.values() if s.withholding_category.should_withhold]
+        return [
+            s for s in self.suppliers.values() if s.withholding_category.should_withhold
+        ]
 
     def get_total_outstanding_balance(self) -> Decimal:
-        return sum((s.outstanding_balance for s in self.suppliers.values()), Decimal("0"))
+        return sum(
+            (s.outstanding_balance for s in self.suppliers.values()), Decimal("0")
+        )
 
     def get_total_purchases(self) -> Decimal:
         return sum((s.total_purchases for s in self.suppliers.values()), Decimal("0"))
@@ -541,10 +259,16 @@ class SupplierAggregate:
 
     # ==================== COMMAND METHODS ====================
 
-    def add_supplier(self, supplier: SupplierEntity, created_by: str) -> SupplierAggregate:
+    def add_supplier(
+        self, supplier: SupplierEntity, created_by: str
+    ) -> SupplierAggregate:
         if supplier.supplier_id in self.suppliers:
-            raise SupplierAggregateError(f"Supplier {supplier.supplier_id} already exists")
-        _validate_supplier_code_unique(supplier.supplier_code, set(self.supplier_by_code.keys()))
+            raise SupplierAggregateError(
+                f"Supplier {supplier.supplier_id} already exists"
+            )
+        _validate_supplier_code_unique(
+            supplier.supplier_code, set(self.supplier_by_code.keys())
+        )
         _validate_tax_id_unique(supplier.tax_id, self.supplier_by_tax_id)
         _validate_payment_terms(supplier.payment_terms_days)
         if supplier.version != 1:
@@ -559,7 +283,7 @@ class SupplierAggregate:
             new_by_tax_id[supplier.tax_id] = supplier.supplier_id
 
         self._register_event(
-            SupplierCreatedEvent(
+            SupplierCreatedEvent.create(
                 aggregate_id=self.aggregate_id,
                 aggregate_version=self.version + 1,
                 supplier=supplier,
@@ -576,9 +300,14 @@ class SupplierAggregate:
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             version=self.version + 1,
+            _events=self._events.copy(),
+            _audit_trail=self._audit_trail.copy(),
+            _snapshots=self._snapshots.copy(),
         )
 
-    def update_supplier(self, supplier: SupplierEntity, updated_by: str) -> SupplierAggregate:
+    def update_supplier(
+        self, supplier: SupplierEntity, updated_by: str
+    ) -> SupplierAggregate:
         if supplier.supplier_id not in self.suppliers:
             raise SupplierNotFoundError(f"Supplier {supplier.supplier_id} not found")
         old_supplier = self.suppliers[supplier.supplier_id]
@@ -591,19 +320,22 @@ class SupplierAggregate:
             )
         if supplier.tax_id != old_supplier.tax_id:
             _validate_tax_id_unique(
-                supplier.tax_id, self.supplier_by_tax_id, exclude_id=supplier.supplier_id
+                supplier.tax_id,
+                self.supplier_by_tax_id,
+                exclude_id=supplier.supplier_id,
             )
         _validate_payment_terms(supplier.payment_terms_days)
         if supplier.version <= old_supplier.version:
             raise ValueError(
-                f"Version mismatch: current {old_supplier.version}, provided {supplier.version}"
+                f"Version mismatch: current {old_supplier.version}, "
+                f"provided {supplier.version}"
             )
 
         new_suppliers = dict(self.suppliers)
         new_suppliers[supplier.supplier_id] = supplier
         new_by_code = dict(self.supplier_by_code)
         if supplier.supplier_code != old_supplier.supplier_code:
-            del new_by_code[old_supplier.supplier_code]
+            new_by_code.pop(old_supplier.supplier_code, None)
             new_by_code[supplier.supplier_code] = supplier.supplier_id
         new_by_tax_id = dict(self.supplier_by_tax_id)
         if old_supplier.tax_id:
@@ -620,6 +352,9 @@ class SupplierAggregate:
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             version=self.version + 1,
+            _events=self._events.copy(),
+            _audit_trail=self._audit_trail.copy(),
+            _snapshots=self._snapshots.copy(),
         )
 
     def update_supplier_status(
@@ -639,8 +374,6 @@ class SupplierAggregate:
         elif new_status == SupplierStatus.ACTIVE:
             if supplier.status == SupplierStatus.BLOCKED:
                 updated = supplier.unblock(updated_by)
-            elif supplier.status == SupplierStatus.INACTIVE:
-                updated = supplier.activate(updated_by)
             else:
                 updated = supplier.activate(updated_by)
         elif new_status == SupplierStatus.INACTIVE:
@@ -650,15 +383,7 @@ class SupplierAggregate:
         elif new_status == SupplierStatus.SUSPENDED:
             updated = supplier.suspend(updated_by, reason or "Suspended")
         else:
-            updated = SupplierEntity(
-                **{
-                    **supplier.__dict__,
-                    "status": new_status,
-                    "updated_at": datetime.now(UTC),
-                    "updated_by": updated_by,
-                    "version": supplier.version + 1,
-                }
-            )
+            updated = supplier  # fallback: no-op
 
         return self.update_supplier(updated, updated_by)
 
@@ -671,7 +396,7 @@ class SupplierAggregate:
         _validate_payment_terms(new_payment_terms_days)
         updated = supplier.update_payment_terms(new_payment_terms_days, updated_by)
         self._register_event(
-            SupplierPaymentTermsChangedEvent(
+            SupplierPaymentTermsChangedEvent.create(
                 aggregate_id=self.aggregate_id,
                 aggregate_version=self.version + 1,
                 supplier_id=supplier.supplier_id,
@@ -684,7 +409,10 @@ class SupplierAggregate:
         return self.update_supplier(updated, updated_by)
 
     def update_supplier_withholding_category(
-        self, supplier_id: UUID, new_category: SupplierWithholdingCategoryVO, updated_by: str
+        self,
+        supplier_id: UUID,
+        new_category: SupplierWithholdingCategoryVO,
+        updated_by: str,
     ) -> SupplierAggregate:
         supplier = self.get_supplier(supplier_id)
         if supplier is None:
@@ -693,7 +421,7 @@ class SupplierAggregate:
         new_article = new_category.article.value
         updated = supplier.update_withholding_category(new_category, updated_by)
         self._register_event(
-            SupplierWithholdingCategoryChangedEvent(
+            SupplierWithholdingCategoryChangedEvent.create(
                 aggregate_id=self.aggregate_id,
                 aggregate_version=self.version + 1,
                 supplier_id=supplier.supplier_id,
@@ -735,7 +463,8 @@ class SupplierAggregate:
             raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
         if supplier.outstanding_balance > 0:
             raise SupplierAggregateError(
-                f"Cannot delete supplier with outstanding balance {supplier.outstanding_balance}"
+                f"Cannot delete supplier with outstanding balance "
+                f"{supplier.outstanding_balance}"
             )
         updated = supplier.deactivate(deleted_by)
         return self.update_supplier(updated, deleted_by)
@@ -745,15 +474,71 @@ class SupplierAggregate:
     def get_statistics(self) -> dict[str, Any]:
         total = self.get_supplier_count()
         active = self.get_active_supplier_count()
+        status_counts = {
+            s.value: len(self.get_suppliers_by_status(s)) for s in SupplierStatus
+        }
         return {
             "total_suppliers": total,
             "active_suppliers": active,
             "inactive_suppliers": total - active,
+            "status_distribution": status_counts,
             "total_outstanding_balance": str(self.get_total_outstanding_balance()),
             "total_lifetime_purchases": str(self.get_total_purchases()),
         }
 
-    # ==================== PRIVATE HELPERS ====================
+    # ==================== SERIALIZATION ====================
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "aggregate_id": str(self.aggregate_id),
+            "legal_entity_id": str(self.legal_entity_id),
+            "suppliers": [s.to_dict() for s in self.suppliers.values()],
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "version": self.version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SupplierAggregate:
+        suppliers: dict[UUID, SupplierEntity] = {}
+        for supp_data in data.get("suppliers", []):
+            supp = SupplierEntity.from_dict(supp_data)
+            suppliers[supp.supplier_id] = supp
+        return cls(
+            aggregate_id=UUID(data["aggregate_id"]),
+            legal_entity_id=UUID(data["legal_entity_id"]),
+            suppliers=suppliers,
+            supplier_by_code={
+                s.supplier_code: s.supplier_id for s in suppliers.values()
+            },
+            supplier_by_tax_id={
+                s.tax_id: s.supplier_id for s in suppliers.values() if s.tax_id
+            },
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            version=data.get("version", 1),
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "aggregate_id": str(self.aggregate_id),
+            "supplier_count": len(self.suppliers),
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def get_version(self) -> int:
+        return self.version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> SupplierAggregate:
+        new_agg = self._copy()
+        new_agg.updated_at = datetime.now(UTC)
+        new_agg.version = self.version + 1
+        new_agg._record_audit("TOUCH", touched_by, {})
+        return new_agg
 
     def _copy(self) -> SupplierAggregate:
         return SupplierAggregate(
@@ -765,103 +550,53 @@ class SupplierAggregate:
             created_at=self.created_at,
             updated_at=self.updated_at,
             version=self.version,
+            _events=self._events.copy(),
+            _audit_trail=self._audit_trail.copy(),
+            _snapshots=self._snapshots.copy(),
         )
 
-
-# ============================================================================
-# Repository Implementation (Real)
-# ============================================================================
-
-
-class SupplierAggregateRepository:
-    _storage: ClassVar[dict[UUID, SupplierAggregate]] = {}
+    # ==================== FACTORY METHODS ====================
 
     @classmethod
-    async def get_by_legal_entity(cls, legal_entity_id: UUID) -> SupplierAggregate | None:
-        for agg in cls._storage.values():
-            if agg.legal_entity_id == legal_entity_id:
-                return agg
-        return None
+    def create_aggregate(
+        cls, legal_entity_id: UUID, created_by: str = "system"
+    ) -> SupplierAggregate:
+        agg = cls(
+            aggregate_id=uuid4(),
+            legal_entity_id=legal_entity_id,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=1,
+        )
+        agg._record_audit(
+            "CREATE", created_by, {"legal_entity_id": str(legal_entity_id)}
+        )
+        return agg
 
     @classmethod
-    async def get_by_id(cls, aggregate_id: UUID) -> SupplierAggregate | None:
-        return cls._storage.get(aggregate_id)
-
-    @classmethod
-    async def get_all(cls) -> list[SupplierAggregate]:
-        return list(cls._storage.values())
-
-    @classmethod
-    async def save(cls, aggregate: SupplierAggregate) -> None:
-        cls._storage[aggregate.aggregate_id] = aggregate
-
-    @classmethod
-    async def update(cls, aggregate: SupplierAggregate) -> None:
-        cls._storage[aggregate.aggregate_id] = aggregate
-
-    @classmethod
-    async def delete(cls, aggregate_id: UUID) -> None:
-        if aggregate_id in cls._storage:
-            del cls._storage[aggregate_id]
-
-    @classmethod
-    async def exists(cls, aggregate_id: UUID) -> bool:
-        return aggregate_id in cls._storage
-
-    @classmethod
-    async def count(cls) -> int:
-        return len(cls._storage)
-
-    @classmethod
-    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[SupplierAggregate]:
-        aggregates = list(cls._storage.values())
-        return aggregates[offset : offset + limit]
-
-    @classmethod
-    async def paginate(
-        cls, page: int = 1, per_page: int = 20
-    ) -> tuple[list[SupplierAggregate], int]:
-        aggregates = list(cls._storage.values())
-        total = len(aggregates)
-        start = (page - 1) * per_page
-        end = start + per_page
-        return aggregates[start:end], total
-
-    @classmethod
-    async def search(cls, query: str, fields: list[str] | None = None) -> list[SupplierAggregate]:
-        if fields is None:
-            fields = ["aggregate_id", "legal_entity_id"]
-        query_lower = query.lower()
-        results = []
-        for agg in cls._storage.values():
-            for field_name in fields:
-                value = getattr(agg, field_name, "")
-                if value and query_lower in str(value).lower():
-                    results.append(agg)
-                    break
-        return results
-
-    @classmethod
-    async def lock(cls, aggregate_id: UUID, locked_by: str, reason: str) -> SupplierAggregate:
-        agg = await cls.get_by_id(aggregate_id)
-        if not agg:
-            raise ValueError(f"Aggregate {aggregate_id} not found")
-        locked = agg.lock(locked_by, reason)
-        await cls.save(locked)
-        return locked
-
-    @classmethod
-    async def unlock(cls, aggregate_id: UUID, unlocked_by: str) -> SupplierAggregate:
-        agg = await cls.get_by_id(aggregate_id)
-        if not agg:
-            raise ValueError(f"Aggregate {aggregate_id} not found")
-        unlocked = agg.unlock(unlocked_by)
-        await cls.save(unlocked)
-        return unlocked
-
-    @classmethod
-    async def clear(cls) -> None:
-        cls._storage.clear()
+    def from_events(cls, events: list[DomainEvent]) -> SupplierAggregate:
+        if not events:
+            raise ValueError("No events provided")
+        first_event = events[0]
+        aggregate_id = first_event.aggregate_id
+        legal_entity_id_str = first_event.event_data.get("legal_entity_id")
+        legal_entity_id = (
+            UUID(legal_entity_id_str) if legal_entity_id_str else uuid4()
+        )
+        agg = cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+            suppliers={},
+            supplier_by_code={},
+            supplier_by_tax_id={},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=1,
+        )
+        for event in events:
+            agg.apply(event)
+        agg.version = len(events)
+        return agg
 
 
 __all__ = [
@@ -871,6 +606,5 @@ __all__ = [
     "InvalidSupplierStatusTransitionError",
     "SupplierAggregate",
     "SupplierAggregateError",
-    "SupplierAggregateRepository",
     "SupplierNotFoundError",
 ]

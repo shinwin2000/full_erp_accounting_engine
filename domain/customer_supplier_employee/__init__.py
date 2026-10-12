@@ -98,7 +98,6 @@ from domain.customer_supplier_employee.supplier_aggregate_root import (
     InvalidSupplierStatusTransitionError,
     SupplierAggregate,
     SupplierAggregateError,
-    SupplierAggregateRepository,
     SupplierNotFoundError,
 )
 from domain.customer_supplier_employee.supplier_entity import (
@@ -193,7 +192,6 @@ __all__ = [
     "PaymentTerm",
     "SupplierAggregate",
     "SupplierAggregateError",
-    "SupplierAggregateRepository",
     "SupplierCreated",
     "SupplierCreatedEvent",
     "SupplierEntity",

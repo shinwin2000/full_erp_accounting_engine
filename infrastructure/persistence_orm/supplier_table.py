@@ -2,17 +2,14 @@
 """
 Module: supplier_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Mendefinisikan model SQLAlchemy untuk tabel supplier.
-               Tabel ini menyimpan data master supplier/vendor, termasuk
-               informasi kontak, syarat pembayaran, status pajak, dan
-               withholding tax category. Digunakan oleh subledger AP,
-               procurement, dan payment.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, JSONB)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap perubahan data supplier dicatat di event store.
-       Kategori withholding tax digunakan untuk perhitungan PPh 23/26.
+Responsibility: Mendefinisikan model SQLAlchemy untuk tabel supplier
+               + tabel anak (attachments, notes).
+
+PERBAIKAN (2026-10-12):
+- CheckConstraint ck_supplier_status diperluas supaya mendukung
+  'blacklisted' dan 'draft' (sinkron dengan enum SupplierStatus di domain).
+- Tambah tabel anak: supplier_attachments, supplier_notes.
+- Tambah relationship attachments & notes di SupplierTable.
 """
 
 from __future__ import annotations
@@ -26,6 +23,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    ForeignKey,
     Index,
     Integer,
     Numeric,
@@ -47,31 +45,39 @@ from infrastructure.persistence_orm.base_model import (
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
     from infrastructure.persistence_orm.ap_payment_table import APPaymentTable
-    from infrastructure.persistence_orm.goods_receipt_note_table import GoodsReceiptNoteTable
-    from infrastructure.persistence_orm.purchase_order_table import PurchaseOrderTable
+    from infrastructure.persistence_orm.goods_receipt_note_table import (
+        GoodsReceiptNoteTable,
+    )
+    from infrastructure.persistence_orm.purchase_order_table import (
+        PurchaseOrderTable,
+    )
 
 
 class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel supplier.
-    """
+    """Model untuk tabel supplier."""
 
     __tablename__ = "supplier"
     __table_args__ = (
-        UniqueConstraint("supplier_code", "legal_entity_id", name="uq_supplier_code_legal_entity"),
+        UniqueConstraint(
+            "supplier_code", "legal_entity_id", name="uq_supplier_code_legal_entity"
+        ),
         UniqueConstraint("tax_id", name="uq_supplier_tax_id"),
         CheckConstraint(
-            "supplier_code IS NOT NULL AND supplier_code != ''", name="ck_supplier_code"
+            "supplier_code IS NOT NULL AND supplier_code != ''",
+            name="ck_supplier_code",
         ),
         CheckConstraint(
-            "supplier_name IS NOT NULL AND supplier_name != ''", name="ck_supplier_name"
+            "supplier_name IS NOT NULL AND supplier_name != ''",
+            name="ck_supplier_name",
         ),
         CheckConstraint(
             "supplier_type IN ('individual', 'company', 'government', 'non_profit')",
             name="ck_supplier_type",
         ),
         CheckConstraint(
-            "status IN ('active', 'inactive', 'blocked', 'suspended')", name="ck_supplier_status"
+            "status IN ('active', 'inactive', 'blocked', 'suspended', "
+            "'blacklisted', 'draft')",
+            name="ck_supplier_status",
         ),
         CheckConstraint(
             "withholding_category IN ('none', 'pph23', 'pph26', 'both')",
@@ -87,13 +93,17 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         {"extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
 
     # Basic identification
     supplier_code: Mapped[str] = mapped_column(String(30), nullable=False)
     supplier_name: Mapped[str] = mapped_column(String(200), nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    supplier_type: Mapped[str] = mapped_column(String(20), nullable=False, default="company")
+    supplier_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="company"
+    )
 
     # Tax and registration
     tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -103,8 +113,12 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     registration_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Withholding tax (PPh 23/26)
-    withholding_category: Mapped[str] = mapped_column(String(20), nullable=False, default="none")
-    withholding_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    withholding_category: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="none"
+    )
+    withholding_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=0
+    )
     has_npwp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Contact information
@@ -126,9 +140,15 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     # Payment terms, credit and bank
     payment_term_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
-    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
-    credit_limit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    opening_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
+    discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=0
+    )
+    credit_limit: Mapped[Decimal] = mapped_column(
+        Numeric(20, 2), nullable=False, default=0
+    )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(20, 2), nullable=False, default=0
+    )
     opening_balance_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bank_account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -136,8 +156,12 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     # Performance metrics
     lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
-    quality_rating: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=True, default=0)
-    on_time_delivery_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=True, default=0)
+    quality_rating: Mapped[Decimal] = mapped_column(
+        Numeric(3, 2), nullable=True, default=0
+    )
+    on_time_delivery_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=True, default=0
+    )
 
     # Grouping and classification
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -158,42 +182,54 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     # ========================================================================
-    # RELATIONSHIPS - semua menggunakan back_populates untuk konsistensi
+    # RELATIONSHIPS
     # ========================================================================
 
-    # AP Invoices - kolom di APInvoiceTable adalah 'vendor_id'
-    ap_invoices: Mapped[list[APInvoiceTable]] = relationship(
+    ap_invoices: Mapped[list["APInvoiceTable"]] = relationship(
         "APInvoiceTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
         foreign_keys="[APInvoiceTable.vendor_id]",
     )
 
-    # AP Payments - kolom di APPaymentTable adalah 'supplier_id'
-    ap_payments: Mapped[list[APPaymentTable]] = relationship(
+    ap_payments: Mapped[list["APPaymentTable"]] = relationship(
         "APPaymentTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
         foreign_keys="[APPaymentTable.supplier_id]",
     )
 
-    # Purchase Orders - kolom di PurchaseOrderTable adalah 'supplier_id'
-    purchase_orders: Mapped[list[PurchaseOrderTable]] = relationship(
+    purchase_orders: Mapped[list["PurchaseOrderTable"]] = relationship(
         "PurchaseOrderTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
         foreign_keys="[PurchaseOrderTable.supplier_id]",
     )
 
-    # Goods Receipt Notes - kolom di GoodsReceiptNoteTable adalah 'supplier_id'
-    goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship(
+    goods_receipt_notes: Mapped[list["GoodsReceiptNoteTable"]] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
         foreign_keys="[GoodsReceiptNoteTable.supplier_id]",
+    )
+
+    attachments: Mapped[list["SupplierAttachmentTable"]] = relationship(
+        "SupplierAttachmentTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierAttachmentTable.created_at",
+    )
+
+    notes: Mapped[list["SupplierNoteTable"]] = relationship(
+        "SupplierNoteTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierNoteTable.created_at.desc()",
     )
 
     # ========================================================================
@@ -317,4 +353,103 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         }
 
 
-__all__ = ["SupplierTable"]
+# ============================================================================
+# Tabel Anak: Supplier Attachments (dokumen pendukung)
+# ============================================================================
+
+
+class SupplierAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
+    """Dokumen pendukung: NPWP, SIUP, KTP, kontrak, foto, dll."""
+
+    __tablename__ = "supplier_attachments"
+    __table_args__ = (
+        Index("idx_supplier_attachment_supplier_id", "supplier_id"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    document_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="other"
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="attachments"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "document_type": self.document_type,
+            "file_name": self.file_name,
+            "file_path": self.file_path,
+            "file_size_bytes": self.file_size_bytes,
+            "mime_type": self.mime_type,
+            "notes": self.notes,
+            "uploaded_by": str(self.uploaded_by) if self.uploaded_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# Tabel Anak: Supplier Notes (catatan internal berhistori)
+# ============================================================================
+
+
+class SupplierNoteTable(Base, TimestampMixin):
+    """Catatan internal berhistori (bukan satu field bebas yang tertimpa)."""
+
+    __tablename__ = "supplier_notes"
+    __table_args__ = (
+        Index("idx_supplier_note_supplier_id", "supplier_id"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="notes"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "note": self.note,
+            "created_by": str(self.created_by) if self.created_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+__all__ = [
+    "SupplierAttachmentTable",
+    "SupplierNoteTable",
+    "SupplierTable",
+]

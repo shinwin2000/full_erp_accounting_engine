@@ -3,31 +3,26 @@ ui/pages/suppliers_page.py
 =============================
 Halaman modul "Pemasok (Supplier)" (Master Data).
 
-Endpoint backend : /suppliers/suppliers  (prefix /api/v1 ditambahkan oleh api_client)
+Endpoint backend : /suppliers/suppliers
 
-REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
-tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
-terhadap schema backend asli. Kalau perlu ubah field modul ini, ubah di
-registry.py lalu salin ulang COLUMNS/FORM_FIELDS/ACTIONS ke bawah ini
-(tidak ada skrip regenerasi otomatis di repo ini), JANGAN biarkan
-keduanya berbeda lagi.
+Field/kolom grid utama & form Tambah/Ubah SELALU sinkron dengan
+registry/module_registry.py (sumber kebenaran tunggal).
 
-CATATAN SINKRONISASI (refactor Supplier/Vendor 2026-08):
-    Field di bawah ini disinkronkan 1:1 dengan skema Pydantic
-    `CreateSupplierRequest` / `UpdateSupplierRequest` /
-    `SupplierResponseModel` di
-    backend/adapters/primary_api/v1/fastapi_supplier_router.py, yang pada
-    gilirannya dipetakan ke kolom tabel `supplier` di database oleh
-    backend/adapters/secondary_impl/sqlalchemy_supplier_repository_impl.py.
-    Field baru: company_name, tax_name, mobile, province, credit_limit,
-    opening_balance, opening_balance_date, remarks, status, withholding_category.
+Tombol "📋 Detail" ditambahkan khusus untuk modul ini, karena Supplier
+punya data anak (attachment/notes) yang tidak muat direpresentasikan
+sebagai kolom grid generik — lihat supplier_detail_dialog.py.
 """
 from __future__ import annotations
 
 from core.api_client import api_client
 from core.workers import run_task
-from PySide6.QtWidgets import QMessageBox
-from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
+from PySide6.QtWidgets import QMessageBox, QPushButton
+from registry.module_registry import (
+    ActionSpec,
+    FieldSpec,
+    FieldType,
+    ModuleConfig,
+)
 from ui.widgets.form_dialog import FormDialog
 from ui.widgets.generic_list_page import GenericListPage
 
@@ -52,16 +47,32 @@ COLUMNS = [
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
     # --- Informasi Umum ---
-    FieldSpec("supplier_code", "Kode Supplier", required=True,
-              help_text="Kode unik supplier, mis. SUP-0001"),
+    FieldSpec(
+        "supplier_code",
+        "Kode Supplier",
+        required=True,
+        help_text="Kode unik supplier, mis. SUP-0001",
+    ),
     FieldSpec("name", "Nama Supplier", required=True),
     FieldSpec("company_name", "Nama Perusahaan"),
-    FieldSpec("supplier_type", "Jenis Supplier", FieldType.SELECT,
-              choices=("individual", "company", "government", "non_profit"),
-              default="company",
-              help_text="individual=perorangan, company=perusahaan, government=pemerintah, non_profit=nirlaba"),
-    FieldSpec("withholding_category", "Kategori PPh", FieldType.SELECT,
-              choices=("none", "pph23", "pph26", "both"), default="none"),
+    FieldSpec(
+        "supplier_type",
+        "Jenis Supplier",
+        FieldType.SELECT,
+        choices=("individual", "company", "government", "non_profit"),
+        default="company",
+        help_text=(
+            "individual=perorangan, company=perusahaan, "
+            "government=pemerintah, non_profit=nirlaba"
+        ),
+    ),
+    FieldSpec(
+        "withholding_category",
+        "Kategori PPh",
+        FieldType.SELECT,
+        choices=("none", "pph23", "pph26", "both"),
+        default="none",
+    ),
     # --- Pajak ---
     FieldSpec("npwp", "NPWP"),
     FieldSpec("tax_name", "Nama Wajib Pajak"),
@@ -82,22 +93,38 @@ FORM_FIELDS = [
     FieldSpec("bank_account_number", "Nomor Rekening"),
     FieldSpec("bank_account_name", "Nama Pemilik Rekening"),
     # --- Keuangan ---
-    FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30),
+    FieldSpec(
+        "payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30
+    ),
     FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL, default=0),
     FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, default=0),
     FieldSpec("opening_balance_date", "Tanggal Saldo Awal", FieldType.DATE),
     # --- Lainnya ---
-    FieldSpec("status", "Status", FieldType.SELECT,
-              choices=("active", "inactive", "blocked", "suspended"), default="active"),
+    FieldSpec(
+        "status",
+        "Status",
+        FieldType.SELECT,
+        choices=(
+            "active",
+            "inactive",
+            "blocked",
+            "suspended",
+            "blacklisted",
+            "draft",
+        ),
+        default="active",
+    ),
     FieldSpec("remarks", "Catatan", FieldType.TEXTAREA),
 ]
 
 # ---------------------------------------------------------------------------
-# Aksi workflow tambahan (tombol di toolbar, POST /{id}/{aksi})
+# Aksi workflow tambahan
 # ---------------------------------------------------------------------------
 ACTIONS = [
     ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
-    ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
+    ActionSpec(
+        "deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"
+    ),
 ]
 
 CONFIG = ModuleConfig(
@@ -120,7 +147,7 @@ CONFIG = ModuleConfig(
 
 
 class SuppliersPage(GenericListPage):
-    """Halaman Pemasok (Supplier)."""
+    """Halaman Pemasok (Supplier), + tombol Detail untuk data anak."""
 
     # Tombol -> permission yang dibutuhkan (sama dengan yang ditegakkan server).
     button_permissions = (
@@ -134,21 +161,50 @@ class SuppliersPage(GenericListPage):
 
     def __init__(self, parent=None):
         super().__init__(CONFIG, parent)
+        self._add_detail_button()
+        self._apply_permission_gates()
+
+    # ------------------------------------------------------------------
+    def _add_detail_button(self) -> None:
+        self.detail_btn = QPushButton("📋 Detail")
+        self.detail_btn.clicked.connect(self._open_detail)
+        # Taruh tepat di sebelah kiri tombol "+ Baru"
+        toolbar_layout = self.layout().itemAt(1).layout()
+        insert_at = (
+            toolbar_layout.count() - 1
+            if self.config.can_create
+            else toolbar_layout.count()
+        )
+        toolbar_layout.insertWidget(insert_at, self.detail_btn)
+
+    def _open_detail(self) -> None:
+        from ui.pages.supplier_detail_dialog import SupplierDetailDialog
+
+        record = self._selected_record()
+        if not record:
+            QMessageBox.information(
+                self, "Info", "Pilih baris supplier terlebih dahulu."
+            )
+            return
+        supplier_id = record.get(self.config.id_field)
+        label = (
+            record.get("name")
+            or record.get("supplier_code")
+            or str(supplier_id)
+        )
+        dlg = SupplierDetailDialog(str(supplier_id), str(label), parent=self)
+        dlg.exec()
+        # Data di tab Detail ikut mengubah data utama -> segarkan grid.
+        self.refresh()
 
     # ------------------------------------------------------------------
     # Auto-generate Kode Supplier saat tombol "Tambah" diklik.
-    #
-    # Alurnya: klik "Tambah" -> panggil GET /suppliers/next-code dulu di
-    # background thread -> begitu dapat kodenya (mis. "SUP-004"), baru
-    # form Tambah Supplier dibuka dengan field "Kode Supplier" sudah
-    # otomatis terisi (masih bisa diedit manual kalau perlu).
-    #
-    # Kalau pengambilan kode gagal (mis. server lagi sibuk), form tetap
-    # dibuka kosong seperti biasa supaya user tidak terblokir.
     # ------------------------------------------------------------------
     def _create_new(self) -> None:
         if not self.config.form_fields:
-            QMessageBox.information(self, "Info", "Form untuk modul ini belum dikonfigurasi.")
+            QMessageBox.information(
+                self, "Info", "Form untuk modul ini belum dikonfigurasi."
+            )
             return
         self.status_label.setText("Menyiapkan kode supplier...")
         run_task(
@@ -163,22 +219,32 @@ class SuppliersPage(GenericListPage):
         next_code = ""
         if isinstance(response, dict):
             next_code = response.get("supplier_code", "") or ""
-        self._show_create_dialog({"supplier_code": next_code} if next_code else None)
+        self._show_create_dialog(
+            {"supplier_code": next_code} if next_code else None
+        )
 
     def _on_next_code_error(self, message: str) -> None:
         self.status_label.setText("")
         self._show_create_dialog(None)
 
     def _show_create_dialog(self, initial: dict | None) -> None:
-        dlg = FormDialog(f"Tambah {self.config.label}", self.config.form_fields, initial=initial, parent=self)
+        dlg = FormDialog(
+            f"Tambah {self.config.label}",
+            self.config.form_fields,
+            initial=initial,
+            parent=self,
+        )
         if dlg.exec():
             payload = dlg.result_payload()
             create_path = self.config.base_path + self.config.list_path
             self.status_label.setText("Menyimpan...")
             run_task(
                 api_client.post,
-                on_success=lambda _r: self._after_write("Data berhasil ditambahkan."),
+                on_success=lambda _r: self._after_write(
+                    "Data berhasil ditambahkan."
+                ),
                 on_error=self._on_write_error,
                 path=create_path,
                 json_body=payload,
             )
+            
