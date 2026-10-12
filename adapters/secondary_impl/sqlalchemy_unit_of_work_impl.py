@@ -6,18 +6,13 @@ Layer: Adapters (Secondary Implementation)
 Responsibility:
     Implementasi konkret dari UnitOfWorkPort menggunakan SQLAlchemy.
     Semua import dilakukan secara lazy untuk menghindari kegagalan startup.
-    Menggunakan session.begin() langsung (tanpa TransactionManager eksternal).
-    Penanganan error pada close session dan commit/rollback.
 
-    Perbaikan (v2):
-    - __aexit__: commit otomatis jika tidak ada exception
-    - commit() dan rollback() menggunakan _transaction object dengan benar
-    - Menambahkan properti session yang mengembalikan session aktif
-
-    Perbaikan attach session (v3):
-    - Setiap repository di-attach dengan try/except agar satu repository
-      yang bermasalah tidak menjatuhkan transaksi service lain.
-    - Prioritas: set_session() → _session → session (property dengan setter).
+PERBAIKAN (2026-10-12):
+- Tambah repository customer, supplier, employee di _ensure_repositories_initialized
+  supaya UoW.customers(), UoW.suppliers(), UoW.employees() tersedia.
+- Tambah convenience methods customers(), suppliers(), employees().
+- Perbaikan lain dipertahankan dari versi sebelumnya (attach session dengan
+  try/except per repo, close session di commit/rollback, dll).
 """
 
 from __future__ import annotations
@@ -34,15 +29,19 @@ from sqlalchemy import text as sa_text
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================================
 # EXCEPTIONS
 # ============================================================================
 
+
 class UnitOfWorkError(Exception):
     pass
 
+
 class UnitOfWorkCommitError(UnitOfWorkError):
     pass
+
 
 class UnitOfWorkRollbackError(UnitOfWorkError):
     pass
@@ -51,6 +50,7 @@ class UnitOfWorkRollbackError(UnitOfWorkError):
 # ============================================================================
 # KELAS UTAMA
 # ============================================================================
+
 
 class SQLAlchemyUnitOfWork:
     """
@@ -77,12 +77,12 @@ class SQLAlchemyUnitOfWork:
 
     def __init__(
         self,
-        session_factory: Any = None,  # async_sessionmaker | None
+        session_factory: Any = None,
         is_period_closing: bool = False,
     ):
         self._session_factory = session_factory
-        self._session: Any = None          # AsyncSession
-        self._transaction: Any = None      # AsyncSessionTransaction
+        self._session: Any = None
+        self._transaction: Any = None
         self._repositories: dict[str, Any] = {}
         self._event_collector: list = []
         self._savepoint_depth: int = 0
@@ -120,6 +120,10 @@ class SQLAlchemyUnitOfWork:
             outbox_cls = getattr(adapters, "SQLAlchemyOutboxRepository", None)
             setting_cls = getattr(adapters, "SQLAlchemySystemSettingRepository", None)
             tax_cls = getattr(adapters, "SQLAlchemyTaxRepository", None)
+            # TAMBAHAN (2026-10-12): repository master data
+            customer_cls = getattr(adapters, "SQLAlchemyCustomerRepository", None)
+            supplier_cls = getattr(adapters, "SQLAlchemySupplierRepository", None)
+            employee_cls = getattr(adapters, "SQLAlchemyEmployeeRepository", None)
 
             self._repositories["account"] = account_cls() if account_cls else None
             self._repositories["ap"] = ap_cls() if ap_cls else None
@@ -134,33 +138,29 @@ class SQLAlchemyUnitOfWork:
             self._repositories["outbox"] = outbox_cls() if outbox_cls else None
             self._repositories["system_setting"] = setting_cls() if setting_cls else None
             self._repositories["tax"] = tax_cls() if tax_cls else None
+            # TAMBAHAN
+            self._repositories["customer"] = customer_cls() if customer_cls else None
+            self._repositories["supplier"] = supplier_cls() if supplier_cls else None
+            self._repositories["employee"] = employee_cls() if employee_cls else None
 
             self._initialized_repos = True
         except ImportError as e:
-            raise UnitOfWorkError(f"Failed to import repository adapters: {e}") from e
+            raise UnitOfWorkError(
+                f"Failed to import repository adapters: {e}"
+            ) from e
 
     def _attach_session_to_repositories(self) -> None:
         """
         Set session pada setiap repository yang sudah diinisialisasi.
 
-        CATATAN BUGFIX: `hasattr(repo, "session")` di sini memicu property
-        getter `session` pada repo tersebut. Beberapa implementasi (mis.
-        `SQLAlchemyIAMUserRepository.session`) melempar exception kustom
-        (`IAMRepositoryError`), BUKAN `AttributeError`, ketika session belum
-        pernah di-set. `hasattr()` di Python 3 hanya menganggap
-        `AttributeError` sebagai "atribut tidak ada" — exception lain akan
-        diteruskan apa adanya. Akibatnya SETIAP pemakaian UnitOfWork di
-        seluruh aplikasi (bukan cuma modul IAM) bisa crash total hanya
-        karena satu repository lain kebetulan belum terpasang session-nya.
-        Setiap repo kini dibungkus try/except supaya satu repository yang
-        "rewel" tidak menjatuhkan transaksi service lain yang sama sekali
-        tidak berhubungan dengannya.
+        Setiap repo dibungkus try/except supaya satu repository yang
+        "rewel" (mis. property session melempar exception kustom) tidak
+        menjatuhkan transaksi service lain yang tidak berhubungan.
         """
         for repo in self._repositories.values():
             if repo is None:
                 continue
             try:
-                # Prioritas: set_session() → _session → session (property)
                 if hasattr(repo, "set_session"):
                     repo.set_session(self._session)
                 elif hasattr(repo, "_session"):
@@ -192,7 +192,8 @@ class SQLAlchemyUnitOfWork:
             getter = getattr(session_module, "get_async_session_factory", None)
             if getter is None:
                 raise UnitOfWorkError(
-                    "get_async_session_factory not found in session_factory_sqlalchemy"
+                    "get_async_session_factory not found in "
+                    "session_factory_sqlalchemy"
                 )
             self._session_factory = await getter()
             return self._session_factory
@@ -206,7 +207,7 @@ class SQLAlchemyUnitOfWork:
             ) from e
 
     # ------------------------------------------------------------------------
-    # CONTEXT MANAGER ENTRY / EXIT (diperbaiki)
+    # CONTEXT MANAGER ENTRY / EXIT
     # ------------------------------------------------------------------------
 
     async def __aenter__(self) -> SQLAlchemyUnitOfWork:
@@ -216,15 +217,19 @@ class SQLAlchemyUnitOfWork:
         self._session = self._session_factory()
 
         if self._is_period_closing:
-            await self._session.execute(sa_text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), {})
+            await self._session.execute(
+                sa_text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), {}
+            )
             try:
-                from infrastructure.telemetry.structured_json_logging import get_logger
+                from infrastructure.telemetry.structured_json_logging import (
+                    get_logger,
+                )
                 log = get_logger(__name__)
                 log.info("UoW using SERIALIZABLE isolation for period closing")
             except ImportError:
                 pass
 
-        # Memulai transaksi dengan benar: ambil context manager dan masuk ke dalamnya
+        # Mulai transaksi dengan benar
         self._transaction = await self._session.begin().__aenter__()
 
         self._ensure_repositories_initialized()
@@ -241,11 +246,9 @@ class SQLAlchemyUnitOfWork:
         exc_tb: Any | None,
     ) -> None:
         try:
-            # Jika ada exception dan transaksi masih aktif, rollback
             if exc_type is not None and self._transaction is not None:
                 await self._transaction.rollback()
                 self._transaction = None
-                # Jalankan after_rollback hooks
                 for hook in self._after_rollback_hooks:
                     if callable(hook):
                         if hasattr(hook, "__await__"):
@@ -254,12 +257,9 @@ class SQLAlchemyUnitOfWork:
                             hook()
                 self._is_active = False
             elif exc_type is None and self._transaction is not None:
-                # Tidak ada exception, commit transaksi
                 await self._transaction.commit()
                 self._transaction = None
-                # Publish events
                 await self._publish_events()
-                # Jalankan after_commit hooks
                 for hook in self._after_commit_hooks:
                     if callable(hook):
                         if hasattr(hook, "__await__"):
@@ -269,14 +269,15 @@ class SQLAlchemyUnitOfWork:
                 self._is_active = False
         except Exception as e:
             logger.error(f"Error during transaction completion: {e}")
-            # Coba rollback jika masih ada transaksi
             if self._transaction is not None:
                 try:
                     await self._transaction.rollback()
                 except Exception as rollback_e:
                     logger.debug(f"Rollback error during cleanup: {rollback_e}")
                 self._transaction = None
-            raise UnitOfWorkCommitError(f"Transaction commit/rollback failed: {e}") from e
+            raise UnitOfWorkCommitError(
+                f"Transaction commit/rollback failed: {e}"
+            ) from e
         finally:
             if self._session:
                 try:
@@ -287,7 +288,7 @@ class SQLAlchemyUnitOfWork:
             self._is_active = False
 
     # ------------------------------------------------------------------------
-    # METODE UNIT OF WORK PORT (diperbaiki)
+    # METODE UNIT OF WORK PORT
     # ------------------------------------------------------------------------
 
     async def begin(self, isolation_level: str = "READ_COMMITTED") -> None:
@@ -296,14 +297,12 @@ class SQLAlchemyUnitOfWork:
             if self._session_factory is None:
                 self._session_factory = await self._get_session_factory()
             self._session = self._session_factory()
-            # Mulai transaksi
             self._transaction = await self._session.begin().__aenter__()
             self._ensure_repositories_initialized()
             self._attach_session_to_repositories()
             self._transaction_id = str(uuid4())
             self._is_active = True
         else:
-            # Sudah ada transaksi, abaikan
             pass
 
     async def begin_read_only(self) -> None:
@@ -317,7 +316,6 @@ class SQLAlchemyUnitOfWork:
             raise UnitOfWorkError("UoW not started or transaction not active")
 
         try:
-            # Before hooks
             for hook in self._before_commit_hooks:
                 if callable(hook):
                     if hasattr(hook, "__await__"):
@@ -330,7 +328,6 @@ class SQLAlchemyUnitOfWork:
             self._transaction = None
             await self._publish_events()
 
-            # After hooks
             for hook in self._after_commit_hooks:
                 if callable(hook):
                     if hasattr(hook, "__await__"):
@@ -343,11 +340,8 @@ class SQLAlchemyUnitOfWork:
             await self.rollback()
             raise UnitOfWorkCommitError(f"Commit failed: {e}") from e
         finally:
-            # PENTING: reset session ke None supaya begin() berikutnya (mis.
-            # pada request selanjutnya kalau UoW ini instance yang dipakai
-            # ulang/singleton) benar-benar membuat transaksi baru, bukan
-            # melewati begin() karena _session masih ter-set dari commit
-            # sebelumnya (itu penyebab "UoW not started" di request kedua).
+            # Reset session ke None supaya begin() berikutnya benar-benar
+            # membuat transaksi baru, bukan melewati begin().
             if self._session is not None:
                 try:
                     await self._session.close()
@@ -375,7 +369,9 @@ class SQLAlchemyUnitOfWork:
                 try:
                     await self._session.close()
                 except Exception as close_err:
-                    logger.debug(f"Error closing session after rollback: {close_err}")
+                    logger.debug(
+                        f"Error closing session after rollback: {close_err}"
+                    )
             self._session = None
             self._event_collector.clear()
 
@@ -384,7 +380,9 @@ class SQLAlchemyUnitOfWork:
             raise UnitOfWorkError("UoW not started")
         await self._session.flush()
 
-    async def execute_raw_sql(self, statement: str, params: dict[str, Any] | None = None) -> Any:
+    async def execute_raw_sql(
+        self, statement: str, params: dict[str, Any] | None = None
+    ) -> Any:
         if not self._session:
             raise UnitOfWorkError("UoW not started")
         return await self._session.execute(sa_text(statement), params or {})
@@ -456,24 +454,32 @@ class SQLAlchemyUnitOfWork:
         if not self._session:
             return "UNKNOWN"
         try:
-            result = await self._session.execute(sa_text("SHOW transaction_isolation"), {})
+            result = await self._session.execute(
+                sa_text("SHOW transaction_isolation"), {}
+            )
             return result.scalar()
         except Exception:
             return "READ_COMMITTED"
 
     async def is_active(self) -> bool:
-        return self._is_active and self._session is not None and self._transaction is not None
+        return (
+            self._is_active
+            and self._session is not None
+            and self._transaction is not None
+        )
 
     # ------------------------------------------------------------------------
     # CHANGE LOGGING
     # ------------------------------------------------------------------------
 
     def record_change(self, entity: Any, change_type: str) -> None:
-        self._change_log.append({
-            "entity": str(entity),
-            "change_type": change_type,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
+        self._change_log.append(
+            {
+                "entity": str(entity),
+                "change_type": change_type,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
         if len(self._change_log) > 1000:
             self._change_log = self._change_log[-500:]
 
@@ -493,8 +499,11 @@ class SQLAlchemyUnitOfWork:
                     repository.session = self._session
             except Exception:
                 logger.debug(
-                    "Melewati attach session untuk repository %r saat register_repository "
-                    "(property session melempar exception).", repository, exc_info=True,
+                    "Melewati attach session untuk repository %r saat "
+                    "register_repository (property session melempar "
+                    "exception).",
+                    repository,
+                    exc_info=True,
                 )
 
     def get_repository(self, name: str) -> Any:
@@ -516,7 +525,6 @@ class SQLAlchemyUnitOfWork:
         for event in self._event_collector:
             if hasattr(outbox_repo, "save_event"):
                 await outbox_repo.save_event(event)
-            # else: fallback
 
         self._event_collector.clear()
 
@@ -524,18 +532,51 @@ class SQLAlchemyUnitOfWork:
     # RepositoryProvider interface (convenience)
     # ------------------------------------------------------------------------
 
-    def journals(self): return self.get_repository("journal")
-    def ledger_entries(self): return self.get_repository("ledger")
-    def accounts(self): return self.get_repository("account")
-    def ar_invoices(self): return self.get_repository("ar")
-    def ap_invoices(self): return self.get_repository("ap")
-    def inventory(self): return self.get_repository("inventory")
-    def fixed_assets(self): return self.get_repository("fixed_asset")
-    def bank_cash(self): return self.get_repository("bank_cash")
-    def tax(self): return self.get_repository("tax")
-    def legal_entities(self): return self.get_repository("legal_entity")
-    def iam_users(self): return self.get_repository("iam_user")
-    def system_settings(self): return self.get_repository("system_setting")
+    def journals(self):
+        return self.get_repository("journal")
+
+    def ledger_entries(self):
+        return self.get_repository("ledger")
+
+    def accounts(self):
+        return self.get_repository("account")
+
+    def ar_invoices(self):
+        return self.get_repository("ar")
+
+    def ap_invoices(self):
+        return self.get_repository("ap")
+
+    def inventory(self):
+        return self.get_repository("inventory")
+
+    def fixed_assets(self):
+        return self.get_repository("fixed_asset")
+
+    def bank_cash(self):
+        return self.get_repository("bank_cash")
+
+    def tax(self):
+        return self.get_repository("tax")
+
+    def legal_entities(self):
+        return self.get_repository("legal_entity")
+
+    def iam_users(self):
+        return self.get_repository("iam_user")
+
+    def system_settings(self):
+        return self.get_repository("system_setting")
+
+    # TAMBAHAN (2026-10-12)
+    def customers(self):
+        return self.get_repository("customer")
+
+    def suppliers(self):
+        return self.get_repository("supplier")
+
+    def employees(self):
+        return self.get_repository("employee")
 
     @property
     def session(self):
@@ -548,6 +589,7 @@ class SQLAlchemyUnitOfWork:
 # ============================================================================
 # FACTORY
 # ============================================================================
+
 
 class SQLAlchemyUnitOfWorkFactory:
     def __init__(self, session_factory: Any = None):
@@ -572,11 +614,13 @@ class SQLAlchemyUnitOfWorkFactory:
 
 _uow_factory: SQLAlchemyUnitOfWorkFactory | None = None
 
+
 def get_uow_factory() -> SQLAlchemyUnitOfWorkFactory:
     global _uow_factory
     if _uow_factory is None:
         _uow_factory = SQLAlchemyUnitOfWorkFactory()
     return _uow_factory
+
 
 async def get_uow() -> SQLAlchemyUnitOfWork:
     factory = get_uow_factory()

@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
 Module: sqlalchemy_customer_repository_impl.py
-SQLAlchemy implementation of CustomerRepositoryPort.
+Layer: Adapters (Secondary)
+Responsibility: SQLAlchemy implementation of CustomerRepositoryPort.
 
-This adapter implements the CustomerRepositoryPort interface defined in
-ports/primary/customer_supplier_repository_port.py.
-
-Big-4 Audit Grade: Full implementation with proper type hints, error handling,
-logging, and audit trail.
+PERBAIKAN BESAR (2026-10-12):
+- TIDAK LAGI mendefinisikan CustomerTable sendiri. Menggunakan
+  CustomerTable dari infrastructure/persistence_orm/customer_table.py
+  (tabel `customer` singular + 8 tabel anak).
+- Menghapus definisi tabel duplikat (`customers` plural).
+- begin_nested() (SAVEPOINT) untuk menghindari nested transaction error.
+- _get_session() memakai get_async_session_direct() (bukan
+  get_async_session() yang merupakan async generator untuk FastAPI Depends).
 """
 
 from __future__ import annotations
@@ -17,142 +21,102 @@ import io
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Index,
-    Integer,
-    Numeric,
-    String,
-    Text,
-    func,
-    select,
-    text,
-    update,
-)
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
 
+from infrastructure.persistence_orm.customer_table import CustomerTable
 from ports.primary.customer_repository_port import CustomerRepositoryPort
 
 logger = logging.getLogger(__name__)
-
-Base = declarative_base()
-
-
-class CustomerTable(Base):
-    """ORM model for customers table."""
-    __tablename__ = "customers"
-    __table_args__ = (
-        Index("idx_customer_legal_entity", "legal_entity_id"),
-        Index("idx_customer_code", "customer_code", unique=True),
-        Index("idx_customer_npwp", "npwp", unique=True),
-        Index("idx_customer_category", "category"),
-        Index("idx_customer_status", "status"),
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    customer_code = Column(String(50), nullable=False, unique=True)
-    customer_name = Column(String(200), nullable=False)
-    npwp = Column(String(20), nullable=True, unique=True)
-    email = Column(String(200), nullable=True)
-    phone = Column(String(50), nullable=True)
-    address = Column(Text, nullable=True)
-    city = Column(String(100), nullable=True)
-    province = Column(String(100), nullable=True)
-    postal_code = Column(String(20), nullable=True)
-    country = Column(String(100), nullable=True, default="Indonesia")
-    contact_person = Column(String(200), nullable=True)
-    credit_limit = Column(Numeric(20, 2), nullable=False, default=0)
-    credit_used = Column(Numeric(20, 2), nullable=False, default=0)
-    credit_term_days = Column(Integer, nullable=False, default=30)
-    category = Column(String(50), nullable=True)
-    status = Column(String(20), nullable=False, default="ACTIVE")
-    total_orders = Column(Integer, nullable=False, default=0)
-    last_order_date = Column(DateTime(timezone=True), nullable=True)
-    blacklisted_reason = Column(Text, nullable=True)
-    blacklisted_at = Column(DateTime(timezone=True), nullable=True)
-    blacklisted_by = Column(PGUUID(as_uuid=True), nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_by = Column(PGUUID(as_uuid=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(UTC))
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
     """
     SQLAlchemy-based implementation of CustomerRepositoryPort.
-
-    This adapter provides full CRUD and business operations for Customer aggregate.
+    Menggunakan CustomerTable dari infrastructure.persistence_orm.
     """
 
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
-        self._audit_log: list[dict] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     async def _get_session(self) -> AsyncSession:
-        """Get or create an async session."""
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            from infrastructure.database.session_factory_sqlalchemy import (
+                get_async_session_direct,
+            )
+            self._session = await get_async_session_direct()
         return self._session
 
-    async def _log_audit(self, action: str, customer_id: UUID, details: dict[str, Any]) -> None:
-        """Log audit trail for customer operations."""
-        self._audit_log.append({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "action": action,
-            "customer_id": str(customer_id),
-            "details": details,
-        })
+    async def _log_audit(
+        self, action: str, customer_id: UUID, details: dict[str, Any]
+    ) -> None:
+        self._audit_log.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "action": action,
+                "customer_id": str(customer_id),
+                "details": details,
+            }
+        )
         if len(self._audit_log) > 10000:
             self._audit_log = self._audit_log[-5000:]
 
     def _to_domain(self, row: CustomerTable) -> Any:
-        """Convert ORM row to domain object (SimpleNamespace for demo)."""
-        from types import SimpleNamespace
+        """Map ORM row -> domain object (SimpleNamespace)."""
         return SimpleNamespace(
             id=row.id,
             legal_entity_id=row.legal_entity_id,
             customer_code=row.customer_code,
             customer_name=row.customer_name,
-            npwp=row.npwp,
+            company_name=row.company_name,
+            customer_type=row.customer_type,
+            npwp=row.tax_id,
+            tax_id=row.tax_id,
+            tax_status=row.tax_status,
+            is_taxable=row.is_taxable,
             email=row.email,
             phone=row.phone,
+            mobile=row.mobile,
             address=row.address,
             city=row.city,
             province=row.province,
+            district=row.district,
             postal_code=row.postal_code,
             country=row.country,
             contact_person=row.contact_person,
+            contact_phone=row.contact_phone,
+            contact_email=row.contact_email,
             credit_limit=row.credit_limit,
-            credit_used=row.credit_used,
-            credit_term_days=row.credit_term_days,
+            credit_used=row.used_credit,
+            used_credit=row.used_credit,
+            opening_balance=row.opening_balance,
+            current_balance=row.current_balance,
+            currency=row.currency,
+            payment_term_days=row.payment_term_days,
+            credit_term_days=row.payment_term_days,
+            discount_percent=row.discount_percent,
             category=row.category,
+            price_group=row.price_group,
             status=row.status,
-            total_orders=row.total_orders,
-            last_order_date=row.last_order_date,
-            blacklisted_reason=row.blacklisted_reason,
-            blacklisted_at=row.blacklisted_at,
-            blacklisted_by=row.blacklisted_by,
             is_active=row.is_active,
+            is_blacklist=row.is_blacklist,
+            blocked_reason=row.blocked_reason,
             created_by=row.created_by,
+            updated_by=row.updated_by,
             created_at=row.created_at,
             updated_at=row.updated_at,
             deleted_at=row.deleted_at,
+            version=row.version,
         )
 
     # ==================== CORE PORT METHODS ====================
 
     async def get_by_id(self, customer_id: UUID) -> Any | None:
-        """Retrieve a customer by ID."""
         session = await self._get_session()
         stmt = select(CustomerTable).where(
             CustomerTable.id == customer_id,
@@ -162,8 +126,9 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def get_by_code(self, legal_entity_id: UUID, customer_code: str) -> Any | None:
-        """Retrieve a customer by entity and code."""
+    async def get_by_code(
+        self, legal_entity_id: UUID, customer_code: str
+    ) -> Any | None:
         session = await self._get_session()
         stmt = select(CustomerTable).where(
             CustomerTable.customer_code == customer_code,
@@ -175,12 +140,12 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
         return self._to_domain(row) if row else None
 
     async def is_active(self, customer_id: UUID) -> bool:
-        """Check if a customer is active."""
         customer = await self.get_by_id(customer_id)
-        return customer is not None and getattr(customer, 'is_active', False)
+        return customer is not None and getattr(customer, "is_active", False)
 
-    async def check_credit_limit(self, customer_id: UUID, invoice_amount: Any) -> bool:
-        """Check if invoice amount is within customer's credit limit."""
+    async def check_credit_limit(
+        self, customer_id: UUID, invoice_amount: Any
+    ) -> bool:
         customer = await self.get_by_id(customer_id)
         if not customer:
             return False
@@ -192,9 +157,8 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
         return available >= amount
 
     async def save(self, customer: Any) -> None:
-        """Save or update a customer."""
         session = await self._get_session()
-        async with session.begin():
+        async with session.begin_nested():
             stmt = select(CustomerTable).where(CustomerTable.id == customer.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -202,9 +166,13 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             if existing:
                 existing.customer_code = customer.customer_code
                 existing.customer_name = customer.customer_name
-                existing.npwp = customer.npwp
+                existing.company_name = getattr(customer, "company_name", None)
+                existing.tax_id = getattr(customer, "tax_id", None) or getattr(
+                    customer, "npwp", None
+                )
                 existing.email = customer.email
                 existing.phone = customer.phone
+                existing.mobile = getattr(customer, "mobile", None)
                 existing.address = customer.address
                 existing.city = customer.city
                 existing.province = customer.province
@@ -212,10 +180,12 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
                 existing.country = customer.country
                 existing.contact_person = customer.contact_person
                 existing.credit_limit = customer.credit_limit
-                existing.credit_term_days = customer.credit_term_days
-                existing.category = getattr(customer, 'category', None)
-                existing.status = getattr(customer, 'status', 'ACTIVE')
-                existing.is_active = getattr(customer, 'is_active', True)
+                existing.payment_term_days = getattr(
+                    customer, "payment_term_days", 30
+                )
+                existing.category = getattr(customer, "category", None)
+                existing.status = getattr(customer, "status", "active")
+                existing.is_active = getattr(customer, "is_active", True)
                 existing.updated_at = now
             else:
                 new = CustomerTable(
@@ -223,72 +193,90 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
                     legal_entity_id=customer.legal_entity_id,
                     customer_code=customer.customer_code,
                     customer_name=customer.customer_name,
-                    npwp=customer.npwp,
+                    company_name=getattr(customer, "company_name", None),
+                    customer_type=getattr(customer, "customer_type", "company"),
+                    tax_id=getattr(customer, "tax_id", None)
+                    or getattr(customer, "npwp", None),
                     email=customer.email,
                     phone=customer.phone,
+                    mobile=getattr(customer, "mobile", None),
                     address=customer.address,
                     city=customer.city,
                     province=customer.province,
                     postal_code=customer.postal_code,
-                    country=customer.country,
+                    country=getattr(customer, "country", "ID"),
                     contact_person=customer.contact_person,
                     credit_limit=customer.credit_limit,
-                    credit_term_days=customer.credit_term_days,
-                    category=getattr(customer, 'category', None),
-                    status="ACTIVE",
+                    payment_term_days=getattr(customer, "payment_term_days", 30),
+                    category=getattr(customer, "category", None),
+                    status="active",
                     is_active=True,
-                    created_by=getattr(customer, 'created_by', None),
+                    created_by=getattr(customer, "created_by", None),
                     created_at=now,
                 )
                 session.add(new)
             await session.flush()
-            await self._log_audit("SAVE", customer.id, {"code": customer.customer_code})
+            await self._log_audit(
+                "SAVE", customer.id, {"code": customer.customer_code}
+            )
 
     async def list_by_entity(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[Any]:
-        """List customers by entity with pagination."""
         session = await self._get_session()
-        stmt = select(CustomerTable).where(
-            CustomerTable.legal_entity_id == legal_entity_id,
-            CustomerTable.deleted_at.is_(None),
-        ).order_by(CustomerTable.customer_code).limit(limit).offset(offset)
+        stmt = (
+            select(CustomerTable)
+            .where(
+                CustomerTable.legal_entity_id == legal_entity_id,
+                CustomerTable.deleted_at.is_(None),
+            )
+            .order_by(CustomerTable.customer_code)
+            .limit(limit)
+            .offset(offset)
+        )
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    # ==================== EXTENDED METHODS ====================
+
     async def add(self, customer: Any) -> Any:
-        """Add a new customer."""
         session = await self._get_session()
-        async with session.begin():
+        async with session.begin_nested():
             stmt = select(CustomerTable).where(
                 CustomerTable.customer_code == customer.customer_code,
                 CustomerTable.legal_entity_id == customer.legal_entity_id,
             )
             result = await session.execute(stmt)
             if result.scalar_one_or_none():
-                raise ValueError(f"Customer code {customer.customer_code} already exists")
+                raise ValueError(
+                    f"Customer code {customer.customer_code} already exists"
+                )
             now = datetime.now(UTC)
             new = CustomerTable(
                 id=customer.id or uuid4(),
                 legal_entity_id=customer.legal_entity_id,
                 customer_code=customer.customer_code,
                 customer_name=customer.customer_name,
-                npwp=customer.npwp,
+                company_name=getattr(customer, "company_name", None),
+                customer_type=getattr(customer, "customer_type", "company"),
+                tax_id=getattr(customer, "tax_id", None)
+                or getattr(customer, "npwp", None),
                 email=customer.email,
                 phone=customer.phone,
+                mobile=getattr(customer, "mobile", None),
                 address=customer.address,
                 city=customer.city,
                 province=customer.province,
                 postal_code=customer.postal_code,
-                country=customer.country,
+                country=getattr(customer, "country", "ID"),
                 contact_person=customer.contact_person,
                 credit_limit=customer.credit_limit,
-                credit_term_days=customer.credit_term_days,
-                category=getattr(customer, 'category', None),
-                status="ACTIVE",
+                payment_term_days=getattr(customer, "payment_term_days", 30),
+                category=getattr(customer, "category", None),
+                status="active",
                 is_active=True,
-                created_by=getattr(customer, 'created_by', None),
+                created_by=getattr(customer, "created_by", None),
                 created_at=now,
             )
             session.add(new)
@@ -297,19 +285,18 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             return self._to_domain(new)
 
     async def update(self, customer: Any) -> Any:
-        """
-        Update an existing customer with pessimistic locking.
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
-        """
+        """Update dengan pessimistic lock via begin_nested (SAVEPOINT)."""
         session = await self._get_session()
-        async with session.begin():
-            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
-            stmt = select(CustomerTable).where(
-                CustomerTable.id == customer.id,
-                CustomerTable.legal_entity_id == customer.legal_entity_id,
-                CustomerTable.deleted_at.is_(None),
-            ).with_for_update()
-
+        async with session.begin_nested():
+            stmt = (
+                select(CustomerTable)
+                .where(
+                    CustomerTable.id == customer.id,
+                    CustomerTable.legal_entity_id == customer.legal_entity_id,
+                    CustomerTable.deleted_at.is_(None),
+                )
+                .with_for_update()
+            )
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
             if not existing:
@@ -318,9 +305,13 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             now = datetime.now(UTC)
             existing.customer_code = customer.customer_code
             existing.customer_name = customer.customer_name
-            existing.npwp = customer.npwp
+            existing.company_name = getattr(customer, "company_name", None)
+            existing.tax_id = getattr(customer, "tax_id", None) or getattr(
+                customer, "npwp", None
+            )
             existing.email = customer.email
             existing.phone = customer.phone
+            existing.mobile = getattr(customer, "mobile", None)
             existing.address = customer.address
             existing.city = customer.city
             existing.province = customer.province
@@ -328,24 +319,32 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             existing.country = customer.country
             existing.contact_person = customer.contact_person
             existing.credit_limit = customer.credit_limit
-            existing.credit_used = getattr(customer, 'credit_used', existing.credit_used)
-            existing.credit_term_days = customer.credit_term_days
-            existing.category = getattr(customer, 'category', None)
-            existing.is_active = getattr(customer, 'is_active', True)
+            existing.used_credit = getattr(
+                customer, "credit_used", existing.used_credit
+            )
+            existing.payment_term_days = getattr(customer, "payment_term_days", 30)
+            existing.category = getattr(customer, "category", None)
+            existing.is_active = getattr(customer, "is_active", True)
             existing.updated_at = now
             await session.flush()
-            await self._log_audit("UPDATE", existing.id, {"code": existing.customer_code})
+            await self._log_audit(
+                "UPDATE", existing.id, {"code": existing.customer_code}
+            )
             return self._to_domain(existing)
 
-    async def delete(self, customer_id: UUID, user_id: UUID | None = None, permanent: bool = False) -> bool:
-        """
-        Delete a customer (soft or hard delete) with pessimistic locking.
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
-        """
+    async def delete(
+        self,
+        customer_id: UUID,
+        user_id: UUID | None = None,
+        permanent: bool = False,
+    ) -> bool:
         session = await self._get_session()
-        async with session.begin():
-            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
-            stmt = select(CustomerTable).where(CustomerTable.id == customer_id).with_for_update()
+        async with session.begin_nested():
+            stmt = (
+                select(CustomerTable)
+                .where(CustomerTable.id == customer_id)
+                .with_for_update()
+            )
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if not row:
@@ -354,22 +353,31 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             if permanent:
                 await session.delete(row)
                 await session.flush()
-                await self._log_audit("DELETE_PERMANENT", customer_id, {"user_id": str(user_id) if user_id else None})
-                return True
-            else:
-                now = datetime.now(UTC)
-                row.deleted_at = now
-                row.is_active = False
-                row.status = "INACTIVE"
-                row.updated_at = now
-                await session.flush()
-                await self._log_audit("DELETE_SOFT", customer_id, {"user_id": str(user_id) if user_id else None})
+                await self._log_audit(
+                    "DELETE_PERMANENT",
+                    customer_id,
+                    {"user_id": str(user_id) if user_id else None},
+                )
                 return True
 
-    async def restore(self, customer_id: UUID, user_id: UUID | None = None) -> bool:
-        """Restore a soft-deleted customer."""
+            now = datetime.now(UTC)
+            row.deleted_at = now
+            row.is_active = False
+            row.status = "inactive"
+            row.updated_at = now
+            await session.flush()
+            await self._log_audit(
+                "DELETE_SOFT",
+                customer_id,
+                {"user_id": str(user_id) if user_id else None},
+            )
+            return True
+
+    async def restore(
+        self, customer_id: UUID, user_id: UUID | None = None
+    ) -> bool:
         session = await self._get_session()
-        async with session.begin():
+        async with session.begin_nested():
             stmt = select(CustomerTable).where(
                 CustomerTable.id == customer_id,
                 CustomerTable.deleted_at.is_not(None),
@@ -381,106 +389,129 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             now = datetime.now(UTC)
             row.deleted_at = None
             row.is_active = True
-            row.status = "ACTIVE"
+            row.status = "active"
             row.updated_at = now
             await session.flush()
-            await self._log_audit("RESTORE", customer_id, {"user_id": str(user_id) if user_id else None})
+            await self._log_audit(
+                "RESTORE", customer_id, {"user_id": str(user_id) if user_id else None}
+            )
             return True
 
     async def find_active(self, legal_entity_id: UUID) -> list[Any]:
-        """Find all active customers for an entity."""
         session = await self._get_session()
-        stmt = select(CustomerTable).where(
-            CustomerTable.legal_entity_id == legal_entity_id,
-            CustomerTable.is_active == True,
-            CustomerTable.deleted_at.is_(None),
-        ).order_by(CustomerTable.customer_code)
+        stmt = (
+            select(CustomerTable)
+            .where(
+                CustomerTable.legal_entity_id == legal_entity_id,
+                CustomerTable.is_active.is_(True),
+                CustomerTable.deleted_at.is_(None),
+            )
+            .order_by(CustomerTable.customer_code)
+        )
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[Any]:
-        """Find customers by category."""
+    async def find_by_category(
+        self, category: str, legal_entity_id: UUID
+    ) -> list[Any]:
         session = await self._get_session()
-        stmt = select(CustomerTable).where(
-            CustomerTable.category == category,
-            CustomerTable.legal_entity_id == legal_entity_id,
-            CustomerTable.deleted_at.is_(None),
-        ).order_by(CustomerTable.customer_code)
+        stmt = (
+            select(CustomerTable)
+            .where(
+                CustomerTable.category == category,
+                CustomerTable.legal_entity_id == legal_entity_id,
+                CustomerTable.deleted_at.is_(None),
+            )
+            .order_by(CustomerTable.customer_code)
+        )
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def find_by_name_contains(self, name_fragment: str, legal_entity_id: UUID, limit: int = 100) -> list[Any]:
-        """Find customers by name fragment (case-insensitive)."""
+    async def find_by_name_contains(
+        self, name_fragment: str, legal_entity_id: UUID, limit: int = 100
+    ) -> list[Any]:
         session = await self._get_session()
-        stmt = select(CustomerTable).where(
-            CustomerTable.customer_name.ilike(f"%{name_fragment}%"),
-            CustomerTable.legal_entity_id == legal_entity_id,
-            CustomerTable.deleted_at.is_(None),
-        ).limit(limit).order_by(CustomerTable.customer_name)
+        stmt = (
+            select(CustomerTable)
+            .where(
+                CustomerTable.customer_name.ilike(f"%{name_fragment}%"),
+                CustomerTable.legal_entity_id == legal_entity_id,
+                CustomerTable.deleted_at.is_(None),
+            )
+            .limit(limit)
+            .order_by(CustomerTable.customer_name)
+        )
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
     async def export_to_csv(self, legal_entity_id: UUID) -> str:
-        """Export customers to CSV format."""
         customers = await self.list_by_entity(legal_entity_id, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([
-            "id", "customer_code", "customer_name", "npwp", "email", "phone",
-            "address", "city", "province", "postal_code", "country",
-            "contact_person", "credit_limit", "credit_used", "credit_term_days",
-            "category", "status", "is_active", "total_orders", "last_order_date"
-        ])
+        writer.writerow(
+            [
+                "id", "customer_code", "customer_name", "tax_id", "email", "phone",
+                "address", "city", "province", "postal_code", "country",
+                "contact_person", "credit_limit", "used_credit", "payment_term_days",
+                "category", "status", "is_active",
+            ]
+        )
         for c in customers:
-            writer.writerow([
-                str(c.id), c.customer_code, c.customer_name, c.npwp or "", c.email or "",
-                c.phone or "", c.address or "", c.city or "", c.province or "",
-                c.postal_code or "", c.country or "", c.contact_person or "",
-                float(c.credit_limit), float(c.credit_used), c.credit_term_days,
-                c.category or "", c.status, c.is_active, c.total_orders,
-                c.last_order_date.isoformat() if c.last_order_date else ""
-            ])
+            writer.writerow(
+                [
+                    str(c.id), c.customer_code, c.customer_name, c.tax_id or "",
+                    c.email or "", c.phone or "", c.address or "", c.city or "",
+                    c.province or "", c.postal_code or "", c.country or "",
+                    c.contact_person or "", float(c.credit_limit),
+                    float(c.credit_used), c.payment_term_days, c.category or "",
+                    c.status, c.is_active,
+                ]
+            )
         return output.getvalue()
 
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
-        """Get statistics for customers under an entity."""
         session = await self._get_session()
-        total = await session.scalar(
-            select(func.count()).where(
-                CustomerTable.legal_entity_id == legal_entity_id,
-                CustomerTable.deleted_at.is_(None),
+        total = (
+            await session.scalar(
+                select(func.count()).where(
+                    CustomerTable.legal_entity_id == legal_entity_id,
+                    CustomerTable.deleted_at.is_(None),
+                )
             )
-        ) or 0
-
-        active = await session.scalar(
-            select(func.count()).where(
-                CustomerTable.legal_entity_id == legal_entity_id,
-                CustomerTable.is_active == True,
-                CustomerTable.deleted_at.is_(None),
+            or 0
+        )
+        active = (
+            await session.scalar(
+                select(func.count()).where(
+                    CustomerTable.legal_entity_id == legal_entity_id,
+                    CustomerTable.is_active.is_(True),
+                    CustomerTable.deleted_at.is_(None),
+                )
             )
-        ) or 0
-
-        blacklisted = await session.scalar(
-            select(func.count()).where(
-                CustomerTable.legal_entity_id == legal_entity_id,
-                CustomerTable.status == "BLACKLISTED",
-                CustomerTable.deleted_at.is_(None),
+            or 0
+        )
+        blacklisted = (
+            await session.scalar(
+                select(func.count()).where(
+                    CustomerTable.legal_entity_id == legal_entity_id,
+                    CustomerTable.is_blacklist.is_(True),
+                    CustomerTable.deleted_at.is_(None),
+                )
             )
-        ) or 0
-
+            or 0
+        )
         cat_result = await session.execute(
-            select(
-                CustomerTable.category, func.count()
-            ).where(
+            select(CustomerTable.category, func.count())
+            .where(
                 CustomerTable.legal_entity_id == legal_entity_id,
                 CustomerTable.deleted_at.is_(None),
-            ).group_by(CustomerTable.category)
+            )
+            .group_by(CustomerTable.category)
         )
         categories = {cat: cnt for cat, cnt in cat_result.all()}
-
         return {
             "total": total,
             "active": active,
@@ -489,77 +520,73 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             "categories": categories,
         }
 
-    async def get_audit_log(self, customer_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        """Retrieve audit log for customer operations."""
+    async def get_audit_log(
+        self, customer_id: UUID | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
         logs = self._audit_log
         if customer_id:
-            logs = [l for l in logs if l.get("customer_id") == str(customer_id)]
+            logs = [entry for entry in logs if entry.get("customer_id") == str(customer_id)]
         return logs[-limit:]
 
     async def health_check(self) -> dict[str, Any]:
-        """Check database connectivity health."""
         try:
             session = await self._get_session()
             await session.execute(text("SELECT 1"))
-            return {"status": "healthy", "database": "connected", "timestamp": datetime.now(UTC).isoformat()}
+            return {
+                "status": "healthy",
+                "database": "connected",
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
         except Exception as e:
-            return {"status": "unhealthy", "database": "disconnected", "error": str(e), "timestamp": datetime.now(UTC).isoformat()}
+            return {
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
 
-    async def add_order(self, customer_id: UUID, order: Any) -> None:
-        """Increment order count for a customer."""
+    async def blacklist(
+        self, customer_id: UUID, reason: str, blacklisted_by: str
+    ) -> bool:
         session = await self._get_session()
-        async with session.begin():
-            now = datetime.now(UTC)
-            stmt = (
-                update(CustomerTable)
-                .where(CustomerTable.id == customer_id)
-                .values(
-                    total_orders=CustomerTable.total_orders + 1,
-                    last_order_date=now,
-                    updated_at=now,
-                )
-            )
-            await session.execute(stmt)
-            await self._log_audit("ADD_ORDER", customer_id, {"order_id": str(order.id) if hasattr(order, 'id') else None})
-
-    async def blacklist(self, customer_id: UUID, reason: str, blacklisted_by: str) -> bool:
-        """Blacklist a customer."""
-        session = await self._get_session()
-        async with session.begin():
+        async with session.begin_nested():
             stmt = select(CustomerTable).where(CustomerTable.id == customer_id)
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if not row:
                 return False
             now = datetime.now(UTC)
-            row.status = "BLACKLISTED"
+            row.status = "blacklisted"
             row.is_active = False
-            row.blacklisted_reason = reason
-            row.blacklisted_by = UUID(blacklisted_by) if blacklisted_by else None
-            row.blacklisted_at = now
+            row.is_blacklist = True
+            row.blocked_reason = reason
             row.updated_at = now
             await session.flush()
-            await self._log_audit("BLACKLIST", customer_id, {"reason": reason, "by": blacklisted_by})
+            await self._log_audit(
+                "BLACKLIST", customer_id, {"reason": reason, "by": blacklisted_by}
+            )
             return True
 
-    async def update_credit_usage(self, customer_id: UUID, amount_used: Decimal) -> None:
-        """
-        Update credit usage with pessimistic locking.
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
-        """
+    async def update_credit_usage(
+        self, customer_id: UUID, amount_used: Decimal
+    ) -> None:
         session = await self._get_session()
-        async with session.begin():
-            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
-            stmt = select(CustomerTable).where(CustomerTable.id == customer_id).with_for_update()
+        async with session.begin_nested():
+            stmt = (
+                select(CustomerTable)
+                .where(CustomerTable.id == customer_id)
+                .with_for_update()
+            )
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if not row:
                 raise ValueError(f"Customer {customer_id} not found")
-
-            row.credit_used += amount_used
+            row.used_credit += amount_used
             row.updated_at = datetime.now(UTC)
             await session.flush()
-            await self._log_audit("UPDATE_CREDIT", customer_id, {"amount": float(amount_used)})
+            await self._log_audit(
+                "UPDATE_CREDIT", customer_id, {"amount": float(amount_used)}
+            )
 
 
 # Alias for backward compatibility
@@ -567,7 +594,6 @@ SQLAlchemyCustomerRepositoryImpl = SQLAlchemyCustomerRepository
 
 
 __all__ = [
-    "CustomerTable",
     "SQLAlchemyCustomerRepository",
     "SQLAlchemyCustomerRepositoryImpl",
 ]

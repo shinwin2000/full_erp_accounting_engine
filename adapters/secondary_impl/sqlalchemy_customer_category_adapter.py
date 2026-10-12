@@ -2,13 +2,16 @@
 """
 Module: sqlalchemy_customer_category_adapter.py
 Adapter for CustomerCategoryRepositoryPort using SQLAlchemy.
+
+SATU-SATUNYA deklarasi CustomerCategoryTable di seluruh codebase.
+File sqlalchemy_customer_supplier_repository_port_impl.py akan dihapus.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Boolean, Column, DateTime, String, Text, select, update
@@ -16,7 +19,9 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-from ports.primary.customer_category_repository_port import CustomerCategoryRepositoryPort
+from ports.primary.customer_category_repository_port import (
+    CustomerCategoryRepositoryPort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,31 +36,41 @@ class CustomerCategoryTable(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        onupdate=lambda: datetime.now(UTC),
+    )
     created_by = Column(PGUUID(as_uuid=True), nullable=True)
 
 
 class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
-    """
-    Implementasi CustomerCategoryRepositoryPort dengan SQLAlchemy.
-    """
-
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            from infrastructure.database.session_factory_sqlalchemy import (
+                get_async_session_direct,
+            )
+            self._session = await get_async_session_direct()
         return self._session
 
-    async def get_categories(self, legal_entity_id: uuid.UUID) -> list[dict[str, Any]]:
+    async def get_categories(
+        self, legal_entity_id: uuid.UUID
+    ) -> list[dict[str, Any]]:
         session = await self._get_session()
-        stmt = select(CustomerCategoryTable).where(
-            CustomerCategoryTable.legal_entity_id == legal_entity_id,
-            CustomerCategoryTable.is_active == True,
-        ).order_by(CustomerCategoryTable.code)
+        stmt = (
+            select(CustomerCategoryTable)
+            .where(
+                CustomerCategoryTable.legal_entity_id == legal_entity_id,
+                CustomerCategoryTable.is_active.is_(True),
+            )
+            .order_by(CustomerCategoryTable.code)
+        )
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [
@@ -65,12 +80,14 @@ class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
                 "name": row.name,
                 "description": row.description,
                 "is_active": row.is_active,
-                "created_at": row.created_at.isoformat(),
+                "created_at": row.created_at.isoformat() if row.created_at else None,
             }
             for row in rows
         ]
 
-    async def get_category_by_code(self, code: str, legal_entity_id: uuid.UUID) -> dict[str, Any] | None:
+    async def get_category_by_code(
+        self, code: str, legal_entity_id: uuid.UUID
+    ) -> dict[str, Any] | None:
         session = await self._get_session()
         stmt = select(CustomerCategoryTable).where(
             CustomerCategoryTable.code == code,
@@ -86,7 +103,7 @@ class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
             "name": row.name,
             "description": row.description,
             "is_active": row.is_active,
-            "created_at": row.created_at.isoformat(),
+            "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 
     async def create_category(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -107,46 +124,57 @@ class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
             "name": category.name,
             "description": category.description,
             "is_active": category.is_active,
-            "created_at": category.created_at.isoformat(),
+            "created_at": category.created_at.isoformat()
+            if category.created_at
+            else None,
         }
 
-    async def update_category(self, category_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
+    async def update_category(
+        self, category_id: uuid.UUID, data: dict[str, Any]
+    ) -> dict[str, Any]:
         session = await self._get_session()
-        async with session.begin():
-            stmt_lock = select(CustomerCategoryTable).where(
-                CustomerCategoryTable.id == category_id
-            ).with_for_update()
+        async with session.begin_nested():
+            stmt_lock = (
+                select(CustomerCategoryTable)
+                .where(CustomerCategoryTable.id == category_id)
+                .with_for_update()
+            )
             result = await session.execute(stmt_lock)
             row = result.scalar_one_or_none()
             if not row:
                 raise ValueError(f"Category {category_id} not found")
 
             for key, value in data.items():
-                if hasattr(row, key) and key not in ("id", "created_at", "legal_entity_id"):
+                if hasattr(row, key) and key not in (
+                    "id",
+                    "created_at",
+                    "legal_entity_id",
+                ):
                     setattr(row, key, value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(UTC)
             await session.flush()
 
-        return {
-            "id": str(row.id),
-            "code": row.code,
-            "name": row.name,
-            "description": row.description,
-            "is_active": row.is_active,
-            "updated_at": row.updated_at.isoformat(),
-        }
+            return {
+                "id": str(row.id),
+                "code": row.code,
+                "name": row.name,
+                "description": row.description,
+                "is_active": row.is_active,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
 
     async def delete_category(self, category_id: uuid.UUID) -> bool:
         session = await self._get_session()
-        async with session.begin():
-            stmt_lock = select(CustomerCategoryTable).where(
-                CustomerCategoryTable.id == category_id
-            ).with_for_update()
+        async with session.begin_nested():
+            stmt_lock = (
+                select(CustomerCategoryTable)
+                .where(CustomerCategoryTable.id == category_id)
+                .with_for_update()
+            )
             result = await session.execute(stmt_lock)
             row = result.scalar_one_or_none()
             if not row:
                 return False
-
             await session.delete(row)
             await session.flush()
             return True
@@ -156,7 +184,7 @@ class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
         stmt = (
             update(CustomerCategoryTable)
             .where(CustomerCategoryTable.id == category_id)
-            .values(is_active=False, updated_at=datetime.utcnow())
+            .values(is_active=False, updated_at=datetime.now(UTC))
         )
         result = await session.execute(stmt)
         await session.flush()

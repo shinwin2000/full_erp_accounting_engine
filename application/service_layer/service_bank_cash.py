@@ -1101,6 +1101,22 @@ class BankCashService:
             request=request, user_id=created_by, correlation_id=correlation_id
         )
 
+    async def get_transaction(
+        self, transaction_id: UUID, legal_entity_id: UUID
+    ) -> BankTransactionResponse | None:
+        """FIX: fastapi_bank_cash_router.py (get_bank_transaction) memanggil
+        `service.get_transaction(...)` yang sebelumnya tidak ada di
+        service ini -> GET /transactions/{id} selalu gagal 500
+        AttributeError. Return None kalau tidak ditemukan / bukan milik
+        legal_entity_id ini (router menerjemahkannya jadi 404)."""
+        tx = await self._bank_repo.get_bank_transaction_by_id(transaction_id)
+        if not tx or tx.legal_entity_id != legal_entity_id:
+            return None
+        account = await self._bank_repo.get_bank_account_by_id(tx.bank_account_id)
+        return self._to_transaction_response(
+            tx, bank_account_name=account.account_name if account else None
+        )
+
     async def update_transaction(
         self,
         transaction_id: UUID,
@@ -1477,6 +1493,47 @@ class BankCashService:
             )
             for row in rows
         ]
+
+    async def close_reconciliation(
+        self, reconciliation_id: UUID, legal_entity_id: UUID, closed_by: UUID,
+    ) -> BankReconciliationDetailResponse | None:
+        """FIX: fastapi_bank_cash_router.py (close_bank_reconciliation)
+        memanggil `service.close_reconciliation(...)` yang sebelumnya
+        TIDAK ADA SAMA SEKALI di service ini -> POST
+        /bank-cash/bank-cash/reconciliations/{id}/close selalu gagal 500
+        AttributeError.
+
+        Return None kalau rekonsiliasi tidak ditemukan / bukan milik
+        legal_entity_id ini - router akan menerjemahkannya jadi 404.
+        """
+        self._check_authority(closed_by, "close_reconciliation")
+
+        row = await self._bank_repo.get_reconciliation_by_id(reconciliation_id)
+        if not row or row["legal_entity_id"] != legal_entity_id:
+            return None
+
+        await self._bank_repo.update_reconciliation_status(
+            reconciliation_id, status="closed", closed_by=closed_by
+        )
+
+        bank_account = await self._bank_repo.get_bank_account_by_id(row["bank_account_id"])
+
+        logger.info("Reconciliation closed: %s", reconciliation_id)
+
+        return BankReconciliationDetailResponse(
+            id=row["id"],
+            reconciliation_number=f"REC-{row['statement_date'].year}-{str(row['id'])[:8].upper()}",
+            bank_account_id=row["bank_account_id"],
+            bank_account_name=bank_account.account_name if bank_account else None,
+            statement_date=row["statement_date"],
+            statement_balance=row["statement_balance"],
+            book_balance=row["book_balance"],
+            difference=row["difference"],
+            status="closed",
+            notes=row["notes"],
+            created_at=row["created_at"],
+            created_by=row["created_by"],
+        )
 
     # ========================================================================
     # Bank Transfer

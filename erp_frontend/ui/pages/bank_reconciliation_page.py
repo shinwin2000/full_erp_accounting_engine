@@ -403,21 +403,25 @@ class TransferTab(QWidget):
         btn_row.addStretch()
         outer.addLayout(btn_row)
 
-        outer.addWidget(QLabel("Aksi lanjutan pada transfer yang sudah dibuat:"))
-        action_row = QHBoxLayout()
-        self.transfer_id_edit = QLineEdit()
-        self.transfer_id_edit.setPlaceholderText("UUID transfer")
-        action_row.addWidget(self.transfer_id_edit)
-        approve_btn = QPushButton("✔ Approve")
-        approve_btn.clicked.connect(self._approve_transfer)
-        action_row.addWidget(approve_btn)
-        reject_btn = QPushButton("✘ Tolak")
-        reject_btn.clicked.connect(self._reject_transfer)
-        action_row.addWidget(reject_btn)
-        process_btn = QPushButton("⚙ Proses/Eksekusi")
-        process_btn.clicked.connect(self._process_transfer)
-        action_row.addWidget(process_btn)
-        outer.addLayout(action_row)
+        # PENTING (fix): bagian "Aksi lanjutan pada transfer" (tombol
+        # Approve / Tolak / Proses-Eksekusi) DIHAPUS dari sini. Backend
+        # (BankCashService.transfer_between_accounts) memproses transfer
+        # secara LANGSUNG & SELESAI saat dibuat (kedua transaksi -
+        # transfer_out dan transfer_in - langsung tercatat, tidak ada
+        # status "menunggu persetujuan"), jadi memang tidak ada transfer
+        # berstatus pending yang perlu di-approve/ditolak/diproses
+        # belakangan - tombol-tombol itu sebelumnya selalu gagal
+        # (endpoint-nya memanggil method service yang tidak pernah ada).
+        # Kalau transfer salah, koreksi lewat menu Transaksi Bank/Kas
+        # (Aksi -> Batalkan/Reverse pada masing-masing dua transaksinya).
+        info_label = QLabel(
+            "Catatan: transfer diproses langsung saat dibuat. Dua transaksi\n"
+            "(keluar dari rekening asal, masuk ke rekening tujuan) otomatis\n"
+            "tercatat di menu Transaksi Bank/Kas. Kalau perlu dibatalkan,\n"
+            "gunakan Aksi 'Batalkan (Reverse)' di sana."
+        )
+        info_label.setStyleSheet("color:#6B7280; font-size:11px; padding:6px 0;")
+        outer.addWidget(info_label)
 
         outer.addStretch()
         self.status_label = QLabel("")
@@ -450,33 +454,8 @@ class TransferTab(QWidget):
         run_task(api_client.post, on_success=self._on_success, on_error=self._on_error,
                   path=f"{BASE}/transfers", json_body=payload)
 
-    def _approve_transfer(self) -> None:
-        self._respond_transfer(approved=True)
-
-    def _reject_transfer(self) -> None:
-        self._respond_transfer(approved=False)
-
-    def _respond_transfer(self, approved: bool) -> None:
-        tid = self.transfer_id_edit.text().strip()
-        if not tid:
-            QMessageBox.information(self, "Info", "Masukkan ID transfer.")
-            return
-        # PENTING (fix): endpoint /transfers/{id}/approve mewajibkan JSON
-        # body {"approved": bool} (BankTransferApproveSchema) - sebelumnya
-        # dikirim tanpa body sama sekali, selalu gagal 422.
-        run_task(api_client.post, on_success=self._on_success, on_error=self._on_error,
-                  path=f"{BASE}/transfers/{tid}/approve", json_body={"approved": approved})
-
-    def _process_transfer(self) -> None:
-        tid = self.transfer_id_edit.text().strip()
-        if not tid:
-            QMessageBox.information(self, "Info", "Masukkan ID transfer.")
-            return
-        run_task(api_client.post, on_success=self._on_success, on_error=self._on_error,
-                  path=f"{BASE}/transfers/{tid}/process")
-
     def _on_success(self, _result: Any) -> None:
-        self.status_label.setText("Berhasil.")
+        self.status_label.setText("Transfer berhasil dibuat.")
 
     def _on_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)

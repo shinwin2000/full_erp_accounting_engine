@@ -16,6 +16,15 @@ KONVENSI
     - QTreeWidget: grup = parent (bold), akun = child.
     - Angka negatif dalam tanda kurung: (1.234.567).
     - Kolom "Periode Lalu" & "Δ" tersedia di Neraca & Laba Rugi.
+
+FIX v2 (default tanggal):
+    Sebelumnya default tanggal = "1 bulan terakhir" (mis. 12 Sep - 12 Okt).
+    Akibatnya jurnal yang diposting setelah tanggal tersebut (mis. 25-30 Okt)
+    tidak muncul di Laba Rugi — user lihat "Beban Operasional Rp 0" padahal
+    data ada di DB. Sekarang default tanggal = "1 Jan tahun ini s/d hari ini",
+    cukup luas untuk menangkap semua transaksi tahun berjalan. Semua tab
+    (Neraca, Laba Rugi, Arus Kas, Ekuitas, Rasio, GL Entries) memakai default
+    yang SAMA agar laporan konsisten.
 """
 from __future__ import annotations
 
@@ -54,6 +63,20 @@ GROUP_BG = QColor("#EDE9FE")
 GROUP_FG = QColor("#4C1D95")
 TOTAL_BG = QColor("#F5F3FF")
 NEG_FG = QColor("#B91C1C")
+
+
+# ==========================================================================
+# Default tanggal (konsisten di semua tab)
+# ==========================================================================
+def _default_start_date() -> QDate:
+    """Awal tahun berjalan (1 Januari)."""
+    today = QDate.currentDate()
+    return QDate(today.year(), 1, 1)
+
+
+def _default_end_date() -> QDate:
+    """Hari ini."""
+    return QDate.currentDate()
 
 
 # ==========================================================================
@@ -120,18 +143,18 @@ class _ReportTabBase(QWidget):
         filter_row = QHBoxLayout()
         if self.needs_range:
             filter_row.addWidget(QLabel("Dari:"))
-            self.start_date = QDateEdit(QDate.currentDate().addMonths(-1))
+            self.start_date = QDateEdit(_default_start_date())
             self.start_date.setCalendarPopup(True)
             self.start_date.setDisplayFormat("dd/MM/yyyy")
             filter_row.addWidget(self.start_date)
             filter_row.addWidget(QLabel("Sampai:"))
-            self.end_date = QDateEdit(QDate.currentDate())
+            self.end_date = QDateEdit(_default_end_date())
             self.end_date.setCalendarPopup(True)
             self.end_date.setDisplayFormat("dd/MM/yyyy")
             filter_row.addWidget(self.end_date)
         else:
             filter_row.addWidget(QLabel("Per Tanggal:"))
-            self.as_of_date = QDateEdit(QDate.currentDate())
+            self.as_of_date = QDateEdit(_default_end_date())
             self.as_of_date.setCalendarPopup(True)
             self.as_of_date.setDisplayFormat("dd/MM/yyyy")
             filter_row.addWidget(self.as_of_date)
@@ -595,12 +618,12 @@ class GlEntriesTab(QWidget):
         self.account_combo.setMinimumWidth(280)
         filter_row.addWidget(self.account_combo)
         filter_row.addWidget(QLabel("Dari:"))
-        self.start_date = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.start_date = QDateEdit(_default_start_date())
         self.start_date.setCalendarPopup(True)
         self.start_date.setDisplayFormat("dd/MM/yyyy")
         filter_row.addWidget(self.start_date)
         filter_row.addWidget(QLabel("Sampai:"))
-        self.end_date = QDateEdit(QDate.currentDate())
+        self.end_date = QDateEdit(_default_end_date())
         self.end_date.setCalendarPopup(True)
         self.end_date.setDisplayFormat("dd/MM/yyyy")
         filter_row.addWidget(self.end_date)

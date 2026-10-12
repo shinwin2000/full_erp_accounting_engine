@@ -3,6 +3,14 @@
 Module: legal_entity_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel legal_entity (entitas hukum).
+
+FIX v2:
+    Hapus relationship ``accounts`` yang pakai back_populates ke
+    AccountTable.legal_entity. Relationship itu bermasalah karena:
+      - AccountTable tidak lagi punya relationship ``legal_entity``
+        (sudah dihapus di account_table.py v3)
+      - back_populates menggantung -> mapper configure error
+    Access akun per entitas harus lewat SQL JOIN eksplisit.
 """
 
 from __future__ import annotations
@@ -34,7 +42,6 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.account_table import AccountTable
     from infrastructure.persistence_orm.consolidation_group_member_table import (
         ConsolidationGroupMemberTable,
     )
@@ -46,10 +53,6 @@ if TYPE_CHECKING:
 
 
 class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "legal_entity"  # type: ignore[assignment]
     __table_args__ = (
         CheckConstraint(
@@ -58,8 +61,6 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_legal_entity_npwp", "npwp"),
         Index("idx_legal_entity_parent", "parent_company_id"),
         Index("idx_legal_entity_consolidation", "consolidation_group_id"),
-        # HAPUS SCHEMA "public" agar FK bisa merujuk tanpa prefix
-        # {"extend_existing": True},  # <-- HAPUS
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -107,7 +108,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_company_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("legal_entity.id", use_alter=True, name="fk_legal_entity_parent"),  # schema dihapus
+        ForeignKey("legal_entity.id", use_alter=True, name="fk_legal_entity_parent"),
         nullable=True,
     )
     consolidation_group_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
@@ -117,6 +118,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ===== RELATIONSHIPS =====
+    # Self-referential hierarchy
     parent: Mapped[LegalEntityTable | None] = relationship(
         "LegalEntityTable",
         remote_side="LegalEntityTable.id",
@@ -128,18 +130,14 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         cascade="all, delete-orphan",
     )
 
+    # Branches (LegalEntityBranchTable punya back_populates="parent_entity")
     branches: Mapped[list[LegalEntityBranchTable]] = relationship(
         "LegalEntityBranchTable",
         back_populates="parent_entity",
         cascade="all, delete-orphan",
     )
 
-    accounts: Mapped[list[AccountTable]] = relationship(
-        "AccountTable",
-        back_populates="legal_entity",
-        cascade="all, delete-orphan",
-    )
-
+    # Users via secondary table
     users: Mapped[list[IAMUserTable]] = relationship(
         "IAMUserTable",
         secondary="iam_user_legal_entity",
@@ -147,27 +145,37 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         lazy="selectin",
     )
 
+    # Journals (viewonly, tanpa back_populates)
     journals: Mapped[list[JournalHeaderTable]] = relationship(
         "JournalHeaderTable", viewonly=True
     )
 
+    # NSFP ranges (backref, viewonly friendly)
     nsfp_ranges: Mapped[list[CoretaxNSFPTable]] = relationship(
         "CoretaxNSFPTable",
         backref="legal_entity",
         cascade="all, delete-orphan",
     )
 
+    # Intangible assets
     intangible_assets: Mapped[list[IntangibleAssetTable]] = relationship(
         "IntangibleAssetTable",
         backref="legal_entity",
         cascade="all, delete-orphan",
     )
 
+    # Consolidation members
     consolidation_members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
         "ConsolidationGroupMemberTable",
         backref="entity",
         cascade="all, delete-orphan",
     )
+
+    # CATATAN FIX v2:
+    # Relationship ``accounts`` DIHAPUS karena pakai back_populates ke
+    # AccountTable.legal_entity yang sudah dihapus di account_table.py v3.
+    # back_populates yang menggantung menyebabkan mapper configure error.
+    # Akses akun per entitas: lewat SQL JOIN eksplisit.
 
     @property
     def is_parent_company(self) -> bool:

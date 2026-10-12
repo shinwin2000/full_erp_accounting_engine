@@ -3,6 +3,15 @@
 Module: customer_entity.py
 Layer: Domain / Customer, Supplier, Employee
 Responsibility: Customer entity dengan semua method entity dasar.
+
+PERBAIKAN (2026-10-12):
+- _audit_trail & _snapshots dari ClassVar -> field(default_factory=list)
+  supaya setiap instance punya histori sendiri (tidak bocor antar customer).
+- country disimpan sebagai kode ISO 3166-1 alpha-2 (mis. "ID"), bukan nama.
+- update() toleran terhadap enum/string/int untuk customer_type, segment,
+  status, payment_term.
+- Semua method mutasi mengembalikan instance baru (immutable-style).
+- CustomerEntityRepository DIPINDAH ke adapter terpisah (SQLAlchemy).
 """
 
 from __future__ import annotations
@@ -13,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any
 from uuid import UUID, uuid4
 
 from domain.customer_supplier_employee.customer_credit_limit_vo import (
@@ -43,11 +52,18 @@ class CustomerStatus(Enum):
         return self == CustomerStatus.ACTIVE
 
     def can_receive_payment(self) -> bool:
-        return self in (CustomerStatus.ACTIVE, CustomerStatus.BLOCKED, CustomerStatus.SUSPENDED)
+        return self in (
+            CustomerStatus.ACTIVE,
+            CustomerStatus.BLOCKED,
+            CustomerStatus.SUSPENDED,
+        )
 
     def can_modify(self) -> bool:
-        """Indicates if customer data can be modified in this status."""
-        return self in (CustomerStatus.ACTIVE, CustomerStatus.DRAFT, CustomerStatus.SUSPENDED)
+        return self in (
+            CustomerStatus.ACTIVE,
+            CustomerStatus.DRAFT,
+            CustomerStatus.SUSPENDED,
+        )
 
     def display_name(self) -> str:
         names = {
@@ -113,6 +129,30 @@ class PaymentTerm(Enum):
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def _to_enum(value: Any, enum_cls: type[Enum]) -> Any:
+    """Konversi value (str/int/member) ke enum member."""
+    if isinstance(value, enum_cls):
+        return value
+    return enum_cls(value)
+
+
+def _validate_iso_country(code: str) -> str:
+    """Validasi kode negara ISO 3166-1 alpha-2."""
+    if not code or not isinstance(code, str):
+        raise ValueError("Country code must be a non-empty string")
+    cleaned = code.strip().upper()
+    if len(cleaned) != 2 or not cleaned.isalpha():
+        raise ValueError(
+            f"Country code must be 2 letters (ISO 3166-1 alpha-2), got '{code}'"
+        )
+    return cleaned
+
+
+# ============================================================================
 # Customer Entity
 # ============================================================================
 
@@ -139,7 +179,7 @@ class CustomerEntity:
     city: str | None = None
     province: str | None = None
     postal_code: str | None = None
-    country: str = "Indonesia"
+    country: str = "ID"
     website: str | None = None
     credit_limit: CustomerCreditLimitVO = field(
         default_factory=lambda: CustomerCreditLimitVO(Decimal("0"), "IDR")
@@ -156,11 +196,23 @@ class CustomerEntity:
     created_by: str = "system"
     updated_by: str = "system"
     version: int = 1
-
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
+    # Instance-level (bukan ClassVar!)
+    _audit_trail: list[dict[str, Any]] = field(
+        default_factory=list, repr=False, compare=False
+    )
+    _snapshots: list[dict[str, Any]] = field(
+        default_factory=list, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
+        # Normalisasi enum jika diberikan sebagai value
+        object.__setattr__(
+            self, "customer_type", _to_enum(self.customer_type, CustomerType)
+        )
+        object.__setattr__(self, "segment", _to_enum(self.segment, CustomerSegment))
+        object.__setattr__(self, "status", _to_enum(self.status, CustomerStatus))
+        object.__setattr__(self, "payment_term", _to_enum(self.payment_term, PaymentTerm))
+        object.__setattr__(self, "country", _validate_iso_country(self.country))
         self._validate()
         self._take_snapshot()
 
@@ -170,25 +222,42 @@ class CustomerEntity:
         if not self.customer_name or len(self.customer_name.strip()) < 2:
             raise ValueError("Customer name must be at least 2 characters")
         if self.outstanding_balance < 0:
-            raise ValueError(f"Outstanding balance cannot be negative: {self.outstanding_balance}")
+            raise ValueError(
+                f"Outstanding balance cannot be negative: {self.outstanding_balance}"
+            )
         if self.total_purchases < 0:
-            raise ValueError(f"Total purchases cannot be negative: {self.total_purchases}")
+            raise ValueError(
+                f"Total purchases cannot be negative: {self.total_purchases}"
+            )
         if self.risk_score < 0 or self.risk_score > 100:
             raise ValueError(f"Risk score must be 0-100, got {self.risk_score}")
         if self.tax_id:
             cleaned = re.sub(r"[^\d]", "", self.tax_id)
             if len(cleaned) != 15:
                 raise ValueError(f"Tax ID must be 15 digits, got {len(cleaned)}")
-        # Combined nested if for email validation (SIM102 fix)
-        if self.email and not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", self.email):
+        if self.email and not re.match(
+            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", self.email
+        ):
             raise ValueError(f"Invalid email: {self.email}")
         if self.postal_code and not self.postal_code.isdigit():
             raise ValueError(f"Postal code must be digits: {self.postal_code}")
-        self.outstanding_balance = self.outstanding_balance.quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_EVEN
+        if self.version < 1:
+            raise ValueError(f"Version must be >= 1, got {self.version}")
+
+        # Normalisasi Decimal
+        object.__setattr__(
+            self,
+            "outstanding_balance",
+            self.outstanding_balance.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_EVEN
+            ),
         )
-        self.total_purchases = self.total_purchases.quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_EVEN
+        object.__setattr__(
+            self,
+            "total_purchases",
+            self.total_purchases.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_EVEN
+            ),
         )
 
     def _take_snapshot(self) -> None:
@@ -205,7 +274,9 @@ class CustomerEntity:
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+    def _record_audit(
+        self, action: str, performed_by: str, details: dict[str, Any]
+    ) -> None:
         entry = {
             "action": action,
             "performed_by": performed_by,
@@ -215,6 +286,8 @@ class CustomerEntity:
             "details": details,
         }
         self._audit_trail.append(entry)
+        if len(self._audit_trail) > 1000:
+            self._audit_trail.pop(0)
 
     # ==================== ENTITY DASAR METHODS ====================
 
@@ -224,18 +297,31 @@ class CustomerEntity:
         )
         return self
 
-    def update(self, updated_by: str, **kwargs) -> CustomerEntity:
+    def update(self, updated_by: str, **kwargs: Any) -> CustomerEntity:
         if not self.status.can_modify():
             raise ValueError(f"Cannot update customer in status {self.status.value}")
-        data = self.to_dict()
+        new_customer = self._copy()
         for key, value in kwargs.items():
-            if key not in ("customer_id", "created_at", "created_by", "version"):
-                data[key] = value
-        new_customer = self.from_dict(data)
+            if key in ("customer_id", "created_at", "created_by", "version"):
+                continue
+            if hasattr(new_customer, key):
+                # Normalisasi enum
+                if key == "customer_type":
+                    value = _to_enum(value, CustomerType)
+                elif key == "segment":
+                    value = _to_enum(value, CustomerSegment)
+                elif key == "status":
+                    value = _to_enum(value, CustomerStatus)
+                elif key == "payment_term":
+                    value = _to_enum(value, PaymentTerm)
+                elif key == "country":
+                    value = _validate_iso_country(value)
+                setattr(new_customer, key, value)
         new_customer.updated_at = datetime.now(UTC)
         new_customer.updated_by = updated_by
         new_customer.version = self.version + 1
-        new_customer._record_audit("UPDATE", updated_by, {"changes": kwargs})
+        new_customer._validate()
+        new_customer._record_audit("UPDATE", updated_by, {"changes": list(kwargs.keys())})
         return new_customer
 
     def delete(self, deleted_by: str, reason: str | None = None) -> CustomerEntity:
@@ -289,6 +375,7 @@ class CustomerEntity:
             raise ValueError(f"Cannot lock customer in status {self.status.value}")
         new_customer = self._copy()
         new_customer.status = CustomerStatus.BLOCKED
+        new_customer.credit_hold = True
         new_customer.updated_at = datetime.now(UTC)
         new_customer.updated_by = locked_by
         new_customer.version = self.version + 1
@@ -300,6 +387,7 @@ class CustomerEntity:
             raise ValueError(f"Cannot unlock customer in status {self.status.value}")
         new_customer = self._copy()
         new_customer.status = CustomerStatus.ACTIVE
+        new_customer.credit_hold = False
         new_customer.updated_at = datetime.now(UTC)
         new_customer.updated_by = unlocked_by
         new_customer.version = self.version + 1
@@ -307,7 +395,7 @@ class CustomerEntity:
         return new_customer
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         try:
             self._validate()
         except ValueError as e:
@@ -320,7 +408,7 @@ class CustomerEntity:
         }
 
     def to_dict(self, include_tax_status: bool = True) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "customer_id": str(self.customer_id),
             "legal_entity_id": str(self.legal_entity_id),
             "customer_code": self.customer_code,
@@ -371,20 +459,22 @@ class CustomerEntity:
             tax_status = CustomerTaxStatusVO.from_dict(tax_status)
         elif tax_status is None:
             tax_status = CustomerTaxStatusVO()
+
         credit_limit = data.get("credit_limit")
         if isinstance(credit_limit, dict):
             credit_limit = CustomerCreditLimitVO.from_dict(credit_limit)
         elif credit_limit is None:
             credit_limit = CustomerCreditLimitVO(Decimal("0"), "IDR")
+
         return cls(
             customer_id=UUID(data["customer_id"]),
             legal_entity_id=UUID(data["legal_entity_id"]),
             customer_code=data["customer_code"],
             customer_name=data["customer_name"],
-            customer_type=CustomerType(data["customer_type"]),
-            segment=CustomerSegment(data.get("segment", "regular")),
-            status=CustomerStatus(data.get("status", "active")),
-            payment_term=PaymentTerm(data.get("payment_term_days", 30)),
+            customer_type=_to_enum(data["customer_type"], CustomerType),
+            segment=_to_enum(data.get("segment", "regular"), CustomerSegment),
+            status=_to_enum(data.get("status", "active"), CustomerStatus),
+            payment_term=_to_enum(data.get("payment_term_days", 30), PaymentTerm),
             tax_id=data.get("tax_id"),
             tax_status=tax_status,
             email=data.get("email"),
@@ -397,7 +487,7 @@ class CustomerEntity:
             city=data.get("city"),
             province=data.get("province"),
             postal_code=data.get("postal_code"),
-            country=data.get("country", "Indonesia"),
+            country=data.get("country", "ID"),
             website=data.get("website"),
             credit_limit=credit_limit,
             outstanding_balance=Decimal(data.get("outstanding_balance", "0")),
@@ -531,50 +621,25 @@ class CustomerEntity:
         new_last_payment = (
             transaction_date if amount < 0 and transaction_date else self.last_payment_date
         )
-        return CustomerEntity(
-            customer_id=self.customer_id,
-            legal_entity_id=self.legal_entity_id,
-            customer_code=self.customer_code,
-            customer_name=self.customer_name,
-            customer_type=self.customer_type,
-            segment=self.segment,
-            status=self.status,
-            payment_term=self.payment_term,
-            tax_id=self.tax_id,
-            tax_status=self.tax_status,
-            email=self.email,
-            phone=self.phone,
-            mobile=self.mobile,
-            fax=self.fax,
-            contact_person=self.contact_person,
-            address=self.address,
-            address2=self.address2,
-            city=self.city,
-            province=self.province,
-            postal_code=self.postal_code,
-            country=self.country,
-            website=self.website,
-            credit_limit=self.credit_limit,
-            outstanding_balance=new_balance,
-            total_purchases=new_total,
-            last_purchase_date=new_last_purchase,
-            last_payment_date=new_last_payment,
-            credit_hold=self.credit_hold,
-            risk_score=self.risk_score,
-            notes=self.notes,
-            created_at=self.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=self.created_by,
-            updated_by=self.updated_by,
-            version=self.version + 1,
-        )
+        new_customer = self._copy()
+        new_customer.outstanding_balance = new_balance
+        new_customer.total_purchases = new_total
+        new_customer.last_purchase_date = new_last_purchase
+        new_customer.last_payment_date = new_last_payment
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.version = self.version + 1
+        return new_customer
 
-    def record_payment(self, amount: Decimal, payment_date: date | None = None) -> CustomerEntity:
+    def record_payment(
+        self, amount: Decimal, payment_date: date | None = None
+    ) -> CustomerEntity:
         if amount <= 0:
             raise ValueError(f"Payment amount must be positive: {amount}")
         return self.update_balance(-amount, payment_date)
 
-    def record_purchase(self, amount: Decimal, purchase_date: date | None = None) -> CustomerEntity:
+    def record_purchase(
+        self, amount: Decimal, purchase_date: date | None = None
+    ) -> CustomerEntity:
         if amount <= 0:
             raise ValueError(f"Purchase amount must be positive: {amount}")
         return self.update_balance(amount, purchase_date)
@@ -582,73 +647,67 @@ class CustomerEntity:
     def update_credit_limit(
         self, new_limit: CustomerCreditLimitVO, updated_by: str
     ) -> CustomerEntity:
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "credit_limit": new_limit,
-                "updated_at": datetime.now(UTC),
-                "updated_by": updated_by,
-                "version": self.version + 1,
-            }
+        new_customer = self._copy()
+        new_customer.credit_limit = new_limit
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = updated_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit(
+            "CREDIT_LIMIT_CHANGED",
+            updated_by,
+            {"old": str(self.credit_limit.amount), "new": str(new_limit.amount)},
         )
+        return new_customer
 
     def update_tax_status(
         self, new_tax_status: CustomerTaxStatusVO, updated_by: str
     ) -> CustomerEntity:
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "tax_status": new_tax_status,
-                "updated_at": datetime.now(UTC),
-                "updated_by": updated_by,
-                "version": self.version + 1,
-            }
-        )
+        new_customer = self._copy()
+        new_customer.tax_status = new_tax_status
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = updated_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit("TAX_STATUS_CHANGED", updated_by, {})
+        return new_customer
 
     def block(self, blocked_by: str, reason: str) -> CustomerEntity:
         if self.status == CustomerStatus.BLOCKED:
             return self
         if self.status == CustomerStatus.BLACKLISTED:
             raise ValueError("Cannot block blacklisted customer")
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "status": CustomerStatus.BLOCKED,
-                "credit_hold": True,
-                "notes": f"{self.notes}\nBlocked: {reason}",
-                "updated_at": datetime.now(UTC),
-                "updated_by": blocked_by,
-                "version": self.version + 1,
-            }
-        )
+        new_customer = self._copy()
+        new_customer.status = CustomerStatus.BLOCKED
+        new_customer.credit_hold = True
+        new_customer.notes = f"{self.notes}\nBlocked: {reason}"
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = blocked_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit("BLOCK", blocked_by, {"reason": reason})
+        return new_customer
 
     def unblock(self, unblocked_by: str) -> CustomerEntity:
         if self.status != CustomerStatus.BLOCKED:
             raise ValueError("Customer is not blocked")
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "status": CustomerStatus.ACTIVE,
-                "credit_hold": False,
-                "updated_at": datetime.now(UTC),
-                "updated_by": unblocked_by,
-                "version": self.version + 1,
-            }
-        )
+        new_customer = self._copy()
+        new_customer.status = CustomerStatus.ACTIVE
+        new_customer.credit_hold = False
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = unblocked_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit("UNBLOCK", unblocked_by, {})
+        return new_customer
 
     def blacklist(self, blacklisted_by: str, reason: str) -> CustomerEntity:
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "status": CustomerStatus.BLACKLISTED,
-                "credit_hold": True,
-                "risk_score": 100,
-                "notes": f"{self.notes}\nBLACKLISTED: {reason}",
-                "updated_at": datetime.now(UTC),
-                "updated_by": blacklisted_by,
-                "version": self.version + 1,
-            }
-        )
+        new_customer = self._copy()
+        new_customer.status = CustomerStatus.BLACKLISTED
+        new_customer.credit_hold = True
+        new_customer.risk_score = 100
+        new_customer.notes = f"{self.notes}\nBLACKLISTED: {reason}"
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = blacklisted_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit("BLACKLIST", blacklisted_by, {"reason": reason})
+        return new_customer
 
     def update_credit_hold(
         self, credit_hold: bool, updated_by: str, reason: str | None = None
@@ -657,32 +716,36 @@ class CustomerEntity:
             return self
         notes = self.notes
         if reason:
-            notes = f"{notes}\nCredit hold {'applied' if credit_hold else 'released'}: {reason}"
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "credit_hold": credit_hold,
-                "notes": notes,
-                "updated_at": datetime.now(UTC),
-                "updated_by": updated_by,
-                "version": self.version + 1,
-            }
+            notes = (
+                f"{notes}\nCredit hold "
+                f"{'applied' if credit_hold else 'released'}: {reason}"
+            )
+        new_customer = self._copy()
+        new_customer.credit_hold = credit_hold
+        new_customer.notes = notes
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = updated_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit(
+            "CREDIT_HOLD_CHANGED", updated_by, {"credit_hold": credit_hold}
         )
+        return new_customer
 
     def update_risk_score(self, new_score: int, updated_by: str) -> CustomerEntity:
         if new_score < 0 or new_score > 100:
             raise ValueError(f"Risk score must be 0-100, got {new_score}")
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "risk_score": new_score,
-                "updated_at": datetime.now(UTC),
-                "updated_by": updated_by,
-                "version": self.version + 1,
-            }
+        new_customer = self._copy()
+        new_customer.risk_score = new_score
+        new_customer.updated_at = datetime.now(UTC)
+        new_customer.updated_by = updated_by
+        new_customer.version = self.version + 1
+        new_customer._record_audit(
+            "RISK_SCORE_CHANGED", updated_by, {"new_score": new_score}
         )
+        return new_customer
 
     def _copy(self) -> CustomerEntity:
+        """Salinan dengan audit trail/snapshot yang SAMA (dibagi, bukan dicopy)."""
         return CustomerEntity(
             customer_id=self.customer_id,
             legal_entity_id=self.legal_entity_id,
@@ -719,136 +782,93 @@ class CustomerEntity:
             created_by=self.created_by,
             updated_by=self.updated_by,
             version=self.version,
+            _audit_trail=self._audit_trail,
+            _snapshots=self._snapshots,
         )
 
 
 # ============================================================================
-# Repository Interface (Real Implementation)
+# Repository Interface (Protocol) — implementasi nyata di adapter SQLAlchemy
 # ============================================================================
 
 
 class CustomerEntityRepository:
-    _storage: ClassVar[dict[UUID, dict[UUID, CustomerEntity]]] = {}
+    """
+    Protocol/interface untuk CustomerEntityRepository.
 
-    @classmethod
-    def _get_storage(cls, legal_entity_id: UUID) -> dict[UUID, CustomerEntity]:
-        if legal_entity_id not in cls._storage:
-            cls._storage[legal_entity_id] = {}
-        return cls._storage[legal_entity_id]
+    Implementasi nyata ada di:
+        adapters/secondary_impl/sqlalchemy_customer_repository_impl.py
+    """
 
-    @classmethod
-    async def get_by_id(cls, customer_id: UUID, legal_entity_id: UUID) -> CustomerEntity | None:
-        storage = cls._get_storage(legal_entity_id)
-        return storage.get(customer_id)
+    async def get_by_id(
+        self, customer_id: UUID, legal_entity_id: UUID
+    ) -> CustomerEntity | None:
+        raise NotImplementedError
 
-    @classmethod
-    async def get_by_code(cls, customer_code: str, legal_entity_id: UUID) -> CustomerEntity | None:
-        storage = cls._get_storage(legal_entity_id)
-        for cust in storage.values():
-            if cust.customer_code == customer_code:
-                return cust
-        return None
+    async def get_by_code(
+        self, customer_code: str, legal_entity_id: UUID
+    ) -> CustomerEntity | None:
+        raise NotImplementedError
 
-    @classmethod
-    async def get_by_email(cls, email: str, legal_entity_id: UUID) -> CustomerEntity | None:
-        storage = cls._get_storage(legal_entity_id)
-        for cust in storage.values():
-            if cust.email == email:
-                return cust
-        return None
+    async def get_by_email(
+        self, email: str, legal_entity_id: UUID
+    ) -> CustomerEntity | None:
+        raise NotImplementedError
 
-    @classmethod
-    async def get_by_tax_id(cls, tax_id: str, legal_entity_id: UUID) -> CustomerEntity | None:
-        storage = cls._get_storage(legal_entity_id)
-        for cust in storage.values():
-            if cust.tax_id == tax_id:
-                return cust
-        return None
+    async def get_by_tax_id(
+        self, tax_id: str, legal_entity_id: UUID
+    ) -> CustomerEntity | None:
+        raise NotImplementedError
 
-    @classmethod
-    async def get_all(cls, legal_entity_id: UUID) -> list[CustomerEntity]:
-        storage = cls._get_storage(legal_entity_id)
-        return list(storage.values())
+    async def get_all(self, legal_entity_id: UUID) -> list[CustomerEntity]:
+        raise NotImplementedError
 
-    @classmethod
-    async def save(cls, customer: CustomerEntity, legal_entity_id: UUID) -> None:
-        storage = cls._get_storage(legal_entity_id)
-        storage[customer.customer_id] = customer
+    async def save(self, customer: CustomerEntity, legal_entity_id: UUID) -> None:
+        raise NotImplementedError
 
-    @classmethod
-    async def update(cls, customer: CustomerEntity, legal_entity_id: UUID) -> None:
-        await cls.save(customer, legal_entity_id)
+    async def update(self, customer: CustomerEntity, legal_entity_id: UUID) -> None:
+        raise NotImplementedError
 
-    @classmethod
-    async def delete(cls, customer_id: UUID, legal_entity_id: UUID) -> None:
-        storage = cls._get_storage(legal_entity_id)
-        storage.pop(customer_id, None)
+    async def delete(self, customer_id: UUID, legal_entity_id: UUID) -> None:
+        raise NotImplementedError
 
-    @classmethod
-    async def exists(cls, customer_id: UUID, legal_entity_id: UUID) -> bool:
-        storage = cls._get_storage(legal_entity_id)
-        return customer_id in storage
+    async def exists(self, customer_id: UUID, legal_entity_id: UUID) -> bool:
+        raise NotImplementedError
 
-    @classmethod
-    async def count(cls, legal_entity_id: UUID) -> int:
-        storage = cls._get_storage(legal_entity_id)
-        return len(storage)
+    async def count(self, legal_entity_id: UUID) -> int:
+        raise NotImplementedError
 
-    @classmethod
     async def list_all(
-        cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
+        self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CustomerEntity]:
-        customers = await cls.get_all(legal_entity_id)
-        return customers[offset : offset + limit]
+        raise NotImplementedError
 
-    @classmethod
     async def paginate(
-        cls, legal_entity_id: UUID, page: int = 1, per_page: int = 20
+        self, legal_entity_id: UUID, page: int = 1, per_page: int = 20
     ) -> tuple[list[CustomerEntity], int]:
-        customers = await cls.get_all(legal_entity_id)
-        total = len(customers)
-        start = (page - 1) * per_page
-        end = start + per_page
-        return customers[start:end], total
+        raise NotImplementedError
 
-    @classmethod
     async def search(
-        cls, legal_entity_id: UUID, query: str, fields: list[str] | None = None
+        self,
+        legal_entity_id: UUID,
+        query: str,
+        fields: list[str] | None = None,
     ) -> list[CustomerEntity]:
-        if fields is None:
-            fields = ["customer_code", "customer_name", "email"]
-        customers = await cls.get_all(legal_entity_id)
-        query_lower = query.lower()
-        results = []
-        for cust in customers:
-            for field_name in fields:
-                value = getattr(cust, field_name, "")
-                if value and query_lower in str(value).lower():
-                    results.append(cust)
-                    break
-        return results
+        raise NotImplementedError
 
-    @classmethod
     async def lock(
-        cls, customer_id: UUID, legal_entity_id: UUID, locked_by: str, reason: str
+        self,
+        customer_id: UUID,
+        legal_entity_id: UUID,
+        locked_by: str,
+        reason: str,
     ) -> CustomerEntity:
-        cust = await cls.get_by_id(customer_id, legal_entity_id)
-        if not cust:
-            raise ValueError(f"Customer {customer_id} not found")
-        locked = cust.lock(locked_by, reason)
-        await cls.save(locked, legal_entity_id)
-        return locked
+        raise NotImplementedError
 
-    @classmethod
     async def unlock(
-        cls, customer_id: UUID, legal_entity_id: UUID, unlocked_by: str
+        self, customer_id: UUID, legal_entity_id: UUID, unlocked_by: str
     ) -> CustomerEntity:
-        cust = await cls.get_by_id(customer_id, legal_entity_id)
-        if not cust:
-            raise ValueError(f"Customer {customer_id} not found")
-        unlocked = cust.unlock(unlocked_by)
-        await cls.save(unlocked, legal_entity_id)
-        return unlocked
+        raise NotImplementedError
 
 
 __all__ = [

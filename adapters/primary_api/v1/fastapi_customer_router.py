@@ -2,27 +2,32 @@
 """
 Module: fastapi_customer_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: REST API modul Customer skala ERP produksi -- sinkron
-    penuh dengan CustomerService (DB-backed) dan tabel-tabel di
-    customer_table.py:
+Responsibility: REST API modul Customer skala ERP produksi.
 
-        /customers                              CRUD utama
-        /customers/{id}/activate|deactivate|block
-        /customers/{id}/credit-limit             GET/POST + riwayat
-        /customers/{id}/balance                  GET/POST + riwayat
-        /customers/{id}/addresses                Tab Address
-        /customers/{id}/contacts                 Tab Contact Person
-        /customers/{id}/attachments              Tab Attachment
-        /customers/{id}/notes                    catatan internal
-        /customers/{id}/tags                     kategori/label
-        /customers/search, /customers/by-code, /customers/statistics
-        /customers/bulk-delete, /customers/bulk-update-status
+PENTING (2026-10-12):
+- main.py mount router ini di /api/v1/customers (lihat known_prefixes).
+- Router ini mendeklarasikan path "/customers" di setiap endpoint CRUD,
+  sehingga URL final adalah /api/v1/customers/customers/...
+- Endpoint /customers/export dan /customers/stats juga di-DOUBLE-kan
+  supaya konsisten dengan pola CRUD di atas.
+- Middleware ACTION_OVERRIDES di fastapi_auth_jwt_middleware.py
+  sudah disesuaikan dengan pola DOUBLE ini.
 
-    NOTE PATH: main.py mount modul ini di /api/v1/customers, dan router
-    ini sendiri sudah pakai prefix "/customers" di setiap path (pola
-    double-naming yang sama dipakai semua modul lain di proyek ini --
-    lihat catatan di registry/module_registry.py sisi frontend), jadi
-    hasil akhirnya /api/v1/customers/customers/...
+Daftar endpoint:
+    /customers/customers                              CRUD utama
+    /customers/customers/{id}/activate|deactivate|block
+    /customers/customers/{id}/credit-limit             GET/POST + riwayat
+    /customers/customers/{id}/balance                  GET/POST + riwayat
+    /customers/customers/{id}/addresses                Tab Address
+    /customers/customers/{id}/contacts                 Tab Contact Person
+    /customers/customers/{id}/attachments              Tab Attachment
+    /customers/customers/{id}/notes                    catatan internal
+    /customers/customers/{id}/tags                     kategori/label
+    /customers/customers/search, /customers/customers/by-code,
+    /customers/customers/statistics
+    /customers/customers/bulk-delete, /customers/customers/bulk-update-status
+    /customers/customers/export                        Export CSV/Excel/JSON
+    /customers/customers/stats                         Counter internal
 """
 
 from __future__ import annotations
@@ -54,15 +59,16 @@ from application.service_layer.service_customer import (
 
 logger = logging.getLogger(__name__)
 
+
 def _is_superuser(user: TokenPayload) -> bool:
     return "*:*" in (getattr(user, "permissions", None) or [])
 
 
 def _enforce_entity(entity_id: UUID, user: TokenPayload) -> UUID:
-    """BUG FIX (keamanan): `legal_entity_id` dikirim klien lewat query/body dan dulu
-    dipercaya begitu saja, jadi user perusahaan A bisa membaca/menulis data perusahaan B
-    cukup dengan mengganti nilainya. Sekarang harus sama dengan perusahaan di token
-    (superuser `*:*` dikecualikan, mis. untuk konsolidasi grup)."""
+    """BUG FIX (keamanan): `legal_entity_id` dikirim klien lewat query/body
+    dan dulu dipercaya begitu saja, jadi user perusahaan A bisa membaca/
+    menulis data perusahaan B cukup dengan mengganti nilainya. Sekarang
+    harus sama dengan perusahaan di token (superuser `*:*` dikecualikan)."""
     if str(entity_id) != str(user.legal_entity_id) and not _is_superuser(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -76,8 +82,9 @@ async def _enforce_customer_scope(
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> None:
-    """Untuk semua route /customers/{customer_id}/...: customer harus milik perusahaan
-    user. Dijawab 404 (bukan 403) supaya keberadaan customer perusahaan lain tidak bocor."""
+    """Untuk semua route /customers/{customer_id}/...: customer harus milik
+    perusahaan user. Dijawab 404 (bukan 403) supaya keberadaan customer
+    perusahaan lain tidak bocor."""
     raw_id = request.path_params.get("customer_id")
     if raw_id is None or _is_superuser(user):
         return
@@ -85,8 +92,12 @@ async def _enforce_customer_scope(
         customer = await service.get_customer(UUID(str(raw_id)))
     except ValueError:
         return  # UUID tidak valid -> biar validasi route yang menjawab 422
-    if customer is not None and str(customer.legal_entity_id) != str(user.legal_entity_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    if customer is not None and str(customer.legal_entity_id) != str(
+        user.legal_entity_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+        )
 
 
 router = APIRouter(dependencies=[Depends(_enforce_customer_scope)])
@@ -96,11 +107,14 @@ router = APIRouter(dependencies=[Depends(_enforce_customer_scope)])
 # ENUMS
 # ============================================================================
 
+
 class CustomerStatusEnum(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     SUSPENDED = "suspended"
     BLOCKED = "blocked"
+    BLACKLISTED = "blacklisted"
+    DRAFT = "draft"
 
 
 class CustomerTypeEnum(str, Enum):
@@ -121,10 +135,12 @@ class AddressTypeEnum(str, Enum):
 # PYDANTIC MODELS -- Customer inti
 # ============================================================================
 
+
 class CreateCustomerRequest(BaseModel):
     legal_entity_id: UUID
     customer_code: str | None = Field(
-        None, max_length=30,
+        None,
+        max_length=30,
         description="Kosongkan untuk auto-generate (CUST-0001, CUST-0002, dst).",
     )
     customer_name: str = Field(..., min_length=1, max_length=200)
@@ -254,6 +270,7 @@ class BulkUpdateStatusRequest(BaseModel):
 
 # ---------- Child resource models ----------
 
+
 class AddressRequest(BaseModel):
     address_type: AddressTypeEnum = AddressTypeEnum.OTHER
     label: str | None = Field(None, max_length=100)
@@ -281,7 +298,9 @@ class ContactRequest(BaseModel):
 
 
 class AttachmentRequest(BaseModel):
-    document_type: str = Field("other", max_length=30, description="npwp|siup|ktp|kontrak|foto|other")
+    document_type: str = Field(
+        "other", max_length=30, description="npwp|siup|ktp|kontrak|foto|other"
+    )
     file_name: str = Field(..., min_length=1, max_length=255)
     file_path: str = Field(..., min_length=1, description="path/URL penyimpanan file")
     file_size_bytes: int | None = None
@@ -301,15 +320,19 @@ class TagRequest(BaseModel):
 # HELPERS
 # ============================================================================
 
+
 def to_customer_response(c: CustomerListItem) -> CustomerResponseModel:
     return CustomerResponseModel(**c.__dict__)
 
 
 def _handle_common_errors(e: Exception, action: str, entity_id: Any = None):
     if isinstance(e, HTTPException):
-        raise e  # 403/404 yang sengaja dilempar (izin, cakupan entitas) jangan berubah jadi 500
+        raise e
     if isinstance(e, CustomerNotFoundError):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e) or "Customer not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e) or "Customer not found",
+        )
     if isinstance(e, CustomerServiceError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     logger.error(f"Error {action} ({entity_id}): {e}", exc_info=True)
@@ -320,7 +343,12 @@ def _handle_common_errors(e: Exception, action: str, entity_id: Any = None):
 # CUSTOMER CRUD
 # ============================================================================
 
-@router.post("/customers", response_model=CustomerResponseModel, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/customers",
+    response_model=CustomerResponseModel,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_customer(
     payload: CreateCustomerRequest,
     user: TokenPayload = Depends(get_current_user),
@@ -384,9 +412,13 @@ async def get_by_code(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     try:
-        result = await service.get_customer_by_code(_enforce_entity(legal_entity_id, user), customer_code)
+        result = await service.get_customer_by_code(
+            _enforce_entity(legal_entity_id, user), customer_code
+        )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+            )
         return to_customer_response(result)
     except HTTPException:
         raise
@@ -404,7 +436,10 @@ async def search_customers(
 ) -> list[CustomerResponseModel]:
     try:
         results, _total = await service.list_customers(
-            legal_entity_id=_enforce_entity(legal_entity_id, user), search=q, limit=limit, offset=0,
+            legal_entity_id=_enforce_entity(legal_entity_id, user),
+            search=q,
+            limit=limit,
+            offset=0,
         )
         return [to_customer_response(c) for c in results]
     except Exception as e:
@@ -414,23 +449,44 @@ async def search_customers(
 # ============================================================================
 # EXPORT
 # ============================================================================
-# BUG FIX: tombol Export di frontend memanggil GET /customers/export, tetapi
-# endpoint ini tidak pernah ada -> 404 untuk semua format (csv/excel/json).
 
 _EXPORT_COLUMNS: list[tuple[str, str]] = [
-    ("customer_code", "Kode"), ("customer_name", "Nama"), ("company_name", "Perusahaan"),
-    ("customer_type", "Tipe"), ("tax_id", "NPWP"), ("tax_status", "Status Pajak"),
-    ("address", "Alamat"), ("city", "Kota"), ("province", "Provinsi"),
-    ("district", "Kecamatan"), ("postal_code", "Kode Pos"), ("country", "Negara"),
-    ("phone", "Telepon"), ("mobile", "HP"), ("email", "Email"), ("website", "Website"),
-    ("contact_person", "Contact Person"), ("contact_phone", "Telepon PIC"),
-    ("contact_email", "Email PIC"), ("credit_limit", "Limit Kredit"),
-    ("current_balance", "Saldo Piutang"), ("currency", "Mata Uang"),
-    ("payment_term_days", "Termin (hari)"), ("discount_percent", "Diskon (%)"),
-    ("category", "Kategori"), ("price_group", "Price Level"), ("status", "Status"),
-    ("is_active", "Aktif"), ("created_at", "Dibuat"),
+    ("customer_code", "Kode"),
+    ("customer_name", "Nama"),
+    ("company_name", "Perusahaan"),
+    ("customer_type", "Tipe"),
+    ("tax_id", "NPWP"),
+    ("tax_status", "Status Pajak"),
+    ("address", "Alamat"),
+    ("city", "Kota"),
+    ("province", "Provinsi"),
+    ("district", "Kecamatan"),
+    ("postal_code", "Kode Pos"),
+    ("country", "Negara"),
+    ("phone", "Telepon"),
+    ("mobile", "HP"),
+    ("email", "Email"),
+    ("website", "Website"),
+    ("contact_person", "Contact Person"),
+    ("contact_phone", "Telepon PIC"),
+    ("contact_email", "Email PIC"),
+    ("credit_limit", "Limit Kredit"),
+    ("current_balance", "Saldo Piutang"),
+    ("currency", "Mata Uang"),
+    ("payment_term_days", "Termin (hari)"),
+    ("discount_percent", "Diskon (%)"),
+    ("category", "Kategori"),
+    ("price_group", "Price Level"),
+    ("status", "Status"),
+    ("is_active", "Aktif"),
+    ("created_at", "Dibuat"),
 ]
-_EXPORT_NUMERIC = {"credit_limit", "current_balance", "discount_percent", "payment_term_days"}
+_EXPORT_NUMERIC = {
+    "credit_limit",
+    "current_balance",
+    "discount_percent",
+    "payment_term_days",
+}
 
 
 def _export_cell(field: str, value: Any) -> Any:
@@ -445,7 +501,10 @@ def _export_cell(field: str, value: Any) -> Any:
     return str(value)
 
 
-@router.get("/export", summary="Export daftar customer (csv | excel | json)")
+@router.get(
+    "/customers/export",
+    summary="Export daftar customer (csv | excel | json)",
+)
 async def export_customers(
     format: str = Query("csv", pattern="^(csv|excel|json)$"),
     legal_entity_id: UUID | None = Query(None),
@@ -458,13 +517,21 @@ async def export_customers(
 ) -> Response:
     try:
         results, _total = await service.list_customers(
-            legal_entity_id=_enforce_entity(legal_entity_id or user.legal_entity_id, user),
+            legal_entity_id=_enforce_entity(
+                legal_entity_id or user.legal_entity_id, user
+            ),
             is_active=is_active,
             status=status_filter.value if status_filter else None,
-            category=category, search=search, limit=100000, offset=0,
+            category=category,
+            search=search,
+            limit=100000,
+            offset=0,
         )
         headers_row = [label for _f, label in _EXPORT_COLUMNS]
-        rows = [[_export_cell(f, getattr(c, f, None)) for f, _l in _EXPORT_COLUMNS] for c in results]
+        rows = [
+            [_export_cell(f, getattr(c, f, None)) for f, _l in _EXPORT_COLUMNS]
+            for c in results
+        ]
         stamp = datetime.now().strftime("%Y%m%d_%H%M")
 
         if format == "json":
@@ -472,7 +539,11 @@ async def export_customers(
             return Response(
                 content=json.dumps(payload, ensure_ascii=False, indent=2),
                 media_type="application/json",
-                headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.json"'},
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="customers_{stamp}.json"'
+                    )
+                },
             )
 
         if format == "csv":
@@ -480,11 +551,15 @@ async def export_customers(
             writer = csv.writer(buf)
             writer.writerow(headers_row)
             writer.writerows(rows)
-            # BOM supaya Excel membaca UTF-8 (nama/alamat berkarakter khusus) dengan benar.
+            # BOM supaya Excel membaca UTF-8 dengan benar.
             return Response(
                 content=("\ufeff" + buf.getvalue()).encode("utf-8"),
                 media_type="text/csv; charset=utf-8",
-                headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.csv"'},
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="customers_{stamp}.csv"'
+                    )
+                },
             )
 
         # format == "excel": file .xlsx asli
@@ -492,10 +567,13 @@ async def export_customers(
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Font, PatternFill
             from openpyxl.utils import get_column_letter
-        except ImportError as exc:  # pragma: no cover
+        except ImportError as exc:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="Export Excel membutuhkan paket 'openpyxl' (pip install openpyxl). Gunakan format csv.",
+                detail=(
+                    "Export Excel membutuhkan paket 'openpyxl' "
+                    "(pip install openpyxl). Gunakan format csv."
+                ),
             ) from exc
         wb = Workbook()
         ws = wb.active
@@ -520,8 +598,14 @@ async def export_customers(
         wb.save(out)
         return Response(
             content=out.getvalue(),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="customers_{stamp}.xlsx"'},
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="customers_{stamp}.xlsx"'
+                )
+            },
         )
     except HTTPException:
         raise
@@ -548,7 +632,9 @@ async def list_customers(
 ) -> list[CustomerResponseModel]:
     try:
         effective_limit = limit if limit is not None else page_size
-        effective_offset = offset if offset is not None else (page - 1) * effective_limit
+        effective_offset = (
+            offset if offset is not None else (page - 1) * effective_limit
+        )
         results, _total = await service.list_customers(
             legal_entity_id=_enforce_entity(legal_entity_id, user),
             is_active=is_active,
@@ -575,7 +661,9 @@ async def get_customer(
     try:
         result = await service.get_customer(customer_id)
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+            )
         return to_customer_response(result)
     except HTTPException:
         raise
@@ -593,21 +681,35 @@ async def update_customer(
     try:
         result = await service.update_customer(
             customer_id=customer_id,
-            name=payload.customer_name, company_name=payload.company_name, npwp=payload.tax_id,
-            tax_status=payload.tax_status, is_taxable=payload.is_taxable,
-            address=payload.address, city=payload.city, province=payload.province,
-            district=payload.district, postal_code=payload.postal_code, country=payload.country,
-            phone=payload.phone, mobile=payload.mobile, email=payload.email,
-            website=payload.website, contact_person=payload.contact_person,
-            contact_phone=payload.contact_phone, contact_email=payload.contact_email,
-            payment_term_days=payload.payment_term_days, discount_percent=payload.discount_percent,
-            category=payload.category, price_group=payload.price_group,
-            is_active=payload.is_active, is_blacklist=payload.is_blacklist,
+            name=payload.customer_name,
+            company_name=payload.company_name,
+            npwp=payload.tax_id,
+            tax_status=payload.tax_status,
+            is_taxable=payload.is_taxable,
+            address=payload.address,
+            city=payload.city,
+            province=payload.province,
+            district=payload.district,
+            postal_code=payload.postal_code,
+            country=payload.country,
+            phone=payload.phone,
+            mobile=payload.mobile,
+            email=payload.email,
+            website=payload.website,
+            contact_person=payload.contact_person,
+            contact_phone=payload.contact_phone,
+            contact_email=payload.contact_email,
+            payment_term_days=payload.payment_term_days,
+            discount_percent=payload.discount_percent,
+            category=payload.category,
+            price_group=payload.price_group,
+            is_active=payload.is_active,
+            is_blacklist=payload.is_blacklist,
             status=payload.status.value if payload.status else None,
             updated_by=user.user_id,
-            # field yang dikirim eksplisit sebagai null/"" = minta dikosongkan
             clear_fields={
-                f for f in payload.model_fields_set
+                f
+                for f in payload.model_fields_set
                 if getattr(payload, f) is None or getattr(payload, f) == ""
             },
         )
@@ -616,7 +718,11 @@ async def update_customer(
         _handle_common_errors(e, "updating customer", customer_id)
 
 
-@router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_customer(
     customer_id: UUID,
     user: TokenPayload = Depends(get_current_user),
@@ -636,19 +742,25 @@ async def activate_customer(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     try:
-        return to_customer_response(await service.activate_customer(customer_id, updated_by=user.user_id))
+        return to_customer_response(
+            await service.activate_customer(customer_id, updated_by=user.user_id)
+        )
     except Exception as e:
         _handle_common_errors(e, "activating customer", customer_id)
 
 
-@router.post("/customers/{customer_id}/deactivate", response_model=CustomerResponseModel)
+@router.post(
+    "/customers/{customer_id}/deactivate", response_model=CustomerResponseModel
+)
 async def deactivate_customer(
     customer_id: UUID,
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     try:
-        return to_customer_response(await service.deactivate_customer(customer_id, updated_by=user.user_id))
+        return to_customer_response(
+            await service.deactivate_customer(customer_id, updated_by=user.user_id)
+        )
     except Exception as e:
         _handle_common_errors(e, "deactivating customer", customer_id)
 
@@ -662,7 +774,9 @@ async def block_customer(
 ) -> CustomerResponseModel:
     try:
         return to_customer_response(
-            await service.block_customer(customer_id, payload.reason, updated_by=user.user_id)
+            await service.block_customer(
+                customer_id, payload.reason, updated_by=user.user_id
+            )
         )
     except Exception as e:
         _handle_common_errors(e, "blocking customer", customer_id)
@@ -672,7 +786,10 @@ async def block_customer(
 # CREDIT LIMIT
 # ============================================================================
 
-@router.post("/customers/{customer_id}/credit-limit", response_model=CustomerResponseModel)
+
+@router.post(
+    "/customers/{customer_id}/credit-limit", response_model=CustomerResponseModel
+)
 async def update_credit_limit(
     customer_id: UUID,
     payload: UpdateCreditLimitRequest,
@@ -681,8 +798,10 @@ async def update_credit_limit(
 ) -> CustomerResponseModel:
     try:
         result = await service.update_credit_limit(
-            customer_id=customer_id, new_limit=payload.new_limit,
-            updated_by=user.user_id, reason=payload.reason,
+            customer_id=customer_id,
+            new_limit=payload.new_limit,
+            updated_by=user.user_id,
+            reason=payload.reason,
         )
         return to_customer_response(result)
     except Exception as e:
@@ -707,6 +826,7 @@ async def get_credit_history(
 # BALANCE
 # ============================================================================
 
+
 @router.post("/customers/{customer_id}/balance", response_model=dict[str, Decimal])
 async def update_balance(
     customer_id: UUID,
@@ -716,8 +836,11 @@ async def update_balance(
 ) -> dict[str, Decimal]:
     try:
         new_balance = await service.update_balance(
-            customer_id=customer_id, delta=payload.delta, updated_by=user.user_id,
-            source=payload.source, reference=payload.reference,
+            customer_id=customer_id,
+            delta=payload.delta,
+            updated_by=user.user_id,
+            source=payload.source,
+            reference=payload.reference,
         )
         return {"new_balance": new_balance}
     except Exception as e:
@@ -733,7 +856,9 @@ async def get_balance(
     try:
         result = await service.get_customer(customer_id)
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+            )
         return {"current_balance": result.current_balance}
     except HTTPException:
         raise
@@ -759,6 +884,7 @@ async def get_balance_history(
 # ADDRESSES
 # ============================================================================
 
+
 @router.get("/customers/{customer_id}/addresses", response_model=list[dict])
 async def list_addresses(
     customer_id: UUID,
@@ -771,7 +897,11 @@ async def list_addresses(
         _handle_common_errors(e, "listing addresses", customer_id)
 
 
-@router.post("/customers/{customer_id}/addresses", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/customers/{customer_id}/addresses",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_address(
     customer_id: UUID,
     payload: AddressRequest,
@@ -793,12 +923,18 @@ async def update_address(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict:
     try:
-        return await service.update_address(customer_id, address_id, **payload.model_dump(exclude_unset=True))
+        return await service.update_address(
+            customer_id, address_id, **payload.model_dump(exclude_unset=True)
+        )
     except Exception as e:
         _handle_common_errors(e, "updating address", address_id)
 
 
-@router.delete("/customers/{customer_id}/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}/addresses/{address_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_address(
     customer_id: UUID,
     address_id: UUID,
@@ -815,6 +951,7 @@ async def delete_address(
 # CONTACTS
 # ============================================================================
 
+
 @router.get("/customers/{customer_id}/contacts", response_model=list[dict])
 async def list_contacts(
     customer_id: UUID,
@@ -827,7 +964,11 @@ async def list_contacts(
         _handle_common_errors(e, "listing contacts", customer_id)
 
 
-@router.post("/customers/{customer_id}/contacts", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/customers/{customer_id}/contacts",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_contact(
     customer_id: UUID,
     payload: ContactRequest,
@@ -849,12 +990,18 @@ async def update_contact(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict:
     try:
-        return await service.update_contact(customer_id, contact_id, **payload.model_dump(exclude_unset=True))
+        return await service.update_contact(
+            customer_id, contact_id, **payload.model_dump(exclude_unset=True)
+        )
     except Exception as e:
         _handle_common_errors(e, "updating contact", contact_id)
 
 
-@router.delete("/customers/{customer_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}/contacts/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_contact(
     customer_id: UUID,
     contact_id: UUID,
@@ -871,6 +1018,7 @@ async def delete_contact(
 # ATTACHMENTS
 # ============================================================================
 
+
 @router.get("/customers/{customer_id}/attachments", response_model=list[dict])
 async def list_attachments(
     customer_id: UUID,
@@ -883,7 +1031,11 @@ async def list_attachments(
         _handle_common_errors(e, "listing attachments", customer_id)
 
 
-@router.post("/customers/{customer_id}/attachments", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/customers/{customer_id}/attachments",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_attachment(
     customer_id: UUID,
     payload: AttachmentRequest,
@@ -893,8 +1045,7 @@ async def add_attachment(
     """
     Menyimpan metadata dokumen (nama file, path/URL penyimpanan, tipe,
     ukuran). Upload biner file itu sendiri dilakukan lewat endpoint
-    storage terpisah (mis. object storage/S3) di luar router ini --
-    router ini hanya mencatat referensinya ke database.
+    storage terpisah (mis. object storage/S3) di luar router ini.
     """
     try:
         fields = payload.model_dump()
@@ -904,7 +1055,11 @@ async def add_attachment(
         _handle_common_errors(e, "adding attachment", customer_id)
 
 
-@router.delete("/customers/{customer_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_attachment(
     customer_id: UUID,
     attachment_id: UUID,
@@ -921,6 +1076,7 @@ async def delete_attachment(
 # NOTES
 # ============================================================================
 
+
 @router.get("/customers/{customer_id}/notes", response_model=list[dict])
 async def list_notes(
     customer_id: UUID,
@@ -933,7 +1089,11 @@ async def list_notes(
         _handle_common_errors(e, "listing notes", customer_id)
 
 
-@router.post("/customers/{customer_id}/notes", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/customers/{customer_id}/notes",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_note(
     customer_id: UUID,
     payload: NoteRequest,
@@ -946,7 +1106,11 @@ async def add_note(
         _handle_common_errors(e, "adding note", customer_id)
 
 
-@router.delete("/customers/{customer_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}/notes/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_note(
     customer_id: UUID,
     note_id: UUID,
@@ -963,6 +1127,7 @@ async def delete_note(
 # TAGS
 # ============================================================================
 
+
 @router.get("/customers/{customer_id}/tags", response_model=list[dict])
 async def list_tags(
     customer_id: UUID,
@@ -975,7 +1140,11 @@ async def list_tags(
         _handle_common_errors(e, "listing tags", customer_id)
 
 
-@router.post("/customers/{customer_id}/tags", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/customers/{customer_id}/tags",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_tag(
     customer_id: UUID,
     payload: TagRequest,
@@ -988,7 +1157,11 @@ async def add_tag(
         _handle_common_errors(e, "adding tag", customer_id)
 
 
-@router.delete("/customers/{customer_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/customers/{customer_id}/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def remove_tag(
     customer_id: UUID,
     tag_id: UUID,
@@ -1005,6 +1178,7 @@ async def remove_tag(
 # BULK
 # ============================================================================
 
+
 @router.post("/customers/bulk-delete", response_model=dict[str, int])
 async def bulk_delete(
     payload: BulkIdsRequest,
@@ -1012,7 +1186,9 @@ async def bulk_delete(
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict[str, int]:
     try:
-        count = await service.bulk_delete(payload.customer_ids, deleted_by=user.user_id)
+        count = await service.bulk_delete(
+            payload.customer_ids, deleted_by=user.user_id
+        )
         return {"deleted": count, "skipped": len(payload.customer_ids) - count}
     except Exception as e:
         _handle_common_errors(e, "bulk deleting customers")
@@ -1034,10 +1210,11 @@ async def bulk_update_status(
 
 
 # ============================================================================
-# STATS (internal monitoring, dipertahankan dari versi sebelumnya)
+# STATS (internal monitoring)
 # ============================================================================
 
-@router.get("/stats", response_model=dict[str, int])
+
+@router.get("/customers/stats", response_model=dict[str, int])
 async def get_customer_stats(
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
@@ -1046,3 +1223,6 @@ async def get_customer_stats(
         return service.get_stats()
     except Exception as e:
         _handle_common_errors(e, "getting customer stats")
+
+
+__all__ = ["router"]

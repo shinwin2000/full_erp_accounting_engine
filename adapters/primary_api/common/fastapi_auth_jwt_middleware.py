@@ -9,12 +9,10 @@ PERBAIKAN:
 - _ensure_authority_matrix_wired() meng-inject user repository ke AuthorityMatrixGuard.
 - FIX V12: _check_rbac() memeriksa wildcard permission dari token terlebih dahulu.
 - FIX V13: Bila authority matrix belum di-wire (session_maker belum diset),
-  lewati pemanggilan matrix sebagai hard-requirement. RBACEnforcer (permission
-  DB) dianggap SUDAH CUKUP. Authority matrix hanya jadi second-opinion —
-  hanya menambah akses bila bilang True, tidak memblokir bila bilang False.
-  Ini menyelesaikan error
-    "is_allowed: session_maker belum diset. Panggil AuthorityMatrix.set_session_maker()"
-  yang menyebabkan semua endpoint 403 (COA, bank-cash, ar, ap, budget).
+  lewati pemanggilan matrix sebagai hard-requirement. RBACEnforcer dianggap SUDAH CUKUP.
+- FIX V14 (2026-10-12): ACTION_OVERRIDES untuk /customers/export disesuaikan
+  dengan pola DOUBLE endpoint (/api/v1/customers/customers/export), plus
+  /customers/stats ditambahkan.
 """
 from __future__ import annotations
 
@@ -148,20 +146,48 @@ RESOURCE_PATH_MAP: dict[str, str] = {
 ACTION_OVERRIDES: list[tuple[str, re.Pattern[str], str]] = [
     (m, re.compile(rx), act)
     for m, rx, act in (
-        ("GET", r"^/api/v1/customers/export/?$", "export"),
+        # --- Customer (DOUBLE prefix karena router mount di /api/v1/customers) ---
+        ("GET", r"^/api/v1/customers/customers/export/?$", "export"),
+        ("GET", r"^/api/v1/customers/customers/stats/?$", "read"),
         ("POST", r"^/api/v1/customers/customers/[^/]+/credit-limit/?$", "approve"),
         ("POST", r"^/api/v1/customers/customers/[^/]+/balance/?$", "post"),
-        ("POST", r"^/api/v1/customers/customers/[^/]+/(activate|deactivate|block)/?$", "update"),
+        (
+            "POST",
+            r"^/api/v1/customers/customers/[^/]+/(activate|deactivate|block)/?$",
+            "update",
+        ),
         ("POST", r"^/api/v1/customers/customers/bulk-update-status/?$", "update"),
         ("POST", r"^/api/v1/customers/customers/bulk-delete/?$", "delete"),
+        # --- Supplier ---
         ("GET", r"^/api/v1/suppliers/export/?$", "export"),
         ("POST", r"^/api/v1/suppliers/import/?$", "import"),
-        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/(activate|deactivate|status)/?$", "update"),
-        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/withholding-category/?$", "approve"),
+        (
+            "POST",
+            r"^/api/v1/suppliers/suppliers/[^/]+/(activate|deactivate|status)/?$",
+            "update",
+        ),
+        (
+            "POST",
+            r"^/api/v1/suppliers/suppliers/[^/]+/withholding-category/?$",
+            "approve",
+        ),
+        # --- Employee ---
         ("POST", r"^/api/v1/employees/employees/import/?$", "import"),
-        ("POST", r"^/api/v1/employees/employees/[^/]+/(activate|deactivate)/?$", "update"),
-        ("POST", r"^/api/v1/employees/employees/[^/]+/(salary-structure|bpjs|ptkp|resign)/?$", "approve"),
-        ("POST", r"^/api/v1/employees/employees/[^/]+/(photo|dependents|documents)/?$", "update"),
+        (
+            "POST",
+            r"^/api/v1/employees/employees/[^/]+/(activate|deactivate)/?$",
+            "update",
+        ),
+        (
+            "POST",
+            r"^/api/v1/employees/employees/[^/]+/(salary-structure|bpjs|ptkp|resign)/?$",
+            "approve",
+        ),
+        (
+            "POST",
+            r"^/api/v1/employees/employees/[^/]+/(photo|dependents|documents)/?$",
+            "update",
+        ),
     )
 ]
 
@@ -243,7 +269,9 @@ class TokenPayload:
     def has_role(self, role: str) -> bool:
         return role in self.roles
 
-    def has_permission_wildcard(self, resource: str | None, action: str | None) -> bool:
+    def has_permission_wildcard(
+        self, resource: str | None, action: str | None
+    ) -> bool:
         """
         Cek apakah token memiliki permission yang mencakup resource dan action
         tertentu dengan dukungan wildcard:
@@ -306,7 +334,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self._authority_matrix: AuthorityMatrix | None = None
         self._iam_service: IAMService | None = None
         self._authority_matrix_wired = False
-        self._authority_matrix_available = False  # <-- FIX V13
+        self._authority_matrix_available = False
 
         self.public_key = self._load_public_key()
         self.private_key = self._load_private_key()
@@ -325,7 +353,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 key_path,
                 type(e).__name__,
             )
-            return os.getenv("JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod")
+            return os.getenv(
+                "JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod"
+            )
 
     def _load_private_key(self) -> str:
         key_path = os.getenv("JWT_PRIVATE_KEY_PATH", "/secrets/jwt_private.pem")
@@ -338,7 +368,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 key_path,
                 type(e).__name__,
             )
-            return os.getenv("JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod")
+            return os.getenv(
+                "JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod"
+            )
 
     async def _get_revocation_list(self) -> JWTRevocationList:
         if self._revocation_list is None:
@@ -349,13 +381,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def _ensure_authority_matrix_wired(self) -> None:
         """
         Inject user repository ke singleton AuthorityMatrixGuard.
-        TIDAK fatal bila gagal: authority matrix hanya jadi second-opinion,
-        bukan syarat utama. RBAC enforcer (permission DB) tetap dipakai.
+        TIDAK fatal bila gagal: authority matrix hanya jadi second-opinion.
         """
         if self._authority_matrix_wired:
             return
         try:
-            mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
+            mod = importlib.import_module(
+                "bootstrap.dependency_container.ioc_container"
+            )
             get_container = mod.get_container
             container = get_container()
             user_repo = await container.resolve_async(IAMUserRepositoryPort)
@@ -364,8 +397,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             self._authority_matrix_available = True
         except Exception as e:
             logger.warning(
-                "Tidak bisa wiring user repository asli ke AuthorityMatrix guard "
-                "(authority matrix akan di-skip, RBAC enforcer tetap dipakai): %s",
+                "Tidak bisa wiring user repository asli ke AuthorityMatrix "
+                "guard (authority matrix akan di-skip, RBAC enforcer tetap "
+                "dipakai): %s",
                 type(e).__name__,
             )
             self._authority_matrix_available = False
@@ -379,26 +413,41 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def _get_iam_service(self) -> IAMService:
         if self._iam_service is None:
             try:
-                mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
+                mod = importlib.import_module(
+                    "bootstrap.dependency_container.ioc_container"
+                )
                 get_container = mod.get_container
                 container = get_container()
-                self._iam_service = container.resolve(IAMService)
+                self._iam_service = await container.resolve_async(IAMService)
             except Exception as e:
-                logger.error("Failed to resolve IAMService from container: %s", type(e).__name__)
+                logger.error(
+                    "Failed to resolve IAMService from container: %s",
+                    type(e).__name__,
+                )
                 raise RuntimeError("IAMService not available") from e
         return self._iam_service
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in self.public_paths or request.url.path in self.auth_exceptions:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        if (
+            request.url.path in self.public_paths
+            or request.url.path in self.auth_exceptions
+        ):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
-            logger.warning("Authentication failed: missing or invalid Authorization header")
+            logger.warning(
+                "Authentication failed: missing or invalid Authorization header"
+            )
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
                 content={
-                    "detail": "Missing or invalid Authorization header. Expected 'Bearer <token>'"
+                    "detail": (
+                        "Missing or invalid Authorization header. "
+                        "Expected 'Bearer <token>'"
+                    )
                 },
             )
 
@@ -422,40 +471,60 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             logger.warning("Authentication failed: expired")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Authentication expired", "code": "auth_expired"},
+                content={
+                    "detail": "Authentication expired",
+                    "code": "auth_expired",
+                },
             )
         except TokenRevokedError:
             logger.warning("Authentication failed: revoked")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Authentication revoked", "code": "auth_revoked"},
+                content={
+                    "detail": "Authentication revoked",
+                    "code": "auth_revoked",
+                },
             )
         except InvalidTokenError:
             logger.warning("Authentication failed: invalid")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Invalid authentication", "code": "auth_invalid"},
+                content={
+                    "detail": "Invalid authentication",
+                    "code": "auth_invalid",
+                },
             )
         except InsufficientPermissionError as e:
             logger.warning("Authorization failed: insufficient permission")
             return JSONResponse(
                 status_code=HTTP_403_FORBIDDEN,
-                content={"detail": str(e), "code": "insufficient_permission"},
+                content={
+                    "detail": str(e),
+                    "code": "insufficient_permission",
+                },
             )
         except jwt.PyJWTError as e:
             logger.warning("JWT decoding error: %s", type(e).__name__)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Authentication validation failed", "code": "jwt_error"},
+                content={
+                    "detail": "Authentication validation failed",
+                    "code": "jwt_error",
+                },
             )
         except Exception as e:
-            logger.exception("Unexpected error in authentication middleware: %s", type(e).__name__)
+            logger.exception(
+                "Unexpected error in authentication middleware: %s",
+                type(e).__name__,
+            )
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
                 content={"detail": "Authentication service error"},
             )
 
-    async def _verify_token(self, token: str, token_type: str = TokenType.ACCESS) -> TokenPayload:
+    async def _verify_token(
+        self, token: str, token_type: str = TokenType.ACCESS
+    ) -> TokenPayload:
         try:
             claims = jwt.decode(
                 token,
@@ -475,7 +544,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             user_id = UUID(claims["sub"])
             username = claims["username"]
             legal_entity_id = (
-                UUID(claims["legal_entity_id"]) if claims.get("legal_entity_id") else None
+                UUID(claims["legal_entity_id"])
+                if claims.get("legal_entity_id")
+                else None
             )
             roles = claims.get("roles", [])
             permissions = claims.get("permissions", [])
@@ -516,10 +587,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         FIX V13:
         - Wildcard token langsung lolos.
         - RBAC enforcer (permission DB) dicek.
-        - Authority matrix HANYA jadi second-opinion (opsional): dipakai
-          untuk MENAMBAH akses, TIDAK MEMBLOKIR akses yang sudah diizinkan
-          RBAC enforcer. Ini menyelesaikan kasus authority matrix yang
-          belum di-wire (session_maker None) sehingga tidak bisa dipanggil.
+        - Authority matrix HANYA jadi second-opinion (opsional).
         """
         method = request.method
         path = request.url.path
@@ -529,15 +597,17 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         if resource is None:
             return
 
-        # 1) Wildcard dari token (mis. "*:*", "coa:*", "*:read")
+        # 1) Wildcard dari token
         if payload.has_permission_wildcard(resource, action):
             logger.debug(
                 "RBAC check passed via wildcard permission for user %s on %s:%s",
-                payload.user_id, resource, action,
+                payload.user_id,
+                resource,
+                action,
             )
             return
 
-        # 2) Cek via RBAC enforcer (permission dari DB, di-cache)
+        # 2) Cek via RBAC enforcer
         enforcer = await self._get_rbac_enforcer()
         authorized = await enforcer.check_permission(
             user_id=payload.user_id,
@@ -548,8 +618,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         if authorized:
             return
 
-        # 3) Fallback: authority matrix (opsional, second-opinion saja)
-        # Bila matrix belum di-wire, lewati — jangan crash.
+        # 3) Fallback: authority matrix (opsional)
         if self._authority_matrix_available:
             try:
                 matrix_ok = await enforcer._authority_matrix.is_allowed(
@@ -558,7 +627,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 if matrix_ok:
                     logger.debug(
                         "RBAC check passed via authority matrix for user %s on %s:%s",
-                        payload.user_id, resource, action,
+                        payload.user_id,
+                        resource,
+                        action,
                     )
                     return
             except Exception as exc:
@@ -567,12 +638,13 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                     type(exc).__name__,
                 )
         else:
-            # Coba wire sekali lagi (mungkin user repo sudah siap)
             await self._ensure_authority_matrix_wired()
 
         logger.warning(
             "Authorization failed: user %s lacks %s on %s",
-            payload.user_id, action, resource,
+            payload.user_id,
+            action,
+            resource,
         )
         raise InsufficientPermissionError(
             f"User does not have {action} permission on {resource}"
@@ -598,7 +670,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 "(path=%s) -- RBAC check DILEWATI untuk request ini. "
                 "Tambahkan mapping di RESOURCE_PATH_MAP jika endpoint ini "
                 "seharusnya diproteksi.",
-                raw_resource, path,
+                raw_resource,
+                path,
             )
             return None
         return mapped
@@ -729,6 +802,7 @@ def require_permission(permission: str):
                     detail=f"Missing permission: {permission}",
                 )
         return current_user
+
     return dependency
 
 

@@ -2,6 +2,12 @@
 """
 Module: ioc_container.py
 Layer: Bootstrap (Dependency Container)
+
+PERBAIKAN (2026-10-12):
+- Tambah asyncio.Lock pada Lifetime.SINGLETON untuk mencegah double
+  instantiation saat dua request konkuren me-resolve singleton yang sama.
+- Sisanya dipertahankan dari versi sebelumnya (ContextVar untuk resolving
+  stack, dukungan X | None, fallback per-name untuk TYPE_CHECKING).
 """
 
 from __future__ import annotations
@@ -19,15 +25,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# BUG FIX: sebelumnya `self._resolving` adalah satu set yang dipakai bersama
-# SEMUA thread/request. FastAPI menjalankan dependency sync di threadpool
-# (tiap resolve() membuat event loop sendiri), jadi saat dua request
-# me-resolve service yang sama bersamaan (mis. 6 tab Detail Customer
-# memuat sekaligus), request kedua melihat service itu sedang "resolving"
-# dan melempar CircularDependencyError palsu -> middleware auth membalas
-# 401 -> frontend refresh token berulang. Sekarang jejak resolve disimpan
-# per-konteks eksekusi (ContextVar), jadi hanya rantai dependency di
-# request yang SAMA yang dianggap circular.
+# Jejak resolve disimpan per-konteks eksekusi (ContextVar), jadi hanya
+# rantai dependency di request yang SAMA yang dianggap circular.
 _RESOLVING_STACK: contextvars.ContextVar[frozenset] = contextvars.ContextVar(
     "ioc_resolving_stack", default=frozenset()
 )
@@ -56,7 +55,14 @@ class RegistrationError(ContainerError):
 
 
 class DependencyDefinition:
-    __slots__ = ("_lock", "factory", "implementation", "instance", "interface", "lifetime")
+    __slots__ = (
+        "_lock",
+        "factory",
+        "implementation",
+        "instance",
+        "interface",
+        "lifetime",
+    )
 
     def __init__(
         self,
@@ -74,7 +80,14 @@ class DependencyDefinition:
 
 
 class IoCContainer:
-    __slots__ = ("_aliases", "_parent", "_registrations", "_resolving", "_scoped_instances", "_singletons")
+    __slots__ = (
+        "_aliases",
+        "_parent",
+        "_registrations",
+        "_resolving",
+        "_scoped_instances",
+        "_singletons",
+    )
 
     def __init__(self, parent: IoCContainer | None = None):
         self._parent = parent
@@ -97,7 +110,9 @@ class IoCContainer:
         current = interface
         while isinstance(current, str) and current in self._aliases:
             if current in seen:
-                raise CircularDependencyError(f"Circular alias chain detected at '{current}'")
+                raise CircularDependencyError(
+                    f"Circular alias chain detected at '{current}'"
+                )
             seen.add(current)
             current = self._aliases[current]
         return current
@@ -199,18 +214,28 @@ class IoCContainer:
         if definition.lifetime == Lifetime.SINGLETON:
             if canonical in self._singletons:
                 return self._singletons[canonical]
-            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
-            try:
-                instance = await self._create_instance(definition, **kwargs)
-                self._singletons[canonical] = instance
-                return instance
-            finally:
-                _RESOLVING_STACK.reset(_token)
+            # FIX (2026-10-12): lock untuk mencegah double instantiation
+            # saat dua request konkuren me-resolve singleton yang sama.
+            async with definition._lock:
+                # Double-check setelah acquire lock
+                if canonical in self._singletons:
+                    return self._singletons[canonical]
+                _token = _RESOLVING_STACK.set(
+                    _RESOLVING_STACK.get() | {resolving_key}
+                )
+                try:
+                    instance = await self._create_instance(definition, **kwargs)
+                    self._singletons[canonical] = instance
+                    return instance
+                finally:
+                    _RESOLVING_STACK.reset(_token)
 
         elif definition.lifetime == Lifetime.SCOPED:
             if canonical in self._scoped_instances:
                 return self._scoped_instances[canonical]
-            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
+            _token = _RESOLVING_STACK.set(
+                _RESOLVING_STACK.get() | {resolving_key}
+            )
             try:
                 instance = await self._create_instance(definition, **kwargs)
                 self._scoped_instances[canonical] = instance
@@ -219,7 +244,9 @@ class IoCContainer:
                 _RESOLVING_STACK.reset(_token)
 
         else:
-            _token = _RESOLVING_STACK.set(_RESOLVING_STACK.get() | {resolving_key})
+            _token = _RESOLVING_STACK.set(
+                _RESOLVING_STACK.get() | {resolving_key}
+            )
             try:
                 return await self._create_instance(definition, **kwargs)
             finally:
@@ -233,7 +260,9 @@ class IoCContainer:
                 return definition.factory(**kwargs)
         elif definition.implementation:
             if isinstance(definition.implementation, type):
-                return await self._construct_with_injection(definition.implementation, **kwargs)
+                return await self._construct_with_injection(
+                    definition.implementation, **kwargs
+                )
             else:
                 return definition.implementation(**kwargs)
         else:
@@ -244,9 +273,7 @@ class IoCContainer:
         __name__ class-nya cocok dengan string nama tipe. Dipakai sebagai
         fallback terakhir kalau get_type_hints() tidak bisa resolve suatu
         anotasi (mis. karena tipe itu hanya diimpor di bawah
-        `if TYPE_CHECKING:`, pola umum untuk menghindari circular import —
-        di runtime nama itu tidak pernah benar-benar ada di namespace
-        modul, jadi tidak bisa dievaluasi jadi objek class)."""
+        `if TYPE_CHECKING:`)."""
         container: IoCContainer | None = self
         while container is not None:
             for key in container._registrations:
@@ -260,36 +287,29 @@ class IoCContainer:
 
         # PENTING: banyak modul di proyek ini pakai
         # `from __future__ import annotations` (PEP 563), yang membuat
-        # SEMUA anotasi tipe di constructor jadi string mentah (mis.
-        # "ARRepositoryPort") alih-alih objek class asli. `param.annotation`
-        # di bawah akan mengembalikan string itu apa adanya, sedangkan
-        # port didaftarkan di registry pakai objek class sebagai key —
-        # dua hal berbeda sebagai dict key walau namanya identik, jadi
-        # resolve akan selalu gagal (DependencyNotFoundError) walau
-        # port-nya sudah benar terdaftar.
-        #
-        # `typing.get_type_hints()` mengevaluasi string anotasi itu balik
-        # jadi objek class asli menggunakan namespace modul tempat cls
+        # SEMUA anotasi tipe di constructor jadi string mentah. `typing.
+        # get_type_hints()` mengevaluasi string anotasi itu balik jadi
+        # objek class asli menggunakan namespace modul tempat cls
         # didefinisikan, jadi ini dipakai sebagai sumber utama tipe param.
         #
-        # CATATAN TAMBAHAN: get_type_hints() sifatnya all-or-nothing — kalau
-        # SATU SAJA anotasi di constructor tidak bisa dievaluasi (mis. tipe
-        # yang diimpor hanya di bawah `if TYPE_CHECKING:`, jadi tidak ada
-        # di namespace modul saat runtime), seluruh pemanggilan gagal dengan
-        # NameError, bukan cuma parameter itu. Kalau ini terjadi, kita fallback
-        # ke pencarian berdasarkan nama string di registry
-        # (_resolve_key_by_name) per-parameter, alih-alih menyerah total.
+        # CATATAN TAMBAHAN: get_type_hints() sifatnya all-or-nothing —
+        # kalau SATU SAJA anotasi di constructor tidak bisa dievaluasi
+        # (mis. tipe yang diimpor hanya di bawah `if TYPE_CHECKING:`),
+        # seluruh pemanggilan gagal dengan NameError. Kalau ini terjadi,
+        # kita fallback ke pencarian berdasarkan nama string di registry
+        # (_resolve_key_by_name) per-parameter.
         try:
             type_hints = get_type_hints(cls.__init__)
         except Exception as e:
             logger.debug(
-                f"get_type_hints gagal untuk {cls.__module__}.{cls.__name__}.__init__: {e} "
-                "(kemungkinan ada tipe yang cuma diimpor di bawah TYPE_CHECKING). "
-                "Fallback ke resolve per-parameter berdasarkan nama string."
+                f"get_type_hints gagal untuk {cls.__module__}.{cls.__name__}."
+                f"__init__: {e} (kemungkinan ada tipe yang cuma diimpor di "
+                "bawah TYPE_CHECKING). Fallback ke resolve per-parameter "
+                "berdasarkan nama string."
             )
             type_hints = {}
 
-        parameters = {}
+        parameters: dict[str, Any] = {}
         for name, param in sig.parameters.items():
             if name == "self":
                 continue
@@ -302,35 +322,19 @@ class IoCContainer:
             # Fallback tambahan: kalau param_type masih berupa string
             # (get_type_hints gagal total atau parameter ini tidak ada di
             # hasilnya), cari key terdaftar di registry yang __name__-nya
-            # cocok. Ini menangani kasus tipe yang cuma diimpor di bawah
-            # `if TYPE_CHECKING:` seperti ARRepositoryPort di service_ap.py.
+            # cocok.
             if isinstance(param_type, str):
                 resolved_key = self._resolve_key_by_name(param_type)
                 if resolved_key is not None:
                     param_type = resolved_key
 
             # Unwrap Optional[X] / X | None -> X, supaya tetap bisa resolve
-            # ke tipe konkretnya. Kalau X sendiri juga tidak terdaftar,
-            # tetap fallback ke default lewat except di bawah seperti biasa
-            # (mis. `session: AsyncSession | None = None` tetap jatuh ke
-            # default None, bukan salah resolve).
-            #
-            # FIX (2026-08-20): sebelumnya cek ini cuma `origin is Union`,
-            # yang HANYA cocok untuk sintaks lama `typing.Optional[X]` /
-            # `typing.Union[X, None]`. Sintaks modern `X | None` (PEP 604,
-            # dipakai hampir di seluruh codebase ini) menghasilkan
-            # `types.UnionType`, BUKAN `typing.Union` - beda objek sama
-            # sekali. Akibatnya, SEMUA constructor param opsional bergaya
-            # `X | None = None` gagal ter-unwrap, `resolve_async(X | None)`
-            # dipanggil dengan tipe union mentah (yang jelas tidak pernah
-            # terdaftar), langsung jatuh ke `except DependencyNotFoundError`
-            # dan pakai default (`None`) - WALAUPUN `X` sendiri sudah
-            # terdaftar di container. Bug ini senyap karena tidak pernah
-            # error, cuma diam-diam selalu inject `None` untuk setiap
-            # dependency opsional gaya baru di seluruh aplikasi.
+            # ke tipe konkretnya.
             origin = get_origin(param_type)
             if origin is Union or origin is types.UnionType:
-                non_none_args = [a for a in get_args(param_type) if a is not type(None)]
+                non_none_args = [
+                    a for a in get_args(param_type) if a is not type(None)
+                ]
                 if len(non_none_args) == 1:
                     param_type = non_none_args[0]
 

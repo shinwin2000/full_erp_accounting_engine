@@ -4,7 +4,6 @@ from __future__ import annotations
 from domain.customer_supplier_employee.customer_aggregate_root import (
     CustomerAggregate,
     CustomerAggregateError,
-    CustomerAggregateRepository,
     CustomerNotFoundError,
     DuplicateCustomerCodeError,
     DuplicateEmailError,
@@ -121,6 +120,12 @@ Customer, Supplier, Employee domain module.
 
 Exports all public classes, enums, value objects, aggregates,
 events, invariants, and repository protocols.
+
+CATATAN (2026-10-12):
+    CustomerAggregateRepository DIHAPUS dari import & __all__ karena sudah
+    pindah ke adapters/secondary_impl/sqlalchemy_customer_repository_impl.py.
+    EmployeeAggregateRepository & SupplierAggregateRepository TETAP di
+    domain layer (belum direfactor).
 """
 
 __all__ = [
@@ -131,7 +136,6 @@ __all__ = [
     "CreditLimitStatus",
     "CustomerAggregate",
     "CustomerAggregateError",
-    "CustomerAggregateRepository",
     "CustomerBalanceUpdated",
     "CustomerBalanceUpdatedEvent",
     "CustomerCreated",

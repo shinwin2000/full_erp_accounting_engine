@@ -3,26 +3,15 @@
 Module: account_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel account (Chart of Accounts).
-               Tabel ini adalah master data inti COA yang dipakai oleh hampir semua
-               modul akuntansi (Journal/GL, AP, AR, Inventory, Fixed Asset, Payroll,
-               Budget, Financial Report). Mendukung relasi parent-child (tree),
-               kontrol posting, kategori pelaporan, dan flag operasional lain yang
-               dipakai backend (service_coa.py) maupun frontend (coa_page.py).
 
-CATATAN SINKRONISASI (PENTING):
-    Kolom di model ini HARUS selalu sinkron dengan:
-      1. Migration  : backend/migrations/versions/0047_coa_extended_fields.py
-      2. Service     : backend/application/service_layer/service_coa.py
-      3. Router      : backend/adapters/primary_api/v1/fastapi_coa_router.py
-      4. Frontend    : frontend/ui/pages/coa_page.py (field CREATE_FIELDS/EDIT_FIELDS)
-    Kalau menambah/mengubah kolom di sini, keempat lapisan itu WAJIB diikutkan.
-
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, NUMERIC)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap perubahan pada akun dicatat di audit trail (lihat service_coa.py._record_audit).
-       Akun yang sudah memiliki transaksi tidak dapat dihapus (hanya dinonaktifkan/soft-delete).
+FIX v3:
+    Hapus DUA relationship yang pakai string reference ke class yang
+    hanya di-import di TYPE_CHECKING:
+      1. journal_lines -> "JournalLineTable"
+      2. legal_entity  -> "LegalEntityTable"
+    SQLAlchemy gagal resolve string reference saat configure_mappers()
+    kalau class target tidak ada di registry, sehingga SEMUA query
+    AccountTable (termasuk Laba Rugi) crash dan mengembalikan [].
 """
 
 from __future__ import annotations
@@ -53,14 +42,10 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.journal_line_table import JournalLineTable
     from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
-    from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 
 
-# Nilai yang diperbolehkan untuk beberapa kolom ENUM-like (dijaga juga di
-# level Pydantic schema pada fastapi_coa_router.py supaya validasi terjadi
-# di edge sebelum menyentuh database).
+# Nilai yang diperbolehkan untuk beberapa kolom ENUM-like
 ACCOUNT_TYPES = (
     "Asset",
     "Liability",
@@ -77,14 +62,8 @@ CASHFLOW_TYPES = ("operating", "investing", "financing")
 
 
 class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel account (Chart of Accounts) — master data inti ERP.
-    """
+    """Model untuk tabel account (Chart of Accounts) — master data inti ERP."""
 
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "account"  # type: ignore[assignment]
     __table_args__ = (
         UniqueConstraint("account_code", "legal_entity_id", name="uq_account_code_legal_entity"),
@@ -122,7 +101,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     normal_balance: Mapped[str] = mapped_column(String(6), nullable=False)
 
     # ========================================================================
-    # HIERARCHY (parent_account_id sudah menggunakan schema public)
+    # HIERARCHY
     # ========================================================================
     parent_account_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("account.id"), nullable=True
@@ -144,13 +123,9 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     budget_control: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reconciliation_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Tax & reporting
     tax_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     cashflow_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    # Lock (mis. dikunci setelah periode closing / audit) — independen dari
-    # status "locked"/"suspended" supaya bisa dikombinasikan (mis. akun aktif
-    # tapi dikunci sementara untuk investigasi).
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -167,9 +142,6 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # ========================================================================
-    # OVERRIDE legal_entity_id dari LegalEntityMixin agar menggunakan schema public
-    # ========================================================================
     legal_entity_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("legal_entity.id", ondelete="CASCADE"),
@@ -180,8 +152,9 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
+    # Hanya self-referential & ledger_entries yang aman (targetnya class
+    # yang bisa di-resolve tanpa circular import).
 
-    # Self-referential hierarchy
     parent: Mapped[AccountTable | None] = relationship(
         "AccountTable", remote_side="AccountTable.id", back_populates="children"
     )
@@ -189,30 +162,14 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         "AccountTable", back_populates="parent", cascade="all, delete-orphan"
     )
 
-    # Ledger entries
     ledger_entries: Mapped[list[LedgerEntryTable]] = relationship(
         "LedgerEntryTable", back_populates="account"
     )
 
-    # Journal lines - menggunakan string reference dan foreign_keys eksplisit
-    journal_lines: Mapped[list[JournalLineTable]] = relationship(
-        "JournalLineTable",
-        back_populates="account",
-        primaryjoin="and_(AccountTable.account_code == JournalLineTable.account_code, "
-                    "AccountTable.legal_entity_id == JournalLineTable.legal_entity_id)",
-        foreign_keys="[JournalLineTable.account_code, JournalLineTable.legal_entity_id]",
-        viewonly=True,
-    )
-
-    # ========================================================================
-    # Relasi ke LegalEntityTable - karena LegalEntityMixin tidak memberikan relasi
-    # setelah kita override legal_entity_id, kita tambahkan secara eksplisit.
-    # ========================================================================
-    legal_entity: Mapped[LegalEntityTable] = relationship(
-        "LegalEntityTable",
-        back_populates="accounts",
-        foreign_keys=[legal_entity_id],
-    )
+    # CATATAN FIX v3:
+    #  - journal_lines  -> DIHAPUS (string ref ke JournalLineTable, tidak pernah dipakai)
+    #  - legal_entity   -> DIHAPUS (string ref ke LegalEntityTable, tidak pernah dipakai)
+    # Akses ke relasi itu harus lewat query eksplisit di repository.
 
     # ========================================================================
     # PROPERTIES
@@ -253,8 +210,6 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     @property
     def can_post(self) -> bool:
-        """Akun boleh dipakai sebagai baris jurnal jika tidak header, tidak
-        dikunci, mengizinkan posting, dan berstatus aktif."""
         return (
             self.allow_posting
             and not self.is_header

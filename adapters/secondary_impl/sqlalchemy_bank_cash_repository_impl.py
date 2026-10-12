@@ -901,6 +901,57 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to get history: {e}") from e
 
+    async def get_reconciliation_by_id(self, reconciliation_id: UUID) -> dict | None:
+        """FIX: dipakai oleh BankCashService.close_reconciliation() - method
+        ini sebelumnya tidak ada sama sekali, padahal endpoint POST
+        /reconciliations/{id}/close sudah lama memanggil
+        service.close_reconciliation(...) yang juga belum pernah dibuat.
+        Mengembalikan dict (bukan objek domain) - sama seperti
+        get_reconciliation_history(), demi konsistensi & kejujuran soal
+        data yang benar-benar tersimpan (lihat catatan panjang di atas
+        get_reconciliation_history)."""
+        try:
+            stmt = select(BankReconciliationTable).where(
+                BankReconciliationTable.id == reconciliation_id
+            )
+            result = await self.session.execute(stmt)
+            t = result.scalar_one_or_none()
+            if not t:
+                return None
+            return {
+                "id": t.id,
+                "legal_entity_id": t.legal_entity_id,
+                "bank_account_id": t.bank_account_id,
+                "statement_date": t.statement_date,
+                "statement_balance": t.statement_ending_balance,
+                "book_balance": t.system_ending_balance,
+                "difference": t.difference,
+                "status": t.status,
+                "notes": t.notes,
+                "reconciled_by": t.reconciled_by,
+                "reconciled_at": t.reconciled_at,
+                "created_by": t.created_by,
+                "created_at": t.created_at,
+            }
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to get reconciliation: {e}") from e
+
+    async def update_reconciliation_status(
+        self, reconciliation_id: UUID, status: str, closed_by: UUID | None = None
+    ) -> None:
+        """FIX: dipakai oleh BankCashService.close_reconciliation() -
+        sebelumnya tidak ada sama sekali."""
+        try:
+            stmt = (
+                update(BankReconciliationTable)
+                .where(BankReconciliationTable.id == reconciliation_id)
+                .values(status=status)
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to update reconciliation status: {e}") from e
+
     # ========================================================================
     # CASH BOOK METHODS (Implementasi Internal)
     # ========================================================================

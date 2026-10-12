@@ -3,6 +3,13 @@
 Module: journal_line_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel journal_line.
+
+FIX v2:
+    Hapus relationship ``account`` yang pakai primaryjoin + foreign_keys
+    dengan string "AccountTable". Di sisi AccountTable, relationship
+    ``journal_lines`` juga sudah dihapus, sehingga tidak ada back_populates
+    yang menggantung. Akses akun dari baris jurnal harus lewat SQL JOIN
+    eksplisit (sudah dilakukan di repository).
 """
 
 from __future__ import annotations
@@ -34,18 +41,12 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.account_table import AccountTable
     from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 
 
 class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "journal_line"  # type: ignore[assignment]
     __table_args__ = (
-        # PERBAIKAN: hapus prefix "public." untuk menghindari schema mismatch
         ForeignKeyConstraint(
             ["account_code", "legal_entity_id"],
             ["account.account_code", "account.legal_entity_id"],
@@ -72,48 +73,32 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     debit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     credit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
-    # fc_amount & booking_rate: nullable, diisi HANYA untuk baris jurnal
-    # yang currency != functional currency entitas. fc_amount = nilai asli
-    # dalam mata uang asing SEBELUM dikonversi; booking_rate = kurs yang
-    # dipakai saat itu (fc_amount * booking_rate seharusnya == debit_amount
-    # atau credit_amount, tergantung sisi). Tanpa keduanya, unrealized FX
-    # gain/loss tidak bisa dihitung akurat - baris lama (sebelum kolom ini
-    # ada) akan punya nilai None di sini dan otomatis dikecualikan dari
-    # perhitungan gain/loss sampai dibukukan ulang.
     fc_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     booking_rate: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
     cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
     department: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # ------------------------------------------------------------------
+
     # SNAPSHOT KOLOM (point-in-time accounting)
-    # ------------------------------------------------------------------
-    # `account_name` di atas, plus dua kolom ini, adalah "potret" atribut
-    # akun PERSIS SAAT baris jurnal ini dibuat — diisi otomatis oleh
-    # SQLAlchemyJournalRepository._to_orm_lines(), BUKAN oleh caller.
-    # Tujuannya: kalau suatu akun di COA diubah nama/tipe/saldo normalnya
-    # di kemudian hari, laporan keuangan periode-periode LAMA tidak ikut
-    # berubah (tetap merujuk ke kondisi akun saat transaksi itu terjadi).
-    # Jangan pernah query field ini balik ke tabel `account` untuk data
-    # historis — gunakan nilai yang tersimpan di sini.
     account_type_snapshot: Mapped[str | None] = mapped_column(String(20), nullable=True)
     normal_balance_snapshot: Mapped[str | None] = mapped_column(String(6), nullable=True)
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    # Relasi
+    # ===== RELATIONSHIPS =====
+    # Hanya relationship ke JournalHeaderTable yang tersisa (target aman,
+    # tidak circular, back_populates cocok dengan JournalHeaderTable.lines).
     journal: Mapped[JournalHeaderTable] = relationship(
         "JournalHeaderTable",
         back_populates="lines",
         foreign_keys=[journal_id],
     )
-    account: Mapped[AccountTable] = relationship(
-        "AccountTable",
-        back_populates="journal_lines",
-        primaryjoin="and_(JournalLineTable.account_code == AccountTable.account_code, "
-                    "JournalLineTable.legal_entity_id == AccountTable.legal_entity_id)",
-        foreign_keys="[JournalLineTable.account_code, JournalLineTable.legal_entity_id]",
-        viewonly=True,
-    )
+
+    # CATATAN FIX v2:
+    # Relationship ``account`` DIHAPUS karena:
+    #   - Pakai primaryjoin + foreign_keys dengan string "AccountTable"
+    #   - Di sisi AccountTable, relationship ``journal_lines`` sudah dihapus
+    #   - Menyebabkan error mapper configure
+    # Akses akun dari journal_line harus lewat SQL JOIN eksplisit.
 
     @property
     def amount(self) -> Decimal:
