@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -468,6 +468,76 @@ def _permission_to_str(permission: Any) -> str:
     return getattr(permission, "to_string", None) or str(permission)
 
 
+def _resolve_permission_name_from_id(
+    permission_id: UUID, role_permissions: Any
+) -> str | None:
+    """Cari nama permission ("resource:action") dari UUID deterministik.
+
+    BUG FIX (root cause 500 di DELETE /roles/{id}/permissions/{pid}):
+    Sebelumnya fungsi ini HANYA mencari di `PermissionUtils.STANDARD_PERMISSIONS`
+    (konstanta statis), padahal permission yang benar-benar di-assign ke role
+    bisa berasal dari sumber lain (mis. permission kustom yang dibuat lewat
+    `IAMPermissionTable` saat `create_role`/`update_role` dipanggil dengan
+    permission yang belum ada di STANDARD_PERMISSIONS — lihat
+    `_update_role_impl` di sqlalchemy_iam_user_repository_impl.py yang
+    membuat row `IAMPermissionTable` baru dengan `uuid4()` acak untuk
+    permission yang belum ada).
+
+    Solusi: cocokkan `permission_id` dengan DUA sumber:
+      1. Role yang sedang diedit (`role_permissions`) — pakai `_permission_to_uuid`
+         untuk konversi balik ke UUID deterministik. Ini mencakup SEMUA
+         permission yang benar-benar dimiliki role saat ini, baik yang
+         berasal dari STANDARD_PERMISSIONS maupun permission kustom.
+      2. `PermissionUtils.STANDARD_PERMISSIONS` — fallback untuk kasus di
+         mana role_permissions kosong/tidak tersedia.
+    """
+    # Sumber 1: permission yang benar-benar dimiliki role saat ini
+    if role_permissions:
+        for p in role_permissions:
+            if _permission_to_uuid(p) == permission_id:
+                return _permission_to_str(p)
+
+    # Sumber 2: fallback ke konstanta statis
+    for p in PermissionUtils.STANDARD_PERMISSIONS:
+        if _permission_to_uuid(p) == permission_id:
+            return p
+
+    return None
+
+
+def _format_local_dt(dt: datetime | None) -> str:
+    """Format datetime UTC dari DB ke WIB (UTC+7) tanpa mikrodetik.
+
+    Dipakai khusus oleh endpoint export (CSV/Excel/JSON) supaya kolom
+    `last_login_at` di file hasil export:
+
+    1. Sudah dalam zona waktu WIB (UTC+7) — bukan UTC mentah seperti
+       `2026-10-12T01:44:37.013808+00:00`, sehingga user Indonesia tidak
+       perlu konversi manual.
+    2. Format-nya ringkas dan mudah dibaca manusia — `2026-10-12 08:44:37 WIB`
+       alih-alih string ISO panjang dengan mikrodetik.
+
+    Parameter:
+        dt: datetime (biasanya UTC dari kolom DB), atau None.
+
+    Return:
+        String kosong kalau `dt` None, atau string WIB dengan format
+        `YYYY-MM-DD HH:MM:SS WIB`.
+    """
+    if not dt:
+        return ""
+    from datetime import timedelta, timezone
+
+    # Kalau dt naive (tidak punya tzinfo), asumsikan UTC dulu sebelum
+    # dikonversi ke WIB. Ini penting karena beberapa kolom DB mungkin
+    # mengembalikan datetime naive meski secara logika tersimpan sebagai UTC.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+
+    wib = dt.astimezone(timezone(timedelta(hours=7)))
+    return wib.strftime("%Y-%m-%d %H:%M:%S WIB")
+
+
 # ----------------------------------------------------------------------------
 # HEALTH CHECKS
 # ----------------------------------------------------------------------------
@@ -517,9 +587,6 @@ async def create_user(
             return UserResponseSchema(**cached)
 
     try:
-        # ============================================================
-        # FIX: Gunakan CreateUserRequest sesuai signature service_iam
-        # ============================================================
         create_request = CreateUserRequest(
             username=request.username,
             email=request.email,
@@ -567,6 +634,8 @@ async def create_user(
 
         return response
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -596,12 +665,6 @@ async def list_users(
     service.set_context(session, legal_entity_id)
 
     try:
-        # CATATAN PERBAIKAN: IAMService.list_users() cuma menerima
-        # legal_entity_id/status/limit/offset (bukan is_active/search/role_id/
-        # legal_entity_id_filter/page/page_size), dan UserEntity punya bentuk
-        # yang jauh berbeda dari UserResponseSchema (mis. nama lengkap/
-        # department/phone ada di dalam u.profile, timestamp ada di dalam
-        # u.audit, dsb). Filter tambahan & mapping field dilakukan di sini.
         raw_users = await service.list_users(
             legal_entity_id=legal_entity_id_filter,
             status=status,
@@ -660,6 +723,8 @@ async def list_users(
             )
 
         return [_to_response(u) for u in page_items]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to list users: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -797,9 +862,6 @@ async def update_user(
             return UserResponseSchema(**cached)
 
     try:
-        # ============================================================
-        # FIX: IAMService.update_user hanya mendukung full_name dan email
-        # ============================================================
         result = await service.update_user(
             user_id=user_id,
             updated_by=current_user.user_id,
@@ -844,6 +906,8 @@ async def update_user(
 
         return response
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -898,6 +962,8 @@ async def deactivate_user(
 
         return response
 
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -970,6 +1036,8 @@ async def activate_user(
 
         return response
 
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1046,6 +1114,8 @@ async def lock_user(
 
         return response
 
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1118,6 +1188,8 @@ async def unlock_user(
 
         return response
 
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1172,6 +1244,8 @@ async def admin_reset_user_password(
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
         return response
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except AuthenticationError as e:
@@ -1247,6 +1321,8 @@ async def create_role(
 
         return response
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1309,6 +1385,8 @@ async def list_roles(
             )
             for r in roles
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to list roles: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1386,7 +1464,7 @@ async def update_role(
     try:
         from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(
-            role_name=request.name,
+            role_name=getattr(request, "name", None),
             description=request.description,
             permissions=None,
             is_default=None,
@@ -1426,6 +1504,8 @@ async def update_role(
 
         return response
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1472,6 +1552,8 @@ async def delete_role(
 
         return response
 
+    except HTTPException:
+        raise
     except RoleNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1511,7 +1593,6 @@ async def assign_roles_to_user(
             return [RoleResponseSchema(**item) for item in cached]
 
     try:
-        # IAMService.assign_role_to_user hanya menerima satu role, jadi kita loop
         assigned_roles = []
         for role_id in request.role_ids:
             await service.assign_role_to_user(
@@ -1553,6 +1634,8 @@ async def assign_roles_to_user(
 
         return response
 
+    except HTTPException:
+        raise
     except (UserNotFoundError, RoleNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1605,6 +1688,8 @@ async def get_user_roles(
             )
             for r in roles
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get user roles: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1656,6 +1741,8 @@ async def remove_role_from_user(
 
         return response
 
+    except HTTPException:
+        raise
     except (UserNotFoundError, RoleNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -1704,6 +1791,8 @@ async def list_permissions(
             for perm in all_permissions
             if resource is None or perm.split(":", 1)[0] == resource
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to list permissions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1735,38 +1824,49 @@ async def assign_permissions_to_role(
             return [PermissionResponseSchema(**item) for item in cached]
 
     try:
-        # IAMService tidak punya assign_permissions_to_role langsung, tapi kita bisa menggunakan update_role
-        from application.service_layer.service_iam import UpdateRoleRequest
         role = await service.get_role(role_id)
         if not role:
             raise HTTPException(status_code=404, detail="Role not found")
 
-        # Ambil permission IDs dari request, convert ke string dengan map dari permission list
-        # Karena kita hanya punya permission list dari STANDARD_PERMISSIONS, kita gunakan itu
+        # Konversi permission_id -> permission name. Cari di
+        # STANDARD_PERMISSIONS (konstanta statis) karena endpoint ini
+        # menerima ID yang di-generate oleh frontend dari GET
+        # /iam/permissions (yang bersumber dari konstanta yang sama).
         all_perms = PermissionUtils.STANDARD_PERMISSIONS
-        new_perms = []
+        new_perms: list[str] = []
+        unresolved_ids: list[UUID] = []
         for perm_id in request.permission_ids:
-            # Cari permission name dari ID (karena kita generate UUID dari name)
+            matched = None
             for p in all_perms:
                 if _permission_to_uuid(p) == perm_id:
-                    new_perms.append(p)
+                    matched = p
                     break
+            if matched is not None:
+                new_perms.append(matched)
+            else:
+                unresolved_ids.append(perm_id)
 
-        # BUG FIX: endpoint ini bersifat ADDITIF ("assign" permission ke role,
-        # dipasangkan dengan DELETE .../permissions/{id} untuk melepas satu-
-        # satu — bukan full replace). Frontend (iam_roles_page.py) juga hanya
-        # mengirim `to_add` (diff permission yang baru dicentang), bukan
-        # seluruh permission yang diinginkan.
-        # Sebelumnya di sini `UpdateRoleRequest(permissions=new_perms)` dibuat
-        # HANYA dari `new_perms` (permission baru saja), sehingga update_role()
-        # di service_iam.py menimpa (replace total) seluruh permission role
-        # yang sudah ada. Akibatnya: user centang "account" -> simpan (role =
-        # {account:*}) -> lalu centang tambahan "customer" -> simpan -> role
-        # jadi {customer:*} SAJA, "account" yang sudah tersimpan sebelumnya
-        # hilang. Fix: union-kan dengan permission role yang sudah ada.
+        if unresolved_ids:
+            # Jangan diam-diam mengabaikan ID yang tidak dikenal — kalau
+            # dibiarkan, user mengira permission berhasil di-assign padahal
+            # tidak. Lebih baik balas 422 dengan daftar ID yang gagal.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Beberapa permission_id tidak dikenali: "
+                    + ", ".join(str(u) for u in unresolved_ids)
+                ),
+            )
+
+        # Endpoint ini bersifat ADDITIF (assign = tambah, dipasangkan
+        # dengan DELETE .../permissions/{id} untuk melepas satu-satu).
+        # Frontend (iam_roles_page.py) hanya mengirim `to_add` (diff
+        # permission yang baru dicentang), bukan seluruh permission.
+        # Jadi kita UNION-kan dengan permission role yang sudah ada.
         existing_perms = [_permission_to_str(p) for p in role.permissions]
         merged_perms = list(dict.fromkeys(existing_perms + new_perms))  # dedupe, jaga urutan
 
+        from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(permissions=merged_perms)
         result = await service.update_role(
             role_id=role_id,
@@ -1797,6 +1897,15 @@ async def assign_permissions_to_role(
 
         return response
 
+    except HTTPException:
+        # PENTING: HTTPException HARUS di-raise ulang apa adanya, jangan
+        # di-wrap jadi 500. Sebelumnya `except Exception` di bawah menangkap
+        # HTTPException (karena HTTPException adalah subclass Exception),
+        # sehingga 404 "Role not found" / 422 "permission_id tidak dikenali"
+        # berubah jadi 500 Internal Server Error di response.
+        raise
+    except RoleNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1836,6 +1945,8 @@ async def get_role_permissions(
             )
             for p in role.permissions
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get role permissions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1867,23 +1978,47 @@ async def remove_permission_from_role(
             return cached
 
     try:
-        # Dapatkan permission name dari ID
-        perm_name = None
-        for p in PermissionUtils.STANDARD_PERMISSIONS:
-            if _permission_to_uuid(p) == permission_id:
-                perm_name = p
-                break
-        if not perm_name:
-            raise HTTPException(status_code=404, detail="Permission not found")
-
-        # Ambil role, hapus permission dari daftar
+        # Ambil role terlebih dahulu (dibutuhkan untuk resolusi permission
+        # name dari UUID — lihat _resolve_permission_name_from_id).
         role = await service.get_role(role_id)
         if not role:
             raise HTTPException(status_code=404, detail="Role not found")
 
-        new_perms = [
-            _permission_to_str(p) for p in role.permissions if _permission_to_str(p) != perm_name
-        ]
+        # Resolve permission name dari UUID. Cari di permission yang
+        # BENAR-BENAR dimiliki role saat ini dulu (mencakup permission
+        # kustom yang dibuat lewat create_role/update_role), baru fallback
+        # ke konstanta STANDARD_PERMISSIONS. Ini memperbaiki bug lama di
+        # mana permission yang tidak ada di STANDARD_PERMISSIONS selalu
+        # memicu 404 yang kemudian di-wrap jadi 500 oleh except Exception
+        # di bawah.
+        perm_name = _resolve_permission_name_from_id(permission_id, role.permissions)
+        if not perm_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Permission with id {permission_id} not found on role {role_id}",
+            )
+
+        # Bangun daftar permission baru = semua permission role saat ini
+        # KECUALI yang mau dihapus. Normalisasi lewat _permission_to_str
+        # supaya baik PermissionVO maupun str sama-sama diperlakukan sama.
+        current_perm_names = [_permission_to_str(p) for p in role.permissions]
+        new_perms = [p for p in current_perm_names if p != perm_name]
+
+        if len(new_perms) == len(current_perm_names):
+            # Permission yang mau dihapus ternyata tidak ada di role —
+            # ini bukan error fatal (mungkin sudah dihapus sebelumnya,
+            # mis. retry request yang sama), jadi cukup balas 200 idempotent.
+            response = {
+                "role_id": str(role_id),
+                "permission_id": str(permission_id),
+                "permission_name": perm_name,
+                "removed": False,
+                "message": "Permission was not assigned to this role (no-op)",
+            }
+            if idempotency_key:
+                _idempotency_manager.cache_result(idempotency_key, method_name, response)
+            return response
+
         from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(permissions=new_perms)
         await service.update_role(
@@ -1893,7 +2028,7 @@ async def remove_permission_from_role(
             correlation_id=idempotency_key,
         )
 
-        logger.info(f"Permission removed from role: {role_id}")
+        logger.info(f"Permission '{perm_name}' removed from role: {role_id}")
 
         response = {
             "role_id": str(role_id),
@@ -1908,6 +2043,16 @@ async def remove_permission_from_role(
 
         return response
 
+    except HTTPException:
+        # PENTING: HTTPException HARUS di-raise ulang apa adanya, jangan
+        # di-wrap jadi 500. Sebelumnya `except Exception` di bawah menangkap
+        # HTTPException (karena HTTPException adalah subclass Exception),
+        # sehingga 404 "Permission not found" berubah jadi 500 Internal
+        # Server Error di response — membingungkan user dan menyulitkan
+        # diagnosis.
+        raise
+    except RoleNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1976,6 +2121,8 @@ async def login(
                 version=result.user.audit.version,
             ),
         )
+    except HTTPException:
+        raise
     except MFARequiredError as e:
         logger.warning(f"Login failed: MFA required/invalid - {e!s}")
         raise HTTPException(status_code=422, detail=str(e))
@@ -2044,6 +2191,8 @@ async def refresh_token(
             access_token=new_access_token,
             refresh_token=request.refresh_token,
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning("Session refresh failed: invalid refresh credential")
         raise HTTPException(status_code=401, detail=str(e))
@@ -2077,6 +2226,8 @@ async def change_password(
 
         logger.info(f"Credential updated for user: {current_user.user_id}")
         return None
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except AuthenticationError as e:
@@ -2105,6 +2256,8 @@ async def forgot_password(
     try:
         result = await service.request_password_reset(email=request.email)
         return ForgotPasswordResponseSchema(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Reset request failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2127,6 +2280,8 @@ async def reset_password(
     try:
         await service.confirm_password_reset(token=request.token, new_password=request.new_password)
         return {"message": "Password berhasil direset. Silakan login dengan password baru."}
+    except HTTPException:
+        raise
     except AuthenticationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -2155,6 +2310,8 @@ async def setup_mfa(
     try:
         result = await service.setup_mfa(user_id=current_user.user_id, username=current_user.username)
         return MFASetupResponseSchema(**result)
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except MFAError as e:
@@ -2217,6 +2374,8 @@ async def disable_mfa(
             mfa_code=request.mfa_code,
         )
         return {"enabled": False}
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except MFAError as e:
@@ -2247,6 +2406,8 @@ async def get_user_sessions(
     try:
         sessions = await service.get_user_sessions(current_user.user_id)
         return [SessionResponseSchema.model_validate(s) for s in sessions]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get user sessions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2294,15 +2455,12 @@ async def revoke_all_other_sessions(
     service.set_context(session, legal_entity_id)
 
     try:
-        # CATATAN ARSITEKTUR: token JWT (bearer) tidak membawa session_id dari
-        # tabel iam_session (auth-nya stateless), jadi backend tidak bisa tahu
-        # persis "sesi yang sedang dipakai request ini" secara pasti. Sebagai
-        # pendekatan yang wajar: sesi TERBARU (last_accessed_at paling baru)
-        # dianggap sebagai sesi aktif saat ini dan tidak ikut di-revoke.
         existing = await service.get_user_sessions(current_user.user_id)
         keep_id = existing[0].id if existing else None
         await service.revoke_all_other_sessions(current_user.user_id, keep_session_id=keep_id)
         return None
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to revoke all other sessions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2354,6 +2512,8 @@ async def get_login_attempts(
             )
             for a in attempts
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get login attempts: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2379,6 +2539,8 @@ async def get_user_audit_log(
         # IAMService tidak punya get_user_audit_log
         logger.warning("get_user_audit_log not implemented in IAMService")
         return []
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get user audit log: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2422,6 +2584,8 @@ async def get_user_status(
             "can_login": user.status == UserStatus.ACTIVE and (user.locked_until is None or user.locked_until < datetime.now(UTC)),
             "can_change_password": True,
         }
+    except HTTPException:
+        raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -2448,8 +2612,203 @@ async def get_user_history(
         # IAMService tidak punya get_user_history
         logger.warning("get_user_history not implemented in IAMService")
         return []
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get user history: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# EXPORT
+# ----------------------------------------------------------------------------
+
+@router.get(
+    "/iam/export",
+    summary="Export users to CSV/Excel/JSON",
+    operation_id="export_users",
+)
+async def export_users(
+    format: str = Query("csv", pattern="^(csv|excel|json)$"),
+    _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> Response:
+    """Export daftar user ke CSV/Excel/JSON.
+
+    FIX v2 (2026-10-13):
+    - BUG: endpoint ini mengembalikan CSV berisi HANYA header tanpa baris
+      data, padahal di UI daftar user tampil normal. Root cause: endpoint
+      memanggil `service.list_users(legal_entity_id=legal_entity_id, ...)`
+      yang memicu DUA lapis filter legal_entity_id:
+        (a) di `iam_repo.get()` — filter di SQL, berdasarkan legal_entity_id
+            yang di-set lewat `service.set_context(...)`;
+        (b) di `IAMService.list_users()` — filter di Python, membandingkan
+            `u.legal_entity_id == legal_entity_id` untuk setiap user.
+      Karena `_to_user_entity()` mengisi `legal_entity_id` user dengan
+      `agg.legal_entity_ids[0]` (atau fallback ke context kalau kosong),
+      lapis filter (b) bisa saja tidak match dengan nilai yang dikirim
+      endpoint — hasilnya list kosong, padahal data ADA di DB.
+
+    Perbaikan: samakan perlakuan dengan endpoint `/iam/iam/users` yang
+    SUDAH terbukti mengembalikan data (yaitu TIDAK mengirim legal_entity_id
+    sebagai argumen list_users — biarkan filter terjadi di level SQL lewat
+    iam_repo.get() saja).
+
+    FIX v3 (2026-10-14):
+    - Kolom `last_login_at` sekarang diformat ke WIB (UTC+7) dengan format
+      `YYYY-MM-DD HH:MM:SS WIB` (lihat `_format_local_dt()`) — bukan lagi
+      string ISO UTC mentah seperti `2026-10-12T01:44:37.013808+00:00`
+      yang sulit dibaca user Indonesia dan membuat file CSV/Excel terlihat
+      "kotor" karena mikrodetik panjang.
+    """
+    import csv
+    import io
+
+    service.set_context(session, legal_entity_id)
+
+    try:
+        # PENTING: TIDAK mengirim legal_entity_id sebagai argumen
+        # service.list_users(). Method itu sendiri tetap melakukan filter
+        # lewat iam_repo.get() (yang query DB dengan legal_entity_id dari
+        # set_context di atas), jadi hasilnya sudah terbatas pada legal
+        # entity yang sedang aktif — TANPA double filtering di Python yang
+        # bisa memakan hasil karena mismatch.
+        users = await service.list_users(
+            limit=10000,
+            offset=0,
+        )
+
+        logger.info(
+            f"Export: {len(users)} users fetched for legal_entity_id={legal_entity_id}"
+        )
+
+        if format == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                "username", "email", "full_name", "status", "is_active",
+                "department", "job_title", "phone_number", "last_login_at",
+            ])
+            for u in users:
+                writer.writerow([
+                    u.username or "",
+                    u.email or "",
+                    (u.profile.full_name if u.profile else "") or "",
+                    u.status.value if hasattr(u.status, "value") else str(u.status),
+                    "1" if u.status == UserStatus.ACTIVE else "0",
+                    (u.profile.department if u.profile else "") or "",
+                    (u.profile.position if u.profile else "") or "",
+                    (u.profile.phone if u.profile else "") or "",
+                    # FIX v3: last_login_at diformat ke WIB dengan format
+                    # `YYYY-MM-DD HH:MM:SS WIB`, bukan ISO UTC mentah.
+                    _format_local_dt(
+                        u.audit.last_login_at if u.audit else None
+                    ),
+                ])
+
+            csv_content = buf.getvalue()
+            # FIX: tambahkan BOM UTF-8 di depan supaya Excel di Windows
+            # bisa membaca karakter non-ASCII (mis. tanda hubung, karakter
+            # Indonesia) tanpa mojibake. Tanpa BOM, Excel sering salah
+            # menebak encoding dan menampilkan karakter aneh.
+            csv_bytes = b"\xef\xbb\xbf" + csv_content.encode("utf-8")
+
+            return Response(
+                content=csv_bytes,
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": 'attachment; filename="iam_users_export.csv"',
+                },
+            )
+
+        elif format == "json":
+            import json as _json
+            json_data = [
+                {
+                    "username": u.username,
+                    "email": u.email,
+                    "full_name": u.profile.full_name if u.profile else None,
+                    "status": u.status.value if hasattr(u.status, "value") else str(u.status),
+                    "is_active": u.status == UserStatus.ACTIVE,
+                    "department": u.profile.department if u.profile else None,
+                    "job_title": u.profile.position if u.profile else None,
+                    "phone_number": u.profile.phone if u.profile else None,
+                    # FIX v3: JSON juga pakai format WIB supaya konsisten
+                    # dengan CSV/Excel. Kalau mau tetap ISO 8601 (untuk
+                    # diproses program lain), ganti dengan
+                    # `u.audit.last_login_at.isoformat()` di sini.
+                    "last_login_at": _format_local_dt(
+                        u.audit.last_login_at if u.audit else None
+                    ),
+                }
+                for u in users
+            ]
+            return Response(
+                content=_json.dumps(json_data, indent=2, default=str),
+                media_type="application/json; charset=utf-8",
+                headers={
+                    "Content-Disposition": 'attachment; filename="iam_users_export.json"',
+                },
+            )
+
+        elif format == "excel":
+            try:
+                from openpyxl import Workbook
+            except ImportError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Export Excel belum didukung: install 'openpyxl' di server "
+                        "(pip install openpyxl) lalu restart backend."
+                    ),
+                )
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Users"
+            ws.append([
+                "username", "email", "full_name", "status", "is_active",
+                "department", "job_title", "phone_number", "last_login_at",
+            ])
+            for u in users:
+                ws.append([
+                    u.username or "",
+                    u.email or "",
+                    (u.profile.full_name if u.profile else "") or "",
+                    u.status.value if hasattr(u.status, "value") else str(u.status),
+                    "1" if u.status == UserStatus.ACTIVE else "0",
+                    (u.profile.department if u.profile else "") or "",
+                    (u.profile.position if u.profile else "") or "",
+                    (u.profile.phone if u.profile else "") or "",
+                    # FIX v3: Excel juga pakai format WIB.
+                    _format_local_dt(
+                        u.audit.last_login_at if u.audit else None
+                    ),
+                ])
+            xlsx_buf = io.BytesIO()
+            wb.save(xlsx_buf)
+            xlsx_buf.seek(0)
+            return Response(
+                content=xlsx_buf.read(),
+                media_type=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                headers={
+                    "Content-Disposition": 'attachment; filename="iam_users_export.xlsx"',
+                },
+            )
+
+        else:
+            raise HTTPException(
+                status_code=400, detail=f"Format '{format}' belum didukung"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to export users: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -5,7 +5,11 @@ Layer: Application / Service Layer
 Responsibility: IAM service (identity and access management).
                Memperbaiki: set_context(), login(), authenticate(),
                dan konversi UserAggregate -> UserEntity.
-FIX v10: Tambahkan logging untuk permission yang dihasilkan, agar mudah debugging.
+FIX v11: Perbaiki is_active/is_superuser/is_locked yang berupa METHOD pada
+         UserEntity — sebelumnya dikirim apa adanya sebagai bound method ke
+         UserAggregate, menyebabkan SQLAlchemy error "Not a boolean value".
+FIX v12: Tambah fallback lock_user di service supaya tidak crash kalau
+         repository tidak punya method itu (lihat catatan di method).
 """
 
 from __future__ import annotations
@@ -80,6 +84,38 @@ logger = logging.getLogger(__name__)
 def _extract_password_hash_str(password_hash: PasswordHashedVO) -> str:
     """Ambil string hash dari PasswordHashedVO (atribut: hashed_value)."""
     return password_hash.hashed_value
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    """Normalisasi nilai yang mungkin berupa method/atribut menjadi bool.
+
+    BUG FIX: UserEntity.is_active, .is_locked, dan .is_superuser didefinisikan
+    sebagai METHOD (bukan atribut/property) di domain/iam/user_entity.py.
+    Kalau nilai ini dikirim apa adanya ke UserAggregate(...), yang tersimpan
+    adalah bound method — dan SQLAlchemy akan gagal saat flush ke kolom
+    BOOLEAN dengan error:
+        TypeError: Not a boolean value: <bound method UserEntity.is_active ...>
+
+    Helper ini memanggil method kalau memang callable, atau pakai nilainya
+    langsung kalau itu atribut biasa, dan fallback ke `default` kalau
+    hasilnya bukan bool valid.
+    """
+    if value is None:
+        return default
+    # Kalau callable (bound method), panggil dulu
+    if callable(value):
+        try:
+            value = value()
+        except Exception:
+            logger.debug("Gagal memanggil callable saat normalisasi bool", exc_info=True)
+            return default
+    # Setelah itu, paksa jadi bool
+    if isinstance(value, bool):
+        return value
+    try:
+        return bool(value)
+    except Exception:
+        return default
 
 
 class TokenIssuerPort(Protocol):
@@ -510,6 +546,13 @@ class IAMService:
             return user
 
         # Update UserAggregate
+        #
+        # FIX v11: is_active/is_superuser di UserEntity adalah METHOD (bukan
+        # atribut), jadi `user.is_active` mengembalikan bound method — bukan
+        # bool. Kalau dikirim apa adanya ke UserAggregate(...), SQLAlchemy
+        # akan gagal saat flush ke kolom BOOLEAN dengan error:
+        #   TypeError: Not a boolean value: <bound method ...>
+        # _to_bool() di atas menormalkan baik method maupun atribut ke bool.
         agg = UserAggregate(
             id=user.user_id,
             username=user.username,
@@ -517,13 +560,13 @@ class IAMService:
             full_name=new_full_name,
             hashed_password=_extract_password_hash_str(user.password_hash),
             status=user.status,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            is_active=user.is_active if hasattr(user, 'is_active') else True,
+            is_superuser=_to_bool(getattr(user, 'is_superuser', False), default=False),
+            is_active=_to_bool(getattr(user, 'is_active', True), default=True),
             last_login_at=user.audit.last_login_at,
             last_login_ip=user.audit.last_login_ip,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
@@ -587,13 +630,13 @@ class IAMService:
             full_name=user.profile.full_name,
             hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.ACTIVE,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_superuser=_to_bool(getattr(user, 'is_superuser', False), default=False),
             is_active=True,
             last_login_at=user.audit.last_login_at,
             last_login_ip=user.audit.last_login_ip,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
@@ -653,13 +696,13 @@ class IAMService:
             full_name=user.profile.full_name,
             hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.INACTIVE,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_superuser=_to_bool(getattr(user, 'is_superuser', False), default=False),
             is_active=False,
             last_login_at=user.audit.last_login_at,
             last_login_ip=user.audit.last_login_ip,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
@@ -705,6 +748,18 @@ class IAMService:
 
     async def lock_user(self, user_id: UUID, locked_by: UUID, reason: str | None = None,
                         correlation_id: str | None = None) -> None:
+        """Lock user account.
+
+        FIX v12: repository IAM (SQLAlchemyIAMRepository) TIDAK punya method
+        `lock_user` — hanya `unlock_user` yang didefinisikan. Sebelumnya
+        pemanggilan `self._iam_repo.lock_user(...)` langsung raise
+        AttributeError → 500 di endpoint POST /iam/users/{id}/lock.
+
+        Solusi: implementasi fallback di service ini sendiri, memakai
+        `update()` standar yang sudah ada (tidak butuh method baru di repo).
+        Kalau di masa depan repo menambah `lock_user()`, kita pakai itu
+        (fast path). Kalau tidak, pakai jalur update generik.
+        """
         self._check_authority(locked_by, "lock_user")
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
@@ -713,8 +768,37 @@ class IAMService:
         if user.locked_until and user.locked_until > datetime.now(UTC):
             return
 
-        # Lock via repository method
-        await self._iam_repo.lock_user(user_id, locked_by, reason)
+        lock_until = datetime.now(UTC) + timedelta(minutes=30)
+
+        # Fast path: repo punya method lock_user → pakai itu
+        if hasattr(self._iam_repo, "lock_user") and callable(getattr(self._iam_repo, "lock_user")):
+            await self._iam_repo.lock_user(user_id, locked_by, reason)
+        else:
+            # Fallback: pakai update() generik dengan status LOCKED + locked_until
+            agg = UserAggregate(
+                id=user.user_id,
+                username=user.username,
+                email=user.email,
+                full_name=user.profile.full_name,
+                hashed_password=_extract_password_hash_str(user.password_hash),
+                status=UserStatus.LOCKED,
+                is_superuser=_to_bool(getattr(user, 'is_superuser', False), default=False),
+                is_active=False,
+                last_login_at=user.audit.last_login_at,
+                last_login_ip=user.audit.last_login_ip,
+                failed_login_count=user.failed_login_attempts,
+                locked_until=lock_until,
+                must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
+                password_changed_at=user.audit.last_password_change_at,
+                created_at=user.audit.created_at,
+                updated_at=datetime.now(UTC),
+                created_by=user.audit.created_by,
+                version=user.audit.version,
+                legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+                role_ids=user.role_ids,
+            )
+            await self._iam_repo.update(agg)
+
         await self._commit()
 
         self._stats["users_locked"] += 1
@@ -798,13 +882,13 @@ class IAMService:
             full_name=user.profile.full_name,
             hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.SUSPENDED,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_superuser=_to_bool(getattr(user, 'is_superuser', False), default=False),
             is_active=False,
             last_login_at=user.audit.last_login_at,
             last_login_ip=user.audit.last_login_ip,
             failed_login_count=user.failed_login_attempts,
             locked_until=user.locked_until,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),

@@ -4,11 +4,40 @@ Module: sqlalchemy_supplier_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi SupplierRepositoryPort menggunakan SQLAlchemy.
 
-PERBAIKAN (2026-10-12):
-- Import `Supplier` DTO dari domain layer (bukan dari service layer)
-  supaya tidak melanggar clean architecture (adapter -> application).
-- Tambah method: add_attachment, list_attachments, delete_attachment,
-  add_note, list_notes, delete_note.
+PERBAIKAN (2026-10-13):
+- Tambah method: add_address, list_addresses, update_address, delete_address
+- Tambah method: add_contact, list_contacts, update_contact, delete_contact
+- Tambah method: add_tag, list_tags, remove_tag
+- Tambah method: add_credit_history, list_credit_history
+- Tambah method: add_balance_history, list_balance_history
+
+FIX v2 (2026-10-13, connection leak):
+- BUG: setiap request ke endpoint supplier meninggalkan satu koneksi
+  database "menggantung" di pool. Log menunjukkan:
+
+      ERROR | sqlalchemy.pool.impl.AsyncAdaptedQueuePool |
+      The garbage collector is trying to clean up non-checked-in connection
+      <AdaptedConnection <asyncpg.connection.Connection object at 0x...>>,
+      which will be terminated.
+
+  Penyebab: `_get_session()` meng-cache session di `self._session` dan
+  TIDAK PERNAH memanggil `await session.close()`. Setiap method (add,
+  update, list, dll) memanggil `session.commit()` / `session.rollback()`,
+  tapi commit/rollback hanya melepas transaksi — bukan mengembalikan
+  koneksi ke pool. Koneksi baru dikembalikan saat session di-GC (garbage
+  collector), dan pada titik itu pool komplain "non-checked-in connection".
+
+- FIX: dua langkah.
+  (1) `_get_session()` sekarang SELALU membuat AsyncSession baru dari
+      pool setiap dipanggil — tidak lagi cache di `self._session`.
+      Instance repository tetap transient per request, jadi tidak ada
+      race condition antar-request.
+  (2) Setiap method yang memakai session dibungkus try/except/finally
+      dengan `await session.close()` di blok `finally`, supaya koneksi
+      SELALU dikembalikan ke pool, entah sukses atau gagal.
+  (3) Tambahan opsional: dukung `async with SQLAlchemySupplierRepository()`
+      lewat `__aenter__`/`__aexit__` untuk caller yang mau mengelola
+      lifecycle session sendiri secara eksplisit.
 """
 
 from __future__ import annotations
@@ -32,9 +61,14 @@ from infrastructure.persistence_orm.goods_receipt_note_table import (
 )
 from infrastructure.persistence_orm.purchase_order_table import PurchaseOrderTable
 from infrastructure.persistence_orm.supplier_table import (
+    SupplierAddressTable,
     SupplierAttachmentTable,
+    SupplierBalanceHistoryTable,
+    SupplierContactTable,
+    SupplierCreditHistoryTable,
     SupplierNoteTable,
     SupplierTable,
+    SupplierTagTable,
 )
 from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
@@ -42,8 +76,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# DTO Supplier — pindah dari service layer supaya adapter tidak import
-# dari application layer (clean architecture).
+# DTO Supplier
 # ============================================================================
 
 
@@ -52,14 +85,6 @@ from dataclasses import dataclass, field
 
 @dataclass(kw_only=True)
 class SupplierDTO:
-    """
-    Data Transfer Object untuk Supplier, dipakai oleh service layer
-    (application) DAN adapter (infrastructure) tanpa circular import.
-
-    Field-nya sengaja SAMA PERSIS dengan `Supplier` dataclass lama di
-    service_supplier.py, supaya swap import tidak memutus backward
-    compatibility dengan kode yang sudah ada.
-    """
     id: UUID = field(default_factory=uuid4)
     legal_entity_id: UUID
     supplier_code: str
@@ -81,7 +106,7 @@ class SupplierDTO:
     payment_terms_days: int = 30
     credit_limit: Decimal = Decimal("0")
     opening_balance: Decimal = Decimal("0")
-    opening_balance_date: Any = None  # date | None
+    opening_balance_date: Any = None
     bank_name: str | None = None
     bank_account_number: str | None = None
     bank_account_name: str | None = None
@@ -95,7 +120,6 @@ class SupplierDTO:
     version: int = 1
 
 
-# Alias untuk backward-compat dengan service_supplier.py yang pakai `Supplier`
 Supplier = SupplierDTO
 
 
@@ -105,16 +129,65 @@ Supplier = SupplierDTO
 
 
 class SQLAlchemySupplierRepository(SupplierRepositoryPort):
+    """Implementasi SupplierRepositoryPort dengan SQLAlchemy.
+
+    FIX v2 — Connection Leak:
+    `_get_session()` sekarang SELALU membuat AsyncSession baru (tidak cache
+    di `self._session`). Setiap method yang memakai session dibungkus
+    try/finally dan selalu `await session.close()` di finally, sehingga
+    koneksi selalu dikembalikan ke pool.
+    """
+
     def __init__(self, session: AsyncSession | None = None):
-        self._session = session
+        # Kalau caller sudah menyediakan session (mis. dari UoW), pakai itu
+        # dan JANGAN close di sini — lifecycle-nya milik caller.
+        # Kalau None, repo akan buat session sendiri per-operasi dan
+        # menutupnya sendiri.
+        self._external_session = session
+        self._owns_session = session is None
 
     async def _get_session(self) -> AsyncSession:
-        if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import (
-                get_async_session_direct,
-            )
-            self._session = await get_async_session_direct()
-        return self._session
+        """Ambil AsyncSession untuk operasi.
+
+        - Kalau caller menyuplai session di __init__ (mis. UoW), pakai itu.
+        - Kalau tidak, buat session BARU dari pool SETIAP kali dipanggil.
+          Session ini harus di-close oleh caller (via `_close_session`
+          atau `async with`).
+
+        CATATAN: tidak lagi menyimpan session di `self._session` — kalau
+        di-cache, session yang sama akan terus dipakai lintas-operasi dan
+        tidak pernah di-close, menyebabkan connection leak (bug yang
+        diperbaiki di v2).
+        """
+        if self._external_session is not None:
+            return self._external_session
+        from infrastructure.database.session_factory_sqlalchemy import (
+            get_async_session_direct,
+        )
+        return await get_async_session_direct()
+
+    async def _close_session(self, session: AsyncSession) -> None:
+        """Tutup session KALAU repo yang memiliki session itu.
+
+        Session yang disuplai caller (mis. UoW) TIDAK boleh ditutup di sini
+        — pemiliknya yang bertanggung jawab menutup.
+        """
+        if self._owns_session and session is not self._external_session:
+            try:
+                await session.close()
+            except Exception:
+                logger.debug("Error closing session (non-fatal)", exc_info=True)
+
+    # ---- Async context manager (opsional, untuk caller yang mau eksplisit) ----
+    async def __aenter__(self) -> "SQLAlchemySupplierRepository":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        # Tidak ada session "milik instance" yang perlu ditutup di sini
+        # karena setiap operasi mengelola session-nya sendiri. Method ini
+        # disediakan supaya `async with SQLAlchemySupplierRepository() as repo:`
+        # tetap valid dan siap kalau nanti butuh lifecycle tambahan.
+        return None
 
     # ==================== MAPPING ====================
 
@@ -197,46 +270,58 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         self, supplier_id: UUID, legal_entity_id: UUID
     ) -> SupplierDTO | None:
         session = await self._get_session()
-        stmt = select(SupplierTable).where(
-            SupplierTable.id == supplier_id,
-            SupplierTable.legal_entity_id == legal_entity_id,
-            SupplierTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return self._to_domain(row) if row else None
+        try:
+            stmt = select(SupplierTable).where(
+                SupplierTable.id == supplier_id,
+                SupplierTable.legal_entity_id == legal_entity_id,
+                SupplierTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return self._to_domain(row) if row else None
+        finally:
+            await self._close_session(session)
 
     async def get_by_code(
         self, legal_entity_id: UUID, supplier_code: str
     ) -> SupplierDTO | None:
         session = await self._get_session()
-        stmt = select(SupplierTable).where(
-            SupplierTable.supplier_code == supplier_code,
-            SupplierTable.legal_entity_id == legal_entity_id,
-            SupplierTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return self._to_domain(row) if row else None
+        try:
+            stmt = select(SupplierTable).where(
+                SupplierTable.supplier_code == supplier_code,
+                SupplierTable.legal_entity_id == legal_entity_id,
+                SupplierTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return self._to_domain(row) if row else None
+        finally:
+            await self._close_session(session)
 
     async def get_by_tax_id(self, tax_id: str) -> SupplierDTO | None:
         session = await self._get_session()
-        stmt = select(SupplierTable).where(
-            SupplierTable.tax_id == tax_id,
-            SupplierTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return self._to_domain(row) if row else None
+        try:
+            stmt = select(SupplierTable).where(
+                SupplierTable.tax_id == tax_id,
+                SupplierTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return self._to_domain(row) if row else None
+        finally:
+            await self._close_session(session)
 
     async def is_active(self, supplier_id: UUID) -> bool:
         session = await self._get_session()
-        stmt = select(SupplierTable.is_active, SupplierTable.status).where(
-            SupplierTable.id == supplier_id
-        )
-        result = await session.execute(stmt)
-        row = result.one_or_none()
-        return bool(row and row[0] and row[1] == "active")
+        try:
+            stmt = select(SupplierTable.is_active, SupplierTable.status).where(
+                SupplierTable.id == supplier_id
+            )
+            result = await session.execute(stmt)
+            row = result.one_or_none()
+            return bool(row and row[0] and row[1] == "active")
+        finally:
+            await self._close_session(session)
 
     async def list_by_entity(
         self,
@@ -250,44 +335,47 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         offset: int = 0,
     ) -> tuple[list[SupplierDTO], int]:
         session = await self._get_session()
-        conditions = [
-            SupplierTable.legal_entity_id == legal_entity_id,
-            SupplierTable.deleted_at.is_(None),
-        ]
-        if search:
-            like = f"%{search.strip()}%"
-            conditions.append(
-                or_(
-                    SupplierTable.supplier_code.ilike(like),
-                    SupplierTable.supplier_name.ilike(like),
-                    SupplierTable.company_name.ilike(like),
-                    SupplierTable.tax_id.ilike(like),
-                    SupplierTable.email.ilike(like),
-                    SupplierTable.contact_person.ilike(like),
+        try:
+            conditions = [
+                SupplierTable.legal_entity_id == legal_entity_id,
+                SupplierTable.deleted_at.is_(None),
+            ]
+            if search:
+                like = f"%{search.strip()}%"
+                conditions.append(
+                    or_(
+                        SupplierTable.supplier_code.ilike(like),
+                        SupplierTable.supplier_name.ilike(like),
+                        SupplierTable.company_name.ilike(like),
+                        SupplierTable.tax_id.ilike(like),
+                        SupplierTable.email.ilike(like),
+                        SupplierTable.contact_person.ilike(like),
+                    )
                 )
+            if city:
+                conditions.append(SupplierTable.city.ilike(f"%{city}%"))
+            if status:
+                conditions.append(SupplierTable.status == status)
+            if is_active is not None:
+                conditions.append(SupplierTable.is_active == is_active)
+
+            count_stmt = (
+                select(func.count()).select_from(SupplierTable).where(and_(*conditions))
             )
-        if city:
-            conditions.append(SupplierTable.city.ilike(f"%{city}%"))
-        if status:
-            conditions.append(SupplierTable.status == status)
-        if is_active is not None:
-            conditions.append(SupplierTable.is_active == is_active)
+            total = await session.scalar(count_stmt) or 0
 
-        count_stmt = (
-            select(func.count()).select_from(SupplierTable).where(and_(*conditions))
-        )
-        total = await session.scalar(count_stmt) or 0
-
-        stmt = (
-            select(SupplierTable)
-            .where(and_(*conditions))
-            .order_by(SupplierTable.supplier_code)
-            .limit(limit)
-            .offset(offset)
-        )
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [self._to_domain(row) for row in rows], total
+            stmt = (
+                select(SupplierTable)
+                .where(and_(*conditions))
+                .order_by(SupplierTable.supplier_code)
+                .limit(limit)
+                .offset(offset)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [self._to_domain(row) for row in rows], total
+        finally:
+            await self._close_session(session)
 
     # ==================== WRITE ====================
 
@@ -329,6 +417,8 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
         return supplier
 
     async def update(self, supplier: SupplierDTO) -> SupplierDTO:
@@ -367,9 +457,14 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
         return supplier
 
     async def save(self, supplier: SupplierDTO) -> SupplierDTO:
+        # CATATAN: save() memanggil get_by_id() atau add()/update(), yang
+        # masing-masing mengelola session-nya sendiri. Jadi save() TIDAK
+        # membuka session tambahan di sini.
         existing = (
             await self.get_by_id(supplier.id, supplier.legal_entity_id)
             if supplier.id
@@ -382,6 +477,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
     async def soft_delete(
         self, supplier_id: UUID, legal_entity_id: UUID, deleted_by: UUID
     ) -> bool:
+        # has_transactions() buka session sendiri, tidak perlu dibungkus lagi.
         if await self.has_transactions(supplier_id):
             logger.warning(
                 f"Refusing to delete supplier {supplier_id}: existing transactions found."
@@ -412,87 +508,99 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
         return True
 
     async def has_transactions(self, supplier_id: UUID) -> bool:
         session = await self._get_session()
-        for table, col in (
-            (PurchaseOrderTable, PurchaseOrderTable.supplier_id),
-            (GoodsReceiptNoteTable, GoodsReceiptNoteTable.supplier_id),
-            (APInvoiceTable, APInvoiceTable.vendor_id),
-            (APPaymentTable, APPaymentTable.supplier_id),
-        ):
-            stmt = select(func.count()).select_from(table).where(col == supplier_id)
-            count = await session.scalar(stmt) or 0
-            if count > 0:
-                return True
-        return False
+        try:
+            for table, col in (
+                (PurchaseOrderTable, PurchaseOrderTable.supplier_id),
+                (GoodsReceiptNoteTable, GoodsReceiptNoteTable.supplier_id),
+                (APInvoiceTable, APInvoiceTable.vendor_id),
+                (APPaymentTable, APPaymentTable.supplier_id),
+            ):
+                stmt = select(func.count()).select_from(table).where(col == supplier_id)
+                count = await session.scalar(stmt) or 0
+                if count > 0:
+                    return True
+            return False
+        finally:
+            await self._close_session(session)
 
-    # ==================== LAPORAN & INTEGRASI ====================
+    # ==================== LAPORAN ====================
 
     async def get_outstanding_balance(self, supplier_id: UUID) -> Decimal:
         session = await self._get_session()
-        stmt = select(
-            func.coalesce(
-                func.sum(APInvoiceTable.total_amount - APInvoiceTable.paid_amount), 0
+        try:
+            stmt = select(
+                func.coalesce(
+                    func.sum(APInvoiceTable.total_amount - APInvoiceTable.paid_amount), 0
+                )
+            ).where(
+                APInvoiceTable.vendor_id == supplier_id,
+                APInvoiceTable.status.notin_(["cancelled", "written_off"]),
             )
-        ).where(
-            APInvoiceTable.vendor_id == supplier_id,
-            APInvoiceTable.status.notin_(["cancelled", "written_off"]),
-        )
-        balance = await session.scalar(stmt)
-        return Decimal(balance or 0)
+            balance = await session.scalar(stmt)
+            return Decimal(balance or 0)
+        finally:
+            await self._close_session(session)
 
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         session = await self._get_session()
-        base = SupplierTable.legal_entity_id == legal_entity_id
-        total = (
-            await session.scalar(
-                select(func.count())
-                .select_from(SupplierTable)
-                .where(base, SupplierTable.deleted_at.is_(None))
-            )
-            or 0
-        )
-        active = (
-            await session.scalar(
-                select(func.count()).where(
-                    base,
-                    SupplierTable.is_active.is_(True),
-                    SupplierTable.deleted_at.is_(None),
+        try:
+            base = SupplierTable.legal_entity_id == legal_entity_id
+            total = (
+                await session.scalar(
+                    select(func.count())
+                    .select_from(SupplierTable)
+                    .where(base, SupplierTable.deleted_at.is_(None))
                 )
+                or 0
             )
-            or 0
-        )
+            active = (
+                await session.scalar(
+                    select(func.count()).where(
+                        base,
+                        SupplierTable.is_active.is_(True),
+                        SupplierTable.deleted_at.is_(None),
+                    )
+                )
+                or 0
+            )
 
-        cat_stmt = (
-            select(SupplierTable.category, func.count())
-            .where(base, SupplierTable.deleted_at.is_(None))
-            .group_by(SupplierTable.category)
-        )
-        categories = {
-            cat or "Tanpa Kategori": cnt
-            for cat, cnt in (await session.execute(cat_stmt)).all()
-        }
+            cat_stmt = (
+                select(SupplierTable.category, func.count())
+                .where(base, SupplierTable.deleted_at.is_(None))
+                .group_by(SupplierTable.category)
+            )
+            categories = {
+                cat or "Tanpa Kategori": cnt
+                for cat, cnt in (await session.execute(cat_stmt)).all()
+            }
 
-        status_stmt = (
-            select(SupplierTable.status, func.count())
-            .where(base, SupplierTable.deleted_at.is_(None))
-            .group_by(SupplierTable.status)
-        )
-        statuses = {
-            st: cnt for st, cnt in (await session.execute(status_stmt)).all()
-        }
+            status_stmt = (
+                select(SupplierTable.status, func.count())
+                .where(base, SupplierTable.deleted_at.is_(None))
+                .group_by(SupplierTable.status)
+            )
+            statuses = {
+                st: cnt for st, cnt in (await session.execute(status_stmt)).all()
+            }
 
-        return {
-            "total": total,
-            "active": active,
-            "inactive": total - active,
-            "categories": categories,
-            "statuses": statuses,
-        }
+            return {
+                "total": total,
+                "active": active,
+                "inactive": total - active,
+                "categories": categories,
+                "statuses": statuses,
+            }
+        finally:
+            await self._close_session(session)
 
     async def export_rows(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
+        # list_by_entity buka & tutup session sendiri.
         rows, _ = await self.list_by_entity(legal_entity_id, limit=100000, offset=0)
         return [asdict(r) for r in rows]
 
@@ -500,29 +608,33 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         self, legal_entity_id: UUID, prefix: str = "SUP"
     ) -> str:
         session = await self._get_session()
-        like_pattern = f"{prefix}-%"
-        stmt = select(SupplierTable.supplier_code).where(
-            SupplierTable.legal_entity_id == legal_entity_id,
-            SupplierTable.supplier_code.ilike(like_pattern),
-        )
-        result = await session.execute(stmt)
-        codes = [row[0] for row in result.all()]
+        try:
+            like_pattern = f"{prefix}-%"
+            stmt = select(SupplierTable.supplier_code).where(
+                SupplierTable.legal_entity_id == legal_entity_id,
+                SupplierTable.supplier_code.ilike(like_pattern),
+            )
+            result = await session.execute(stmt)
+            codes = [row[0] for row in result.all()]
 
-        max_num = 0
-        max_width = 3
-        for code in codes:
-            suffix = code[len(prefix) + 1 :]
-            if suffix.isdigit():
-                num = int(suffix)
-                if num > max_num:
-                    max_num = num
-                max_width = max(max_width, len(suffix))
+            max_num = 0
+            max_width = 3
+            for code in codes:
+                suffix = code[len(prefix) + 1 :]
+                if suffix.isdigit():
+                    num = int(suffix)
+                    if num > max_num:
+                        max_num = num
+                    max_width = max(max_width, len(suffix))
 
-        next_num = max_num + 1
-        width = max(max_width, len(str(next_num)))
-        return f"{prefix}-{next_num:0{width}d}"
+            next_num = max_num + 1
+            width = max(max_width, len(str(next_num)))
+            return f"{prefix}-{next_num:0{width}d}"
+        finally:
+            await self._close_session(session)
 
     async def export_to_csv(self, legal_entity_id: UUID) -> str:
+        # export_rows buka & tutup session sendiri.
         rows = await self.export_rows(legal_entity_id)
         output = io.StringIO()
         if not rows:
@@ -535,6 +647,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         return output.getvalue()
 
     async def health_check(self) -> dict[str, Any]:
+        session = None
         try:
             session = await self._get_session()
             from sqlalchemy import text as _text
@@ -547,6 +660,9 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 "database": "disconnected",
                 "error": str(e),
             }
+        finally:
+            if session is not None:
+                await self._close_session(session)
 
     # ==================== ATTACHMENTS ====================
 
@@ -563,19 +679,24 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
 
     async def list_attachments(self, supplier_id: UUID) -> list[dict[str, Any]]:
         session = await self._get_session()
-        stmt = (
-            select(SupplierAttachmentTable)
-            .where(
-                SupplierAttachmentTable.supplier_id == supplier_id,
-                SupplierAttachmentTable.deleted_at.is_(None),
+        try:
+            stmt = (
+                select(SupplierAttachmentTable)
+                .where(
+                    SupplierAttachmentTable.supplier_id == supplier_id,
+                    SupplierAttachmentTable.deleted_at.is_(None),
+                )
+                .order_by(SupplierAttachmentTable.created_at)
             )
-            .order_by(SupplierAttachmentTable.created_at)
-        )
-        result = await session.execute(stmt)
-        return [r.to_dict() for r in result.scalars().all()]
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
 
     async def delete_attachment(
         self, supplier_id: UUID, attachment_id: UUID
@@ -598,6 +719,8 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
 
     # ==================== NOTES ====================
 
@@ -618,16 +741,21 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
 
     async def list_notes(self, supplier_id: UUID) -> list[dict[str, Any]]:
         session = await self._get_session()
-        stmt = (
-            select(SupplierNoteTable)
-            .where(SupplierNoteTable.supplier_id == supplier_id)
-            .order_by(SupplierNoteTable.created_at.desc())
-        )
-        result = await session.execute(stmt)
-        return [r.to_dict() for r in result.scalars().all()]
+        try:
+            stmt = (
+                select(SupplierNoteTable)
+                .where(SupplierNoteTable.supplier_id == supplier_id)
+                .order_by(SupplierNoteTable.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
 
     async def delete_note(self, supplier_id: UUID, note_id: UUID) -> bool:
         session = await self._get_session()
@@ -647,6 +775,320 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await self._close_session(session)
+
+    # ==================== ADDRESSES ====================
+
+    async def add_address(self, supplier_id: UUID, **fields) -> dict[str, Any]:
+        session = await self._get_session()
+        try:
+            row = SupplierAddressTable(supplier_id=supplier_id, **fields)
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            data = row.to_dict()
+            await session.commit()
+            return data
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def list_addresses(self, supplier_id: UUID) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        try:
+            stmt = (
+                select(SupplierAddressTable)
+                .where(
+                    SupplierAddressTable.supplier_id == supplier_id,
+                    SupplierAddressTable.deleted_at.is_(None),
+                )
+                .order_by(SupplierAddressTable.created_at)
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
+
+    async def update_address(
+        self, supplier_id: UUID, address_id: UUID, **fields
+    ) -> dict[str, Any]:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierAddressTable).where(
+                SupplierAddressTable.id == address_id,
+                SupplierAddressTable.supplier_id == supplier_id,
+                SupplierAddressTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Address {address_id} not found")
+            for k, v in fields.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            await session.flush()
+            await session.refresh(row)
+            data = row.to_dict()
+            await session.commit()
+            return data
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def delete_address(self, supplier_id: UUID, address_id: UUID) -> bool:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierAddressTable).where(
+                SupplierAddressTable.id == address_id,
+                SupplierAddressTable.supplier_id == supplier_id,
+                SupplierAddressTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            row.deleted_at = datetime.now(UTC)
+            await session.flush()
+            await session.commit()
+            return True
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    # ==================== CONTACTS ====================
+
+    async def add_contact(self, supplier_id: UUID, **fields) -> dict[str, Any]:
+        session = await self._get_session()
+        try:
+            row = SupplierContactTable(supplier_id=supplier_id, **fields)
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            data = row.to_dict()
+            await session.commit()
+            return data
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def list_contacts(self, supplier_id: UUID) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        try:
+            stmt = (
+                select(SupplierContactTable)
+                .where(
+                    SupplierContactTable.supplier_id == supplier_id,
+                    SupplierContactTable.deleted_at.is_(None),
+                )
+                .order_by(SupplierContactTable.created_at)
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
+
+    async def update_contact(
+        self, supplier_id: UUID, contact_id: UUID, **fields
+    ) -> dict[str, Any]:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierContactTable).where(
+                SupplierContactTable.id == contact_id,
+                SupplierContactTable.supplier_id == supplier_id,
+                SupplierContactTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Contact {contact_id} not found")
+            for k, v in fields.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            await session.flush()
+            await session.refresh(row)
+            data = row.to_dict()
+            await session.commit()
+            return data
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def delete_contact(self, supplier_id: UUID, contact_id: UUID) -> bool:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierContactTable).where(
+                SupplierContactTable.id == contact_id,
+                SupplierContactTable.supplier_id == supplier_id,
+                SupplierContactTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            row.deleted_at = datetime.now(UTC)
+            await session.flush()
+            await session.commit()
+            return True
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    # ==================== TAGS ====================
+
+    async def add_tag(self, supplier_id: UUID, tag: str) -> dict[str, Any]:
+        session = await self._get_session()
+        try:
+            row = SupplierTagTable(supplier_id=supplier_id, tag=tag)
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            data = row.to_dict()
+            await session.commit()
+            return data
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def list_tags(self, supplier_id: UUID) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierTagTable).where(
+                SupplierTagTable.supplier_id == supplier_id
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
+
+    async def remove_tag(self, supplier_id: UUID, tag_id: UUID) -> bool:
+        session = await self._get_session()
+        try:
+            stmt = select(SupplierTagTable).where(
+                SupplierTagTable.id == tag_id,
+                SupplierTagTable.supplier_id == supplier_id,
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            await session.delete(row)
+            await session.flush()
+            await session.commit()
+            return True
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    # ==================== CREDIT HISTORY ====================
+
+    async def add_credit_history(
+        self,
+        supplier_id: UUID,
+        old_limit: Decimal,
+        new_limit: Decimal,
+        reason: str | None = None,
+        changed_by: UUID | None = None,
+    ) -> None:
+        session = await self._get_session()
+        try:
+            row = SupplierCreditHistoryTable(
+                supplier_id=supplier_id,
+                old_limit=old_limit,
+                new_limit=new_limit,
+                reason=reason,
+                changed_by=changed_by,
+            )
+            session.add(row)
+            await session.flush()
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def list_credit_history(
+        self, supplier_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        try:
+            stmt = (
+                select(SupplierCreditHistoryTable)
+                .where(SupplierCreditHistoryTable.supplier_id == supplier_id)
+                .order_by(SupplierCreditHistoryTable.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
+
+    # ==================== BALANCE HISTORY ====================
+
+    async def add_balance_history(
+        self,
+        supplier_id: UUID,
+        old_balance: Decimal,
+        new_balance: Decimal,
+        delta: Decimal,
+        source: str | None = None,
+        reference: str | None = None,
+        changed_by: UUID | None = None,
+    ) -> None:
+        session = await self._get_session()
+        try:
+            row = SupplierBalanceHistoryTable(
+                supplier_id=supplier_id,
+                old_balance=old_balance,
+                new_balance=new_balance,
+                delta=delta,
+                source=source,
+                reference=reference,
+                changed_by=changed_by,
+            )
+            session.add(row)
+            await session.flush()
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await self._close_session(session)
+
+    async def list_balance_history(
+        self, supplier_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        try:
+            stmt = (
+                select(SupplierBalanceHistoryTable)
+                .where(SupplierBalanceHistoryTable.supplier_id == supplier_id)
+                .order_by(SupplierBalanceHistoryTable.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            result = await session.execute(stmt)
+            return [r.to_dict() for r in result.scalars().all()]
+        finally:
+            await self._close_session(session)
 
 
 __all__ = [

@@ -223,6 +223,20 @@ class RolePermissionTab(QWidget):
         self._render_permission_matrix()
 
     def _render_permission_matrix(self) -> None:
+        # BUG FIX: jangan render kalau daftar permission belum selesai
+        # dimuat. _on_roles_loaded() dan _on_permissions_loaded() berjalan
+        # sebagai dua request async terpisah; kalau _on_roles_loaded selesai
+        # lebih dulu, dia memanggil _render_permission_matrix() dengan
+        # self._all_permissions masih kosong → panel kanan tampak kosong
+        # padahal role punya permission, dan baru terisi setelah
+        # _on_permissions_loaded selesai. Untuk menghindari "kedipan" kosong
+        # ini, cukup tunggu — _on_permissions_loaded() yang akan memanggil
+        # ulang method ini begitu datanya siap.
+        if not self._all_permissions:
+            return
+        if self._selected_role is None:
+            return
+
         # bersihkan matrix lama
         while self.perm_layout.count():
             item = self.perm_layout.takeAt(0)
@@ -559,3 +573,4 @@ class AssignRoleToUserTab(QWidget):
     def _on_write_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)
         self.status_label.setText("Gagal menyimpan.")
+        

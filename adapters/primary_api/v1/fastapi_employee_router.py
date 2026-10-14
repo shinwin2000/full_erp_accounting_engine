@@ -8,23 +8,29 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Employee (karyawan
 
 PENTING (fix 2026-08-07): field request/response sekarang disesuaikan
 dengan kolom `EmployeeTable` yang sesungguhnya (tabel `employee`, dipakai
-juga oleh Payroll/Attendance), bukan lagi dataclass in-memory. Beberapa
-field API lama tidak lagi ada satu-satu di skema DB, jadi diselaraskan:
-  - `position_allowance` / `transport_allowance` / `meal_allowance` /
-    `overtime_rate` (4 field terpisah) -> digabung jadi `allowances`
-    (total tunjangan) + `overtime_rate_multiplier` (pengali lembur),
-    sesuai kolom yang sudah dipakai modul Payroll. Memecah lagi jadi
-    kolom granular butuh migration baru terpisah (lihat catatan di PR).
-  - `bpjs_kesehatan_employee` dkk (nominal Rupiah) -> BPJS di skema asli
-    disimpan sebagai NOMOR KEPESERTAAN (`bpjs_kesehatan_number`,
-    `bpjs_ketenagakerjaan_number`) + TARIF persentase regulasi
-    (`bpjs_jht_rate_employee`, dst, sudah ada default resmi), bukan
-    nominal Rupiah per employee.
+juga oleh Payroll/Attendance), bukan lagi dataclass in-memory.
+
+PERBAIKAN (2026-10-13):
+- Tambah endpoint /employees/next-code (auto-generate kode karyawan
+  EMP-001, EMP-002, dst) + alias /next-code.
+- Tambah endpoint /employees/export (csv/excel/json) + alias /export.
+- `legal_entity_id` pada kedua endpoint di atas dibuat OPSIONAL: kalau
+  frontend tidak mengirim, otomatis diambil dari JWT token user. Ini
+  mencegah error 422 "Field required" saat frontend lupa mengirim
+  query param tersebut (pola yang sama seperti fix Customer export).
+
+CATATAN URUTAN ENDPOINT:
+- /employees/next-code dan /employees/export WAJIB didaftarkan SEBELUM
+  /employees/{employee_id}, supaya path "/next-code" dan "/export"
+  tidak salah ter-match sebagai employee_id (yang akan error 422 UUID
+  invalid).
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import logging
 from datetime import date, datetime
@@ -68,6 +74,7 @@ logger = logging.getLogger(__name__)
 # IDEMPOTENCY MANAGER (for write operations)
 # ============================================================================
 
+
 class IdempotencyManager:
     """
     Simple in-memory idempotency manager untuk FastAPI endpoints.
@@ -83,7 +90,9 @@ class IdempotencyManager:
         raw = f"{method_name}:{idempotency_key}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
-    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+    def get_cached_result(
+        self, idempotency_key: str, method_name: str
+    ) -> dict[str, Any] | None:
         storage_key = self._get_key(idempotency_key, method_name)
         entry = self._storage.get(storage_key)
         if entry is None:
@@ -97,7 +106,9 @@ class IdempotencyManager:
         except json.JSONDecodeError:
             return None
 
-    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+    def cache_result(
+        self, idempotency_key: str, method_name: str, result: dict[str, Any]
+    ) -> None:
         storage_key = self._get_key(idempotency_key, method_name)
         try:
             result_json = json.dumps(result, default=str)
@@ -115,9 +126,10 @@ def _is_superuser(user: TokenPayload) -> bool:
 
 
 def _enforce_entity(entity_id: UUID, user: TokenPayload) -> UUID:
-    """BUG FIX (keamanan): `legal_entity_id` dari klien (query/body) dulu dipercaya begitu
-    saja, sehingga user perusahaan A bisa membaca/menulis data karyawan perusahaan B.
-    Sekarang harus sama dengan perusahaan di token (superuser `*:*` dikecualikan)."""
+    """BUG FIX (keamanan): `legal_entity_id` dari klien (query/body) dulu
+    dipercaya begitu saja, sehingga user perusahaan A bisa membaca/menulis
+    data karyawan perusahaan B. Sekarang harus sama dengan perusahaan di
+    token (superuser `*:*` dikecualikan)."""
     if str(entity_id) != str(user.legal_entity_id) and not _is_superuser(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -130,8 +142,9 @@ async def _scoped_entity(
     legal_entity_id: UUID = Query(..., description="Legal entity ID"),
     user: TokenPayload = Depends(get_current_user),
 ) -> UUID:
-    """Dependency untuk parameter query `legal_entity_id` (dijalankan SEBELUM handler,
-    sehingga 403 tidak ikut tertangkap `except Exception` -> 500)."""
+    """Dependency untuk parameter query `legal_entity_id` yang WAJIB
+    (dipakai di endpoint CRUD/list). Dijalankan SEBELUM handler, sehingga
+    403 tidak ikut tertangkap `except Exception` -> 500."""
     return _enforce_entity(legal_entity_id, user)
 
 
@@ -140,8 +153,9 @@ async def _enforce_employee_scope(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> None:
-    """Semua route /employees/{employee_id}/...: karyawan harus milik perusahaan user.
-    Dijawab 404 (bukan 403) supaya keberadaan karyawan perusahaan lain tidak bocor."""
+    """Semua route /employees/{employee_id}/...: karyawan harus milik
+    perusahaan user. Dijawab 404 (bukan 403) supaya keberadaan karyawan
+    perusahaan lain tidak bocor."""
     raw_id = request.path_params.get("employee_id")
     if raw_id is None or _is_superuser(user):
         return
@@ -149,8 +163,12 @@ async def _enforce_employee_scope(
         employee = await service.get_employee(UUID(str(raw_id)))
     except ValueError:
         return  # UUID tidak valid -> validasi route yang menjawab 422
-    if employee and str(employee.get("legal_entity_id")) != str(user.legal_entity_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    if employee and str(employee.get("legal_entity_id")) != str(
+        user.legal_entity_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
 
 
 router = APIRouter(dependencies=[Depends(_enforce_employee_scope)])
@@ -159,6 +177,7 @@ router = APIRouter(dependencies=[Depends(_enforce_employee_scope)])
 # ============================================================================
 # PYDANTIC MODELS
 # ============================================================================
+
 
 class EmployeeStatusEnum(str, Enum):
     ACTIVE = "active"
@@ -177,17 +196,30 @@ class MaritalStatusEnum(str, Enum):
 
 # ---------- Request/Response Models ----------
 
+
 class CreateEmployeeRequest(BaseModel):
     legal_entity_id: UUID
-    employee_code: str = Field(..., min_length=1, max_length=30, description="Unique employee code")
-    full_name: str = Field(..., min_length=1, max_length=200, description="Full name")
-    nik: str | None = Field(None, max_length=30, description="Identity number (KTP)")
-    npwp: str | None = Field(None, max_length=20, description="Tax ID (NPWP)")
-    gender: str | None = Field(None, max_length=1, description="M / F / O")
+    employee_code: str | None = Field(
+        None,
+        max_length=30,
+        description=(
+            "Kosongkan untuk auto-generate (EMP-001, EMP-002, dst). "
+            "Jika diisi, harus unik per legal entity."
+        ),
+    )
+    full_name: str = Field(..., min_length=1, max_length=200)
+    nik: str | None = Field(None, max_length=30)
+    npwp: str | None = Field(None, max_length=20)
+    gender: str | None = Field(None, max_length=1)
     birth_place: str | None = Field(None, max_length=100)
     birth_date: date | None = None
     marital_status: MaritalStatusEnum = MaritalStatusEnum.SINGLE
-    dependents: int = Field(0, ge=0, le=10, description="Number of dependents, used to derive PTKP status")
+    dependents: int = Field(
+        0,
+        ge=0,
+        le=10,
+        description="Dipakai untuk menghitung status PTKP",
+    )
     religion: str | None = Field(None, max_length=50)
     address: str | None = None
     city: str | None = Field(None, max_length=100)
@@ -203,8 +235,8 @@ class CreateEmployeeRequest(BaseModel):
     manager_id: UUID | None = None
     join_date: date | None = None
     basic_salary: Decimal = Field(Decimal("0"), ge=0)
-    allowances: Decimal = Field(Decimal("0"), ge=0, description="Total tunjangan bulanan (gabungan)")
-    overtime_rate_multiplier: Decimal = Field(Decimal("1.5"), ge=1, description="Pengali tarif lembur")
+    allowances: Decimal = Field(Decimal("0"), ge=0)
+    overtime_rate_multiplier: Decimal = Field(Decimal("1.5"), ge=1)
     bpjs_kesehatan_number: str | None = Field(None, max_length=30)
     bpjs_ketenagakerjaan_number: str | None = Field(None, max_length=30)
     bank_name: str | None = Field(None, max_length=100)
@@ -216,19 +248,7 @@ class CreateEmployeeRequest(BaseModel):
 
 
 class UpdateEmployeeRequest(BaseModel):
-    """
-    PENTING (fix): sebelumnya model ini cuma punya ~20 field, padahal
-    `form_fields` di registry/module_registry.py (dipakai ulang oleh
-    dialog "Ubah Karyawan" karena `edit_form_fields` tidak diisi khusus
-    untuk modul employees) menawarkan field lain yang lebih lengkap -
-    basic_salary/allowances/overtime_rate_multiplier/bpjs_*/join_date/
-    marital_status/dependents/birth_place/religion. Field yang TIDAK
-    dideklarasikan di sini otomatis DIBUANG oleh Pydantic (default
-    `extra="ignore"`) sebelum sampai ke service, jadi user yang mengubah
-    field itu lewat "Ubah" akan melihat datanya tidak pernah tersimpan
-    walau klik "Simpan" berhasil (tidak ada error) - persis pola bug
-    yang sudah ditemukan di modul lain (field form != field backend).
-    """
+    """Field-field yang bisa di-update lewat PATCH /employees/{id}."""
     full_name: str | None = Field(None, max_length=200)
     nik: str | None = Field(None, max_length=30)
     npwp: str | None = Field(None, max_length=20)
@@ -302,6 +322,7 @@ class EmployeeResponseModel(BaseModel):
     npwp: str | None = None
     nik: str | None = None
     gender: str | None = None
+    employee_type: str | None = None
     birth_place: str | None = None
     birth_date: date | None = None
     age: int | None = None
@@ -354,6 +375,7 @@ class EmployeeResponseModel(BaseModel):
 # HELPER: Get Correlation ID
 # ============================================================================
 
+
 def get_correlation_id(request: Request) -> str:
     corr_id = request.headers.get("X-Correlation-ID")
     if not corr_id:
@@ -364,6 +386,7 @@ def get_correlation_id(request: Request) -> str:
 # ============================================================================
 # HELPER: Convert repository dict -> Response model
 # ============================================================================
+
 
 def to_employee_response(employee: dict[str, Any]) -> EmployeeResponseModel:
     """`employee` is the dict returned by EmployeeTable.to_dict() (via the
@@ -378,6 +401,7 @@ def to_employee_response(employee: dict[str, Any]) -> EmployeeResponseModel:
         npwp=employee.get("tax_id"),
         nik=employee.get("nik"),
         gender=employee.get("gender"),
+        employee_type=employee.get("employee_type"),
         birth_place=employee.get("birth_place"),
         birth_date=employee.get("birth_date"),
         age=employee.get("age"),
@@ -405,13 +429,19 @@ def to_employee_response(employee: dict[str, Any]) -> EmployeeResponseModel:
         total_annual_salary=employee.get("total_annual_salary", 0),
         monthly_taxable_income=employee.get("monthly_taxable_income", 0),
         bpjs_kesehatan_number=employee.get("bpjs_kesehatan_number"),
-        bpjs_ketenagakerjaan_number=employee.get("bpjs_ketenagakerjaan_number"),
+        bpjs_ketenagakerjaan_number=employee.get(
+            "bpjs_ketenagakerjaan_number"
+        ),
         bpjs_jht_rate_employee=employee.get("bpjs_jht_rate_employee", 0),
         bpjs_jht_rate_employer=employee.get("bpjs_jht_rate_employer", 0),
         bpjs_jkk_rate=employee.get("bpjs_jkk_rate", 0),
         bpjs_jkm_rate=employee.get("bpjs_jkm_rate", 0),
-        bpjs_kesehatan_rate_employee=employee.get("bpjs_kesehatan_rate_employee", 0),
-        bpjs_kesehatan_rate_employer=employee.get("bpjs_kesehatan_rate_employer", 0),
+        bpjs_kesehatan_rate_employee=employee.get(
+            "bpjs_kesehatan_rate_employee", 0
+        ),
+        bpjs_kesehatan_rate_employer=employee.get(
+            "bpjs_kesehatan_rate_employer", 0
+        ),
         bank_name=employee.get("bank_name"),
         bank_account_number=employee.get("bank_account_number"),
         bank_account_name=employee.get("bank_account_name"),
@@ -431,6 +461,7 @@ def to_employee_response(employee: dict[str, Any]) -> EmployeeResponseModel:
 # EMPLOYEE CRUD ENDPOINTS
 # ============================================================================
 
+
 @router.post(
     "/employees",
     response_model=EmployeeResponseModel,
@@ -447,28 +478,36 @@ async def create_employee(
     """
     Create a new employee. Persisted to the `employee` table.
 
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
+    `employee_code` boleh dikosongkan -> sistem auto-generate (EMP-001,
+    EMP-002, dst). Idempotent dengan Idempotency-Key header.
     """
     method_name = "create_employee"
-    _enforce_entity(payload.legal_entity_id, user)  # di luar try: 403 tidak berubah jadi 500
+    _enforce_entity(
+        payload.legal_entity_id, user
+    )  # di luar try: 403 tidak berubah jadi 500
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
         correlation_id = get_correlation_id(request)
         result = await service.create_employee(
             legal_entity_id=payload.legal_entity_id,
-            employee_code=payload.employee_code,
+            employee_code=payload.employee_code or "",
             full_name=payload.full_name,
             nik=payload.nik,
             npwp=payload.npwp,
             gender=payload.gender,
             birth_place=payload.birth_place,
             birth_date=payload.birth_date,
-            marital_status=payload.marital_status,  # already a str: model_config uses use_enum_values=True
+            marital_status=payload.marital_status,
             dependents=payload.dependents,
             religion=payload.religion,
             address=payload.address,
@@ -499,17 +538,272 @@ async def create_employee(
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeDuplicateError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(e)
+        )
     except EmployeeServiceError as e:
         logger.warning(f"Employee service error: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Error creating employee: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# AUTO-GENERATE CODE (WAJIB SEBELUM /employees/{employee_id})
+# ============================================================================
+
+
+@router.get(
+    "/next-code",
+    summary="Get next auto-generated employee code [single-prefix alias]",
+)
+@router.get(
+    "/employees/next-code",
+    summary="Get next auto-generated employee code (EMP-001, EMP-002, ...)",
+)
+async def get_next_employee_code(
+    prefix: str = Query("EMP", description="Prefix kode, mis. 'EMP'"),
+    legal_entity_id: UUID | None = Query(
+        None,
+        description=(
+            "Legal entity ID. Jika tidak dikirim, otomatis diambil "
+            "dari JWT token user."
+        ),
+    ),
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, str]:
+    """
+    Kode karyawan berikutnya otomatis (mis. "EMP-003"), dihitung dari
+    kode dengan angka urut TERBESAR yang sudah ada.
+
+    `legal_entity_id` OPSIONAL: kalau tidak dikirim (mis. frontend tidak
+    menyertakan query param), diambil otomatis dari JWT token user.
+    """
+    effective_le = legal_entity_id or user.legal_entity_id
+    effective_le = _enforce_entity(effective_le, user)
+    try:
+        next_code = await service.get_next_code(effective_le, prefix)
+        return {"employee_code": next_code}
+    except Exception as e:
+        logger.error(
+            f"Error getting next employee code: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# EXPORT (WAJIB SEBELUM /employees/{employee_id})
+# ============================================================================
+
+
+_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("employee_code", "Kode"),
+    ("full_name", "Nama Lengkap"),
+    ("preferred_name", "Nama Panggilan"),
+    ("nik", "NIK (KTP)"),
+    ("tax_id", "NPWP"),
+    ("gender", "Jenis Kelamin"),
+    ("employee_type", "Tipe Kepegawaian"),
+    ("birth_place", "Tempat Lahir"),
+    ("birth_date", "Tanggal Lahir"),
+    ("marital_status", "Status Pernikahan"),
+    ("ptkp_status", "Status PTKP"),
+    ("religion", "Agama"),
+    ("email", "Email"),
+    ("phone", "Telepon"),
+    ("mobile", "HP"),
+    ("address", "Alamat"),
+    ("city", "Kota"),
+    ("postal_code", "Kode Pos"),
+    ("department", "Departemen"),
+    ("division", "Divisi"),
+    ("position", "Jabatan"),
+    ("job_level", "Level/Grade"),
+    ("cost_center", "Cost Center"),
+    ("join_date", "Tanggal Bergabung"),
+    ("resignation_date", "Tanggal Keluar"),
+    ("employment_status", "Status Kepegawaian"),
+    ("basic_salary", "Gaji Pokok"),
+    ("allowances", "Tunjangan"),
+    ("overtime_rate_multiplier", "Pengali Lembur"),
+    ("bpjs_kesehatan_number", "No. BPJS Kesehatan"),
+    ("bpjs_ketenagakerjaan_number", "No. BPJS Ketenagakerjaan"),
+    ("bank_name", "Nama Bank"),
+    ("bank_account_number", "No. Rekening"),
+    ("bank_account_name", "Nama Pemilik Rekening"),
+    ("is_active", "Aktif"),
+    ("notes", "Catatan"),
+]
+_EXPORT_NUMERIC = {
+    "basic_salary",
+    "allowances",
+    "overtime_rate_multiplier",
+}
+
+
+def _export_cell(field: str, value: Any) -> Any:
+    if value is None:
+        return ""
+    if field in _EXPORT_NUMERIC:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    if field == "is_active":
+        return "Ya" if value else "Tidak"
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+@router.get(
+    "/export",
+    summary="Export daftar karyawan (csv | excel | json) [single-prefix alias]",
+)
+@router.get(
+    "/employees/export",
+    summary="Export daftar karyawan (csv | excel | json)",
+)
+async def export_employees(
+    format: str = Query("csv", pattern="^(csv|excel|json)$"),
+    legal_entity_id: UUID | None = Query(
+        None,
+        description=(
+            "Legal entity ID. Jika tidak dikirim, otomatis diambil "
+            "dari JWT token user."
+        ),
+    ),
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> Response:
+    """
+    Export karyawan ke 3 format: csv, excel (.xlsx asli), json.
+
+    `legal_entity_id` OPSIONAL: kalau frontend tidak mengirim, diambil
+    otomatis dari JWT token user (fallback aman).
+    """
+    effective_le = legal_entity_id or user.legal_entity_id
+    effective_le = _enforce_entity(effective_le, user)
+
+    try:
+        results = await service.list_employees(
+            legal_entity_id=effective_le,
+            status=None,
+            search=None,
+            limit=100000,
+            offset=0,
+        )
+
+        headers_row = [label for _f, label in _EXPORT_COLUMNS]
+        rows = [
+            [_export_cell(f, emp.get(f)) for f, _l in _EXPORT_COLUMNS]
+            for emp in results
+        ]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+        if format == "json":
+            payload = [dict(zip(headers_row, r)) for r in rows]
+            return Response(
+                content=json.dumps(payload, ensure_ascii=False, indent=2),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="employees_{stamp}.json"'
+                    )
+                },
+            )
+
+        if format == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(headers_row)
+            writer.writerows(rows)
+            # BOM supaya Excel membaca UTF-8 dengan benar.
+            return Response(
+                content=("\ufeff" + buf.getvalue()).encode("utf-8"),
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="employees_{stamp}.csv"'
+                    )
+                },
+            )
+
+        # format == "excel": file .xlsx asli via openpyxl
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=(
+                    "Export Excel membutuhkan paket 'openpyxl' "
+                    "(pip install openpyxl). Gunakan format csv."
+                ),
+            ) from exc
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Karyawan"
+        ws.append(headers_row)
+        for cell in ws[1]:
+            cell.font = Font(name="Arial", bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="7C3AED")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        for r in rows:
+            ws.append(r)
+        for i, (field, label) in enumerate(_EXPORT_COLUMNS, start=1):
+            col = get_column_letter(i)
+            longest = max(
+                [len(label)] + [len(str(r[i - 1])) for r in rows[:500]]
+            )
+            ws.column_dimensions[col].width = min(max(longest + 2, 10), 45)
+            if field in ("basic_salary", "allowances"):
+                for cell in ws[col][1:]:
+                    cell.number_format = "#,##0.00"
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        out = io.BytesIO()
+        wb.save(out)
+        return Response(
+            content=out.getvalue(),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="employees_{stamp}.xlsx"'
+                )
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting employees: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# READ (single, list)
+# ============================================================================
 
 
 @router.get(
@@ -522,19 +816,24 @@ async def get_employee(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Get a single employee by ID.
-    """
+    """Get a single employee by ID."""
     try:
         result = await service.get_employee(employee_id)
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         return to_employee_response(result)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error getting employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get(
@@ -544,17 +843,18 @@ async def get_employee(
 )
 async def list_employees(
     legal_entity_id: UUID = Depends(_scoped_entity),
-    status_filter: EmployeeStatusEnum | None = Query(None, alias="status", description="Filter by status"),
-    search: str | None = Query(None, description="Search by name/code/nik/email"),
+    status_filter: EmployeeStatusEnum | None = Query(
+        None, alias="status", description="Filter by status"
+    ),
+    search: str | None = Query(
+        None, description="Search by name/code/nik/email"
+    ),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> list[EmployeeResponseModel]:
-    """
-    List employees with filters. Pagination (`limit`/`offset`) is applied at
-    the database query level.
-    """
+    """List employees with filters. Pagination di level query DB."""
     try:
         results = await service.list_employees(
             legal_entity_id=legal_entity_id,
@@ -566,7 +866,14 @@ async def list_employees(
         return [to_employee_response(e) for e in results]
     except Exception as e:
         logger.error(f"Error listing employees: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# UPDATE (partial)
+# ============================================================================
 
 
 @router.patch(
@@ -582,16 +889,17 @@ async def update_employee(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Update employee profile fields (partial update - only provided fields change).
-
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
-    """
+    """Update employee profile fields (partial update)."""
     method_name = "update_employee"
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
@@ -604,7 +912,7 @@ async def update_employee(
             gender=payload.gender,
             birth_place=payload.birth_place,
             birth_date=payload.birth_date,
-            marital_status=payload.marital_status,  # already str: use_enum_values=True
+            marital_status=payload.marital_status,
             dependents=payload.dependents,
             religion=payload.religion,
             address=payload.address,
@@ -633,21 +941,39 @@ async def update_employee(
             correlation_id=correlation_id,
         )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except EmployeeServiceError as e:
         logger.warning(f"Employee service error: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error updating employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error updating employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# DELETE
+# ============================================================================
 
 
 @router.delete(
@@ -657,34 +983,48 @@ async def update_employee(
 )
 async def delete_employee(
     employee_id: UUID,
-    permanent: bool = Query(False, description="Hard-delete instead of soft-delete (admin only, irreversible)"),
+    permanent: bool = Query(
+        False,
+        description=(
+            "Hard-delete instead of soft-delete "
+            "(admin only, irreversible)"
+        ),
+    ),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> Response:
     """
     Delete an employee.
 
-    By default this is a SOFT delete (sets deleted_at + is_active=False):
-    employees with payroll/attendance history should never be hard-deleted,
-    as that would break referential integrity with Payslip/TimeEntry
-    records. `permanent=true` performs a real DELETE and should be reserved
-    for admins correcting a genuine data-entry mistake.
+    By default this is a SOFT delete (sets deleted_at + is_active=False).
+    `permanent=true` performs a real DELETE and should be reserved for
+    admins correcting a genuine data-entry mistake.
     """
     try:
-        deleted = await service.delete_employee(employee_id, deleted_by=user.user_id, permanent=permanent)
+        deleted = await service.delete_employee(
+            employee_id, deleted_by=user.user_id, permanent=permanent
+        )
         if not deleted:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error deleting employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # ACTIVATE / DEACTIVATE ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/activate",
@@ -697,13 +1037,21 @@ async def activate_employee(
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     try:
-        result = await service.set_active_status(employee_id, is_active=True, updated_by=user.user_id)
+        result = await service.set_active_status(
+            employee_id, is_active=True, updated_by=user.user_id
+        )
         return to_employee_response(result)
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error activating employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error activating employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.post(
@@ -717,18 +1065,27 @@ async def deactivate_employee(
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     try:
-        result = await service.set_active_status(employee_id, is_active=False, updated_by=user.user_id)
+        result = await service.set_active_status(
+            employee_id, is_active=False, updated_by=user.user_id
+        )
         return to_employee_response(result)
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error deactivating employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error deactivating employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # IMPORT CSV ENDPOINT
 # ============================================================================
+
 
 @router.post(
     "/employees/import",
@@ -745,9 +1102,6 @@ async def import_employees(
     nik, tax_id, email, phone, mobile, address, city, postal_code, position,
     department, division, employment_status, ptkp_status, basic_salary,
     allowances, bank_account_number, bank_name, is_active.
-
-    Baris dengan employee_code yang sudah ada akan dilewati (bukan ditimpa),
-    dan dilaporkan lewat log server - bukan menggagalkan seluruh import.
     """
     try:
         raw = await file.read()
@@ -756,17 +1110,22 @@ async def import_employees(
         except UnicodeDecodeError:
             csv_content = raw.decode("latin-1")
         imported = await service.import_employees_csv(
-            csv_content=csv_content, legal_entity_id=legal_entity_id, created_by=user.user_id
+            csv_content=csv_content,
+            legal_entity_id=legal_entity_id,
+            created_by=user.user_id,
         )
         return {"imported": imported}
     except Exception as e:
         logger.error(f"Error importing employees: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # SALARY STRUCTURE ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/salary-structure",
@@ -781,16 +1140,17 @@ async def update_salary_structure(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Update employee salary structure (basic salary, allowances, overtime multiplier).
-
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
-    """
+    """Update employee salary structure."""
     method_name = "update_salary_structure"
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
@@ -804,23 +1164,37 @@ async def update_salary_structure(
             correlation_id=correlation_id,
         )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error updating salary structure for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error updating salary structure for employee "
+            f"{employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # BPJS MANAGEMENT ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/bpjs",
@@ -835,16 +1209,17 @@ async def update_bpjs(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Update BPJS (health & employment insurance) membership numbers and rates.
-
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
-    """
+    """Update BPJS membership numbers and rates."""
     method_name = "update_bpjs"
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
@@ -863,23 +1238,36 @@ async def update_bpjs(
             correlation_id=correlation_id,
         )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error updating BPJS for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error updating BPJS for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # PTKP MANAGEMENT ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/ptkp",
@@ -894,45 +1282,59 @@ async def update_ptkp(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Update PTKP (marital status and number of dependents) for tax calculation.
-
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
-    """
+    """Update PTKP (marital status and number of dependents)."""
     method_name = "update_ptkp"
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_ptkp(
             employee_id=employee_id,
-            marital_status=payload.marital_status,  # already str: use_enum_values=True
+            marital_status=payload.marital_status,
             dependents=payload.dependents,
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error updating PTKP for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error updating PTKP for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # EMPLOYEE STATUS MANAGEMENT ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/resign",
@@ -947,16 +1349,17 @@ async def resign_employee(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
-    """
-    Process employee resignation.
-
-    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
-    """
+    """Process employee resignation."""
     method_name = "resign_employee"
     if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        cached = _idempotency_manager.get_cached_result(
+            idempotency_key, method_name
+        )
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            logger.info(
+                f"Idempotent cache hit: {method_name} "
+                f"key={idempotency_key[:8]}..."
+            )
             return EmployeeResponseModel(**cached)
 
     try:
@@ -969,23 +1372,35 @@ async def resign_employee(
             correlation_id=correlation_id,
         )
         if not result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         response = to_employee_response(result)
 
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, response.model_dump()
+            )
 
         return response
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error resigning employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error resigning employee {employee_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # FOTO PROFIL ENDPOINTS
 # ============================================================================
+
 
 @router.post(
     "/employees/{employee_id}/photo",
@@ -998,9 +1413,6 @@ async def upload_employee_photo(
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> dict[str, Any]:
     if not file.content_type or not file.content_type.startswith("image/"):
-        # Fallback: sebagian client bisa saja mengirim Content-Type generik
-        # (mis. application/octet-stream) meski isinya benar gambar - cek
-        # ekstensi filename sebagai cadangan sebelum menolak.
         allowed_ext = (".jpg", ".jpeg", ".png", ".gif", ".webp")
         fname = (file.filename or "").lower()
         if not fname.endswith(allowed_ext):
@@ -1009,7 +1421,7 @@ async def upload_employee_photo(
                 detail="File harus berupa gambar (image/*)",
             )
     content = await file.read()
-    max_bytes = 5 * 1024 * 1024  # 5 MB
+    max_bytes = 5 * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1019,16 +1431,23 @@ async def upload_employee_photo(
         await service.upload_employee_photo(
             employee_id=employee_id,
             photo_data=content,
-            mime_type=file.content_type,
+            mime_type=file.content_type or "image/jpeg",
             filename=file.filename or "photo.jpg",
             uploaded_by=user.user_id,
         )
         return {"success": True, "filename": file.filename}
     except EmployeeNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     except Exception as e:
-        logger.error(f"Error uploading photo for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error uploading photo for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get(
@@ -1041,8 +1460,14 @@ async def get_employee_photo(
 ) -> Response:
     photo = await service.get_employee_photo(employee_id)
     if not photo:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto tidak ditemukan")
-    return Response(content=photo["photo_data"], media_type=photo["mime_type"] or "image/jpeg")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Foto tidak ditemukan",
+        )
+    return Response(
+        content=photo["photo_data"],
+        media_type=photo["mime_type"] or "image/jpeg",
+    )
 
 
 @router.delete(
@@ -1055,25 +1480,38 @@ async def delete_employee_photo(
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> dict[str, Any]:
     try:
-        ok = await service.delete_employee_photo(employee_id, deleted_by=user.user_id)
+        ok = await service.delete_employee_photo(
+            employee_id, deleted_by=user.user_id
+        )
         if not ok:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found",
+            )
         return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting photo for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error deleting photo for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # ============================================================================
 # TANGGUNGAN / KELUARGA ENDPOINTS
 # ============================================================================
 
+
 class DependentCreateRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     full_name: str = Field(..., min_length=1, max_length=200)
-    relationship_type: str = Field(..., description="spouse, child, parent, atau other")
+    relationship_type: str = Field(
+        ..., description="spouse, child, parent, atau other"
+    )
     birth_date: date | None = None
     occupation: str | None = Field(None, max_length=100)
     is_ptkp_dependent: bool = True
@@ -1118,7 +1556,9 @@ async def add_employee_dependent(
 ) -> DependentResponseModel:
     employee = await service.get_employee(employee_id)
     if not employee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     try:
         result = await service.add_dependent(
             employee_id=employee_id,
@@ -1133,10 +1573,17 @@ async def add_employee_dependent(
         )
         return DependentResponseModel(**result)
     except EmployeeServiceError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error adding dependent for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error adding dependent for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get(
@@ -1175,7 +1622,10 @@ async def update_employee_dependent(
         notes=payload.notes,
     )
     if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dependent not found",
+        )
     return DependentResponseModel(**result)
 
 
@@ -1189,9 +1639,14 @@ async def delete_employee_dependent(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> dict[str, Any]:
-    ok = await service.delete_dependent(dependent_id, deleted_by=user.user_id)
+    ok = await service.delete_dependent(
+        dependent_id, deleted_by=user.user_id
+    )
     if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dependent not found",
+        )
     return {"success": True}
 
 
@@ -1199,8 +1654,15 @@ async def delete_employee_dependent(
 # DOKUMEN (KTP/KK/BPJS/dll) ENDPOINTS
 # ============================================================================
 
+
 VALID_DOCUMENT_TYPES = (
-    "ktp", "kk", "bpjs_kesehatan", "bpjs_ketenagakerjaan", "npwp", "ijazah", "other",
+    "ktp",
+    "kk",
+    "bpjs_kesehatan",
+    "bpjs_ketenagakerjaan",
+    "npwp",
+    "ijazah",
+    "other",
 )
 
 
@@ -1236,17 +1698,23 @@ async def add_employee_document(
     if document_type not in VALID_DOCUMENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"document_type must be one of: {', '.join(VALID_DOCUMENT_TYPES)}",
+            detail=(
+                f"document_type must be one of: "
+                f"{', '.join(VALID_DOCUMENT_TYPES)}"
+            ),
         )
     content = await file.read()
-    max_bytes = 5 * 1024 * 1024  # 5 MB
+    max_bytes = 5 * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Ukuran file maksimal 5 MB"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ukuran file maksimal 5 MB",
         )
     employee = await service.get_employee(employee_id)
     if not employee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
+        )
     try:
         result = await service.add_employee_document(
             employee_id=employee_id,
@@ -1262,10 +1730,17 @@ async def add_employee_document(
         )
         return DocumentResponseModel(**result)
     except EmployeeServiceError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error adding document for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(
+            f"Error adding document for employee {employee_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get(
@@ -1292,11 +1767,16 @@ async def get_employee_document_file(
 ) -> Response:
     doc = await service.get_employee_document_file(document_id)
     if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dokumen tidak ditemukan",
+        )
     return Response(
         content=doc["file_data"],
         media_type=doc["mime_type"] or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{doc["filename"]}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{doc["filename"]}"'
+        },
     )
 
 
@@ -1310,15 +1790,21 @@ async def delete_employee_document(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> dict[str, Any]:
-    ok = await service.delete_employee_document(document_id, deleted_by=user.user_id)
+    ok = await service.delete_employee_document(
+        document_id, deleted_by=user.user_id
+    )
     if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dokumen tidak ditemukan",
+        )
     return {"success": True}
 
 
 # ============================================================================
 # STATS ENDPOINT
 # ============================================================================
+
 
 @router.get(
     "/stats",
@@ -1329,12 +1815,14 @@ async def get_employee_stats(
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> dict[str, int]:
-    """
-    Get employee service statistics (internal monitoring, in-process counters
-    since last restart - not a substitute for GET /employees/stats-db).
-    """
+    """Get employee service statistics (internal monitoring)."""
     try:
         return service.get_stats()
     except Exception as e:
         logger.error(f"Error getting employee stats: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+__all__ = ["router"]

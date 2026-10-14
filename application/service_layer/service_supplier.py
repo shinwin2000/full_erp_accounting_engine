@@ -1,5 +1,5 @@
-# service_supplier.py - Database-backed rewrite (refactor sinkronisasi Supplier/Vendor)
-# v7.0.0 - Tambah method attachments & notes (2026-10-12)
+# service_supplier.py - Database-backed (refactor sinkronisasi Supplier/Vendor)
+# v8.0.0 - Tambah method addresses, contacts, tags, credit history, balance history
 
 #!/usr/bin/env python3
 
@@ -10,15 +10,15 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service untuk mengelola Supplier/Vendor. Mendelegasikan seluruh
-    persistensi ke SupplierRepositoryPort (database), menjaga aturan bisnis
-    (kode unik, NPWP unik, tidak boleh hapus supplier yang sudah bertransaksi,
-    dsb), dan mempublikasikan domain event untuk setiap perubahan penting.
+    persistensi ke SupplierRepositoryPort (database), menjaga aturan bisnis,
+    dan mempublikasikan domain event untuk setiap perubahan penting.
 
-PERBAIKAN (2026-10-12):
-- Tambah method: list_attachments, add_attachment, delete_attachment,
-  list_notes, add_note, delete_note.
-- Method-method ini meneruskan ke repository (SQLAlchemySupplierRepository)
-  yang sudah punya implementasi konkretnya.
+PERBAIKAN (2026-10-13):
+- Tambah method: list_addresses, add_address, update_address, delete_address
+- Tambah method: list_contacts, add_contact, update_contact, delete_contact
+- Tambah method: list_tags, add_tag, remove_tag
+- Tambah method: update_credit_limit, get_credit_history
+- Tambah method: get_balance_history
 """
 
 from __future__ import annotations
@@ -31,16 +31,11 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-# Import event publisher port (dipakai untuk outbox event, opsional)
 from ports.primary.event_publisher_port import EventPriority, EventPublisherPort
 from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# DUMMY AUDIT DECORATOR FOR STATIC CHECKER COMPLIANCE
-# ============================================================================
 
 def audit(func):
     """Dummy decorator to mark methods as audited for accounting_posting_checker."""
@@ -69,7 +64,7 @@ class WithholdingCategory(str, Enum):
 
 
 # ============================================================================
-# Domain Model (Application-layer DTO used across service/repository/router)
+# DTO Supplier
 # ============================================================================
 
 
@@ -133,15 +128,7 @@ class SupplierHasTransactionsError(SupplierServiceError):
 
 
 class SupplierService:
-    # BUG FIX: SupplierService sekarang transient (instance baru tiap request).
-    # _stats dipindah jadi atribut level-class supaya counter /suppliers/stats
-    # tidak selalu balik ke nol tiap request.
     _stats: dict[str, int] = {"suppliers_created": 0, "suppliers_updated": 0}
-
-    """
-    Service untuk mengelola Supplier. Semua data dibaca/ditulis melalui
-    `SupplierRepositoryPort` (database) — TIDAK ADA state in-memory lagi.
-    """
 
     def __init__(
         self,
@@ -160,7 +147,7 @@ class SupplierService:
 
         logger.info("SupplierService initialized (database-backed)")
 
-    # ==================== AUTHORITY CHECK (SOD) ====================
+    # ==================== AUTHORITY CHECK ====================
 
     def _check_authority(self, user_id: UUID | None, permission: str) -> None:
         if user_id is None:
@@ -171,7 +158,7 @@ class SupplierService:
             "(placeholder)"
         )
 
-    # ==================== AUDIT TRAIL ====================
+    # ==================== AUDIT ====================
 
     def _record_audit(
         self, action: str, details: dict[str, Any] | None = None
@@ -194,8 +181,6 @@ class SupplierService:
         payload: dict[str, Any],
         correlation_id: str | None = None,
     ) -> None:
-        """Publikasikan domain event lewat outbox pattern (EventPublisherPort).
-        Kegagalan publish TIDAK boleh menggagalkan transaksi utama (best-effort)."""
         if not self._event_publisher:
             return
         try:
@@ -238,6 +223,8 @@ class SupplierService:
             if "@" not in email or "." not in email.split("@")[-1]:
                 raise SupplierServiceError(f"Format email tidak valid: {email}")
 
+    # ========================================================================
+    # CRUD UTAMA
     # ========================================================================
 
     @audit
@@ -552,10 +539,6 @@ class SupplierService:
         legal_entity_id: UUID,
         deleted_by: UUID,
     ) -> None:
-        """
-        Soft-delete supplier. Menolak (raise SupplierHasTransactionsError) jika
-        supplier sudah memiliki transaksi PO/GRN/Invoice/Payment.
-        """
         self._check_authority(deleted_by, "delete_supplier")
         supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
         if not supplier:
@@ -573,10 +556,7 @@ class SupplierService:
 
         self._record_audit(
             "delete_supplier",
-            {
-                "supplier_id": str(supplier_id),
-                "deleted_by": str(deleted_by),
-            },
+            {"supplier_id": str(supplier_id), "deleted_by": str(deleted_by)},
         )
 
     async def get_outstanding_balance(self, supplier_id: UUID) -> Decimal:
@@ -608,7 +588,7 @@ class SupplierService:
         return output.getvalue()
 
     # ========================================================================
-    # ATTACHMENTS (detail supplier)
+    # ATTACHMENTS
     # ========================================================================
 
     async def list_attachments(
@@ -730,6 +710,190 @@ class SupplierService:
                 },
             )
         return ok
+
+    # ========================================================================
+    # ADDRESSES
+    # ========================================================================
+
+    async def list_addresses(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_addresses(supplier_id)
+
+    async def add_address(
+        self, supplier_id: UUID, legal_entity_id: UUID, **fields
+    ) -> dict:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.add_address(supplier_id, **fields)
+
+    async def update_address(
+        self, supplier_id: UUID, address_id: UUID, **fields
+    ) -> dict:
+        return await self._repository.update_address(
+            supplier_id, address_id, **fields
+        )
+
+    async def delete_address(self, supplier_id: UUID, address_id: UUID) -> bool:
+        return await self._repository.delete_address(supplier_id, address_id)
+
+    # ========================================================================
+    # CONTACTS
+    # ========================================================================
+
+    async def list_contacts(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_contacts(supplier_id)
+
+    async def add_contact(
+        self, supplier_id: UUID, legal_entity_id: UUID, **fields
+    ) -> dict:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.add_contact(supplier_id, **fields)
+
+    async def update_contact(
+        self, supplier_id: UUID, contact_id: UUID, **fields
+    ) -> dict:
+        return await self._repository.update_contact(
+            supplier_id, contact_id, **fields
+        )
+
+    async def delete_contact(self, supplier_id: UUID, contact_id: UUID) -> bool:
+        return await self._repository.delete_contact(supplier_id, contact_id)
+
+    # ========================================================================
+    # TAGS
+    # ========================================================================
+
+    async def list_tags(
+        self, supplier_id: UUID, legal_entity_id: UUID
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_tags(supplier_id)
+
+    async def add_tag(
+        self, supplier_id: UUID, legal_entity_id: UUID, tag: str
+    ) -> dict:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        tag = (tag or "").strip()
+        if not tag:
+            raise SupplierServiceError("Tag tidak boleh kosong")
+        return await self._repository.add_tag(supplier_id, tag)
+
+    async def remove_tag(self, supplier_id: UUID, tag_id: UUID) -> bool:
+        return await self._repository.remove_tag(supplier_id, tag_id)
+
+    # ========================================================================
+    # CREDIT LIMIT
+    # ========================================================================
+
+    async def update_credit_limit(
+        self,
+        supplier_id: UUID,
+        legal_entity_id: UUID,
+        new_limit: Decimal,
+        reason: str | None,
+        updated_by: UUID | None,
+    ) -> Supplier:
+        self._check_authority(updated_by, "update_credit_limit")
+        if new_limit < 0:
+            raise SupplierServiceError("Limit kredit tidak boleh negatif")
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+
+        old_limit = Decimal(str(supplier.credit_limit or 0))
+        if old_limit == new_limit:
+            return supplier
+
+        supplier.credit_limit = new_limit
+        supplier = await self._repository.update(supplier)
+
+        # Catat riwayat perubahan limit
+        try:
+            await self._repository.add_credit_history(
+                supplier_id=supplier_id,
+                old_limit=old_limit,
+                new_limit=new_limit,
+                reason=reason,
+                changed_by=updated_by,
+            )
+        except Exception as e:
+            logger.warning(f"Gagal mencatat riwayat kredit: {e}")
+
+        self._stats["suppliers_updated"] += 1
+        if self._event_publisher:
+            await self._publish_event(
+                event_type="SupplierCreditLimitChanged",
+                aggregate_id=supplier.id,
+                payload={
+                    "supplier_id": str(supplier.id),
+                    "supplier_code": supplier.supplier_code,
+                    "old_limit": str(old_limit),
+                    "new_limit": str(new_limit),
+                    "changed_by": str(updated_by) if updated_by else "system",
+                },
+            )
+        self._record_audit(
+            "update_credit_limit",
+            {
+                "supplier_id": str(supplier_id),
+                "old_limit": str(old_limit),
+                "new_limit": str(new_limit),
+                "changed_by": str(updated_by) if updated_by else None,
+            },
+        )
+        return supplier
+
+    async def get_credit_history(
+        self,
+        supplier_id: UUID,
+        legal_entity_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_credit_history(
+            supplier_id, limit=limit, offset=offset
+        )
+
+    # ========================================================================
+    # BALANCE HISTORY
+    # ========================================================================
+
+    async def get_balance_history(
+        self,
+        supplier_id: UUID,
+        legal_entity_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        supplier = await self._repository.get_by_id(supplier_id, legal_entity_id)
+        if not supplier:
+            raise SupplierNotFoundError(f"Supplier {supplier_id} not found")
+        return await self._repository.list_balance_history(
+            supplier_id, limit=limit, offset=offset
+        )
+
+    # ========================================================================
+    # STATS
+    # ========================================================================
 
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()

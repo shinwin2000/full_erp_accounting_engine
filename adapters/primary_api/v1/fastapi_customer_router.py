@@ -500,11 +500,15 @@ def _export_cell(field: str, value: Any) -> Any:
         return value.strftime("%Y-%m-%d %H:%M")
     return str(value)
 
-
+@router.get(
+    "/export",
+    summary="Export daftar customer (csv | excel | json) [single-prefix]",
+)
 @router.get(
     "/customers/export",
     summary="Export daftar customer (csv | excel | json)",
 )
+
 async def export_customers(
     format: str = Query("csv", pattern="^(csv|excel|json)$"),
     legal_entity_id: UUID | None = Query(None),

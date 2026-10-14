@@ -6,6 +6,15 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel employee.
                Tabel ini menyimpan data master karyawan, termasuk informasi
                pribadi, kontak, data payroll (gaji, PTKP, BPJS), dan status
                kepegawaian. Digunakan oleh modul Payroll, HR, dan IAM.
+
+PERBAIKAN (2026-10-13):
+- CheckConstraint `ck_employee_ptkp` diperluas supaya mendukung status
+  PTKP `KB/0`..`KB/3` (Kawin Kombinasi Penghasilan) — sinkron dengan
+  enum PTKPCategory di domain layer.
+- Tambah kolom `employee_type` (permanent/contract/intern/freelance/
+  director/commissioner/probation) — field WAJIB di EmployeeEntity
+  yang sebelumnya tidak ada di DB.
+- Tambah CheckConstraint `ck_employee_type` + Index `idx_employee_type`.
 """
 
 from __future__ import annotations
@@ -38,16 +47,24 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
-from infrastructure.persistence_orm.employee_dependent_table import EmployeeDependentTable
-from infrastructure.persistence_orm.employee_document_table import EmployeeDocumentTable
+from infrastructure.persistence_orm.employee_dependent_table import (
+    EmployeeDependentTable,
+)
+from infrastructure.persistence_orm.employee_document_table import (
+    EmployeeDocumentTable,
+)
 
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.payslip_table import PayslipTable
-    from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
+    from infrastructure.persistence_orm.salary_component_table import (
+        SalaryComponentTable,
+    )
     from infrastructure.persistence_orm.time_entry_table import TimeEntryTable
 
 
-class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
+class EmployeeTable(
+    Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin
+):
     """
     Model untuk tabel employee.
     """
@@ -89,11 +106,16 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             postgresql_where=text("deleted_at IS NULL AND tax_id IS NOT NULL"),
         ),
         CheckConstraint(
-            "employee_code IS NOT NULL AND employee_code != ''", name="ck_employee_code"
+            "employee_code IS NOT NULL AND employee_code != ''",
+            name="ck_employee_code",
         ),
-        CheckConstraint("full_name IS NOT NULL AND full_name != ''", name="ck_employee_full_name"),
         CheckConstraint(
-            "employment_status IN ('active', 'inactive', 'resigned', 'terminated', 'on_leave')",
+            "full_name IS NOT NULL AND full_name != ''",
+            name="ck_employee_full_name",
+        ),
+        CheckConstraint(
+            "employment_status IN ('active', 'inactive', 'resigned', "
+            "'terminated', 'on_leave')",
             name="ck_employee_status",
         ),
         CheckConstraint("gender IN ('M', 'F', 'O')", name="ck_employee_gender"),
@@ -101,9 +123,22 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "marital_status IN ('single', 'married', 'divorced', 'widowed')",
             name="ck_employee_marital_status",
         ),
+        # Diperluas (2026-10-13): tambah KB/0..KB/3 (Kawin Kombinasi Penghasilan)
         CheckConstraint(
-            "ptkp_status IN ('TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3')",
+            "ptkp_status IN ("
+            "'TK/0', 'TK/1', 'TK/2', 'TK/3', "
+            "'K/0', 'K/1', 'K/2', 'K/3', "
+            "'KB/0', 'KB/1', 'KB/2', 'KB/3'"
+            ")",
             name="ck_employee_ptkp",
+        ),
+        # Baru (2026-10-13): tipe kepegawaian (permanent/contract/dll)
+        CheckConstraint(
+            "employee_type IN ("
+            "'permanent', 'contract', 'intern', 'freelance', "
+            "'director', 'commissioner', 'probation'"
+            ")",
+            name="ck_employee_type",
         ),
         Index("idx_employee_employee_code", "employee_code"),
         Index("idx_employee_nik", "nik"),
@@ -114,10 +149,13 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_employee_department", "department"),
         Index("idx_employee_position", "position"),
         Index("idx_employee_ptkp_status", "ptkp_status"),
+        Index("idx_employee_type", "employee_type"),
         {"extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
 
     # Basic identification
     employee_code: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -125,11 +163,18 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     preferred_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     gender: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    # Baru (2026-10-13): tipe kepegawaian. Default 'permanent' supaya data
+    # lama tetap valid setelah migrasi.
+    employee_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="permanent"
+    )
 
     # Personal information
     birth_place: Mapped[str | None] = mapped_column(String(100), nullable=True)
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    marital_status: Mapped[str] = mapped_column(String(20), nullable=False, default="single")
+    marital_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="single"
+    )
     religion: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Contact
@@ -144,12 +189,16 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # Tax (PPh 21)
     tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     tax_id_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ptkp_status: Mapped[str] = mapped_column(String(10), nullable=False, default="TK/0")
+    ptkp_status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="TK/0"
+    )
 
     # Employment information
     join_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     resignation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    employment_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    employment_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active"
+    )
 
     # Position and organization
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -175,8 +224,12 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # BPJS
-    bpjs_ketenagakerjaan_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    bpjs_kesehatan_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    bpjs_ketenagakerjaan_number: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+    bpjs_kesehatan_number: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
     bpjs_jht_rate_employee: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False, default=Decimal("2.0")
     )
@@ -198,15 +251,23 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     # Banking
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    bank_account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    bank_account_number_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    bank_account_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
+    bank_account_number_encrypted: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    bank_account_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
 
     # Leave balances
     annual_leave_balance: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=12
     )
-    sick_leave_balance: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=14)
+    sick_leave_balance: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=14
+    )
     special_leave_balance: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=0
     )
@@ -221,19 +282,26 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     photo_mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     photo_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    photo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    photo_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
 
-    # Data tanggungan/keluarga (pasangan, anak, dll) - lihat EmployeeDependentTable
+    # Data tanggungan/keluarga (pasangan, anak, dll) - lihat
+    # EmployeeDependentTable
     dependents: Mapped[list[EmployeeDependentTable]] = relationship(
-        "EmployeeDependentTable", back_populates="employee",
-        cascade="all, delete-orphan", lazy="selectin",
+        "EmployeeDependentTable",
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     # Dokumen (KTP/KK/BPJS/dll) - lihat EmployeeDocumentTable. SENGAJA
@@ -243,13 +311,18 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # dipanggil. Kode yang perlu daftar dokumen query EmployeeDocumentTable
     # langsung (lihat repository), tidak pernah lewat employee.documents.
     documents: Mapped[list[EmployeeDocumentTable]] = relationship(
-        "EmployeeDocumentTable", back_populates="employee",
-        cascade="all, delete-orphan", lazy="select", viewonly=False,
+        "EmployeeDocumentTable",
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        lazy="select",
+        viewonly=False,
     )
 
     # Manager hierarchy (self-referential)
     manager: Mapped[EmployeeTable | None] = relationship(
-        "EmployeeTable", remote_side="EmployeeTable.id", back_populates="subordinates"
+        "EmployeeTable",
+        remote_side="EmployeeTable.id",
+        back_populates="subordinates",
     )
     subordinates: Mapped[list[EmployeeTable]] = relationship(
         "EmployeeTable", back_populates="manager"
@@ -290,7 +363,10 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             return (
                 today.year
                 - self.birth_date.year
-                - ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))
+                - (
+                    (today.month, today.day)
+                    < (self.birth_date.month, self.birth_date.day)
+                )
             )
         return None
 
@@ -331,7 +407,9 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         basic_salary = self._as_decimal(self.basic_salary)
         allowances = self._as_decimal(self.allowances)
         bpjs_jht_rate_employee = self._as_decimal(self.bpjs_jht_rate_employee)
-        bpjs_kesehatan_rate_employee = self._as_decimal(self.bpjs_kesehatan_rate_employee)
+        bpjs_kesehatan_rate_employee = self._as_decimal(
+            self.bpjs_kesehatan_rate_employee
+        )
         bpjs_deduction = basic_salary * (
             bpjs_jht_rate_employee / Decimal("100")
         ) + basic_salary * (bpjs_kesehatan_rate_employee / Decimal("100"))
@@ -436,8 +514,11 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "full_name": self.full_name,
             "preferred_name": self.preferred_name,
             "gender": self.gender,
+            "employee_type": self.employee_type,
             "birth_place": self.birth_place,
-            "birth_date": self.birth_date.isoformat() if self.birth_date else None,
+            "birth_date": self.birth_date.isoformat()
+            if self.birth_date
+            else None,
             "age": self.age,
             "marital_status": self.marital_status,
             "religion": self.religion,
@@ -471,8 +552,12 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "bpjs_jht_rate_employer": float(self.bpjs_jht_rate_employer),
             "bpjs_jkk_rate": float(self.bpjs_jkk_rate),
             "bpjs_jkm_rate": float(self.bpjs_jkm_rate),
-            "bpjs_kesehatan_rate_employee": float(self.bpjs_kesehatan_rate_employee),
-            "bpjs_kesehatan_rate_employer": float(self.bpjs_kesehatan_rate_employer),
+            "bpjs_kesehatan_rate_employee": float(
+                self.bpjs_kesehatan_rate_employee
+            ),
+            "bpjs_kesehatan_rate_employer": float(
+                self.bpjs_kesehatan_rate_employer
+            ),
             "bank_name": self.bank_name,
             "bank_account_number": self.bank_account_number,
             "bank_account_name": self.bank_account_name,
@@ -485,8 +570,12 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "has_photo": self.photo_data is not None,
             "legal_entity_id": str(self.legal_entity_id),
             "created_by": str(self.created_by) if self.created_by else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at
+            else None,
             "version": self.version,
         }
 

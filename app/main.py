@@ -816,7 +816,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         "fastapi_goodwill_router": "/api/v1/goodwill",
         "fastapi_hedge_router": "/api/v1/hedge",
         "fastapi_forex_router": "/api/v1/forex",
-        "fastapi_legal_entity_router": "/api/v1",
+        "fastapi_legal_entity_router": "/api/v1/legal-entities",
         "fastapi_consolidation_router": "/api/v1/consolidation",
         "fastapi_manufacturing_router": "/api/v1/manufacturing",
         "fastapi_project_router": "/api/v1/projects",

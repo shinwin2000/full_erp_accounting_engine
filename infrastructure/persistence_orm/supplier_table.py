@@ -2,14 +2,19 @@
 """
 Module: supplier_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Mendefinisikan model SQLAlchemy untuk tabel supplier
-               + tabel anak (attachments, notes).
+Responsibility: Model SQLAlchemy untuk tabel supplier + 5 tabel anak.
 
-PERBAIKAN (2026-10-12):
-- CheckConstraint ck_supplier_status diperluas supaya mendukung
-  'blacklisted' dan 'draft' (sinkron dengan enum SupplierStatus di domain).
-- Tambah tabel anak: supplier_attachments, supplier_notes.
-- Tambah relationship attachments & notes di SupplierTable.
+Tabel utama:
+    supplier                    (dari migrasi 0006 + 0047)
+
+Tabel anak:
+    supplier_attachments        (migrasi 0050)
+    supplier_notes              (migrasi 0050)
+    supplier_addresses          (migrasi 0051)
+    supplier_contacts           (migrasi 0051)
+    supplier_tags               (migrasi 0051)
+    supplier_credit_history     (migrasi 0051, immutable)
+    supplier_balance_history    (migrasi 0051, immutable)
 """
 
 from __future__ import annotations
@@ -51,6 +56,11 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.purchase_order_table import (
         PurchaseOrderTable,
     )
+
+
+# ============================================================================
+# TABEL UTAMA
+# ============================================================================
 
 
 class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -224,12 +234,40 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         cascade="all, delete-orphan",
         order_by="SupplierAttachmentTable.created_at",
     )
-
     notes: Mapped[list["SupplierNoteTable"]] = relationship(
         "SupplierNoteTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
         order_by="SupplierNoteTable.created_at.desc()",
+    )
+    addresses: Mapped[list["SupplierAddressTable"]] = relationship(
+        "SupplierAddressTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierAddressTable.created_at",
+    )
+    contacts: Mapped[list["SupplierContactTable"]] = relationship(
+        "SupplierContactTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierContactTable.created_at",
+    )
+    tags: Mapped[list["SupplierTagTable"]] = relationship(
+        "SupplierTagTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+    )
+    credit_history: Mapped[list["SupplierCreditHistoryTable"]] = relationship(
+        "SupplierCreditHistoryTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierCreditHistoryTable.created_at.desc()",
+    )
+    balance_history: Mapped[list["SupplierBalanceHistoryTable"]] = relationship(
+        "SupplierBalanceHistoryTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierBalanceHistoryTable.created_at.desc()",
     )
 
     # ========================================================================
@@ -354,7 +392,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
 
 # ============================================================================
-# Tabel Anak: Supplier Attachments (dokumen pendukung)
+# TABEL ANAK
 # ============================================================================
 
 
@@ -375,7 +413,6 @@ class SupplierAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
         ForeignKey("supplier.id", ondelete="CASCADE"),
         nullable=False,
     )
-
     document_type: Mapped[str] = mapped_column(
         String(30), nullable=False, default="other"
     )
@@ -407,13 +444,8 @@ class SupplierAttachmentTable(Base, TimestampMixin, SoftDeleteMixin):
         }
 
 
-# ============================================================================
-# Tabel Anak: Supplier Notes (catatan internal berhistori)
-# ============================================================================
-
-
 class SupplierNoteTable(Base, TimestampMixin):
-    """Catatan internal berhistori (bukan satu field bebas yang tertimpa)."""
+    """Catatan internal berhistori."""
 
     __tablename__ = "supplier_notes"
     __table_args__ = (
@@ -448,8 +480,235 @@ class SupplierNoteTable(Base, TimestampMixin):
         }
 
 
+class SupplierAddressTable(Base, TimestampMixin, SoftDeleteMixin):
+    """Alamat billing/shipping/warehouse/lainnya, banyak per supplier."""
+
+    __tablename__ = "supplier_addresses"
+    __table_args__ = (
+        CheckConstraint(
+            "address_type IN ('billing', 'shipping', 'warehouse', 'other')",
+            name="ck_supplier_address_type",
+        ),
+        Index("idx_supplier_address_supplier_id", "supplier_id"),
+        Index("idx_supplier_address_type", "address_type"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    address_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="other"
+    )
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address_line: Mapped[str] = mapped_column(Text, nullable=False)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    province: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country: Mapped[str] = mapped_column(String(2), nullable=False, default="ID")
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="addresses"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "address_type": self.address_type,
+            "label": self.label,
+            "address_line": self.address_line,
+            "city": self.city,
+            "province": self.province,
+            "district": self.district,
+            "postal_code": self.postal_code,
+            "country": self.country,
+            "latitude": float(self.latitude) if self.latitude is not None else None,
+            "longitude": float(self.longitude) if self.longitude is not None else None,
+            "is_primary": self.is_primary,
+        }
+
+
+class SupplierContactTable(Base, TimestampMixin, SoftDeleteMixin):
+    """Contact person / PIC. Satu supplier bisa punya banyak PIC."""
+
+    __tablename__ = "supplier_contacts"
+    __table_args__ = (
+        Index("idx_supplier_contact_supplier_id", "supplier_id"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    position: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    whatsapp: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="contacts"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "name": self.name,
+            "position": self.position,
+            "phone": self.phone,
+            "mobile": self.mobile,
+            "email": self.email,
+            "whatsapp": self.whatsapp,
+            "is_primary": self.is_primary,
+        }
+
+
+class SupplierTagTable(Base, TimestampMixin):
+    """Tag/label bebas: Retail, Distributor, VIP, Import, dll."""
+
+    __tablename__ = "supplier_tags"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "tag", name="uq_supplier_tag"),
+        Index("idx_supplier_tag_supplier_id", "supplier_id"),
+        Index("idx_supplier_tag_value", "tag"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tag: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="tags"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "tag": self.tag,
+        }
+
+
+class SupplierCreditHistoryTable(Base, TimestampMixin):
+    """Audit trail setiap perubahan credit_limit. Immutable (append-only)."""
+
+    __is_audit_log__ = True
+
+    __tablename__ = "supplier_credit_history"
+    __table_args__ = (
+        Index("idx_supplier_credit_history_supplier_id", "supplier_id"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    old_limit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    new_limit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="credit_history"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "old_limit": float(self.old_limit),
+            "new_limit": float(self.new_limit),
+            "reason": self.reason,
+            "changed_by": str(self.changed_by) if self.changed_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SupplierBalanceHistoryTable(Base, TimestampMixin):
+    """Audit trail setiap perubahan AP balance. Immutable (append-only)."""
+
+    __is_audit_log__ = True
+
+    __tablename__ = "supplier_balance_history"
+    __table_args__ = (
+        Index("idx_supplier_balance_history_supplier_id", "supplier_id"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("supplier.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    old_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    new_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    delta: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable", back_populates="balance_history"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "supplier_id": str(self.supplier_id),
+            "old_balance": float(self.old_balance),
+            "new_balance": float(self.new_balance),
+            "delta": float(self.delta),
+            "source": self.source,
+            "reference": self.reference,
+            "changed_by": str(self.changed_by) if self.changed_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 __all__ = [
+    "SupplierAddressTable",
     "SupplierAttachmentTable",
+    "SupplierBalanceHistoryTable",
+    "SupplierContactTable",
+    "SupplierCreditHistoryTable",
     "SupplierNoteTable",
     "SupplierTable",
+    "SupplierTagTable",
 ]

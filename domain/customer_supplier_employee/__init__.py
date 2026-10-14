@@ -62,7 +62,6 @@ from domain.customer_supplier_employee.employee_aggregate_root import (
     DuplicateEmployeeNumberError,
     EmployeeAggregate,
     EmployeeAggregateError,
-    EmployeeAggregateRepository,
     EmployeeNotFoundError,
     InvalidEmployeeStatusTransitionError,
 )
@@ -163,7 +162,6 @@ __all__ = [
     "DuplicateTaxIdError",
     "EmployeeAggregate",
     "EmployeeAggregateError",
-    "EmployeeAggregateRepository",
     "EmployeeBPJSEnrollmentVO",
     "EmployeeBPJSUpdated",
     "EmployeeBPJSUpdatedEvent",

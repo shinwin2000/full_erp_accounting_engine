@@ -5,27 +5,20 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service untuk Employee (HR) management.
-    Mempublikasikan event untuk setiap perubahan data employee.
 
-PENTING (fix 2026-08-07): Versi sebelumnya menyimpan seluruh data employee
-di `self._employees: dict[UUID, Employee] = {}` — murni di RAM proses
-Python, TIDAK PERNAH menyentuh database. Akibatnya:
-  - Semua data employee hilang setiap kali server di-restart.
-  - `EmployeeTable` (ORM, ~50 kolom, sudah dipakai Payroll/Attendance)
-    dan `SQLAlchemyEmployeeRepository` tidak pernah benar-benar dipakai.
-
-Service ini sekarang didukung oleh `SQLAlchemyEmployeeRepository`
-(adapters/secondary_impl/sqlalchemy_employee_repository_impl.py), yang
-sudah diperbaiki agar menulis ke tabel `employee` yang SUNGGUHAN (dibuat
-oleh migration 0006). Setiap create/update/resign/delete di sini sekarang
-benar-benar tersimpan di PostgreSQL dan akan tetap ada setelah restart.
-
-Kalau `repository` tidak di-inject oleh IoC container (mis. karena file
-bootstrap/dependency_container/service_registry.py belum di-update untuk
-meneruskannya), service ini akan otomatis membuat
-`SQLAlchemyEmployeeRepository()` sendiri sebagai fallback yang aman —
-sehingga tetap tersambung ke database walau tanpa perubahan pada
-container wiring.
+PERBAIKAN (2026-10-13):
+- FIX EVENT PUBLISH: sebelumnya impor EmployeeCreatedEvent, EmployeeResignedEvent,
+  EmployeePTKPUpdatedEvent, EmployeeBPJSUpdatedEvent dari `application.events`
+  (yang me-re-export dari domain_events). Karena ada 2 definisi class yang
+  berbeda (satu di application.events versi lama, satu di domain_events versi
+  baru), signature-nya beda -> TypeError "unexpected keyword argument 'employee_id'".
+  Sekarang impor langsung dari domain_events (konsisten dengan
+  CustomerService & SupplierService).
+  EmployeeStructureUpdatedEvent TIDAK ada di domain_events (dia milik
+  domain.payroll.domain_events), jadi tetap impor dari application.events.
+- FIX _publish_event: signature publish() sudah sesuai EventPublisherPort
+  (keyword-only: event, event_type, aggregate_id, aggregate_type, metadata).
+- Tambah method get_next_code() untuk auto-generate employee code.
 """
 
 from __future__ import annotations
@@ -37,14 +30,16 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-# Import domain events
-from application.events import (
+# Import domain events dari DOMAIN LAYER (bukan application.events).
+# Lihat catatan di docstring untuk alasan.
+from domain.customer_supplier_employee.domain_events import (
     EmployeeBPJSUpdatedEvent,
     EmployeeCreatedEvent,
     EmployeePTKPUpdatedEvent,
     EmployeeResignedEvent,
-    EmployeeStructureUpdatedEvent,
 )
+# EmployeeStructureUpdatedEvent milik domain.payroll, jadi tetap via application.events.
+from application.events import EmployeeStructureUpdatedEvent
 from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
@@ -80,10 +75,7 @@ class MaritalStatus(str, Enum):
 
 
 def compute_ptkp_status(marital_status: str, dependents: int) -> str:
-    """Menghitung kode status PTKP (Penghasilan Tidak Kena Pajak) dari status
-    pernikahan + jumlah tanggungan, sesuai domain yang diizinkan oleh
-    CheckConstraint 'ck_employee_ptkp' pada tabel employee
-    (TK/0..TK/3, K/0..K/3)."""
+    """Menghitung kode status PTKP dari status pernikahan + jumlah tanggungan."""
     capped = max(0, min(int(dependents or 0), 3))
     prefix = "K" if marital_status == MaritalStatus.MARRIED.value else "TK"
     return f"{prefix}/{capped}"
@@ -114,15 +106,15 @@ class EmployeeDuplicateError(EmployeeServiceError):
 class EmployeeService:
     """
     Service untuk Employee (HR). Semua data dibaca/ditulis lewat
-    `EmployeeRepositoryPort` (implementasi: SQLAlchemyEmployeeRepository),
-    bukan disimpan di memori proses.
+    EmployeeRepositoryPort (implementasi: SQLAlchemyEmployeeRepository).
     """
 
-    def __init__(self, repository: Any | None = None, event_publisher: EventPublisherPort | None = None):
+    def __init__(
+        self,
+        repository: Any | None = None,
+        event_publisher: EventPublisherPort | None = None,
+    ):
         if repository is None:
-            # Fallback aman: kalau container belum meng-inject repository,
-            # bangun sendiri implementasi konkretnya supaya data tetap
-            # tersambung ke database, bukan diam-diam jatuh balik ke RAM.
             from adapters.secondary_impl.sqlalchemy_employee_repository_impl import (
                 SQLAlchemyEmployeeRepository,
             )
@@ -145,11 +137,16 @@ class EmployeeService:
         if user_id is None:
             logger.debug(f"System action for permission '{permission}' (no user_id)")
             return
-        logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
+        logger.debug(
+            f"Authority check: user {user_id} permission '{permission}' "
+            "passed (placeholder)"
+        )
 
     # ==================== AUDIT TRAIL ====================
 
-    def _record_audit(self, action: str, details: dict[str, Any] | None = None) -> None:
+    def _record_audit(
+        self, action: str, details: dict[str, Any] | None = None
+    ) -> None:
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "service": "EmployeeService",
@@ -161,14 +158,60 @@ class EmployeeService:
 
     # ==================== EVENT PUBLISHING HELPER ====================
 
-    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+    async def _publish_event(
+        self, event: Any, log_context: str, correlation_id: str | None = None
+    ) -> None:
+        """
+        PERBAIKAN (2026-10-13):
+        - Sebelumnya memanggil `self._event_publisher.publish(event, correlation_id)`
+          dengan 2 argumen posisional, PADAHAL signature resmi
+          EventPublisherPort.publish() adalah keyword-only:
+              publish(event, event_type, aggregate_id, aggregate_type,
+                      metadata=None, priority=...)
+          Akibatnya SETIAP publish event Employee (create, resign, BPJS, PTKP,
+          struktur gaji) SELALU gagal dengan TypeError - tapi tertelan
+          try/except sehingga cuma muncul sebagai warning di log. Consumer
+          (Payroll, Audit, dll) tidak pernah menerima event.
+        - Sekarang panggilan sudah sesuai signature resmi.
+        """
         if not self._event_publisher:
             return
         try:
-            await self._event_publisher.publish(event, correlation_id)
+            event_type = str(
+                getattr(getattr(event, "event_type", None), "value", None)
+                or getattr(event, "event_type", None)
+                or event.__class__.__name__
+            )
+            aggregate_id = getattr(event, "aggregate_id", None)
+            aggregate_type = getattr(event, "aggregate_type", "Employee")
+
+            await self._event_publisher.publish(
+                event=event,
+                event_type=event_type,
+                aggregate_id=aggregate_id,
+                aggregate_type=aggregate_type,
+                metadata={"correlation_id": correlation_id}
+                if correlation_id
+                else None,
+            )
             logger.debug(f"Published {event.__class__.__name__} for {log_context}")
         except Exception as e:
-            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+            logger.warning(
+                f"Failed to publish {event.__class__.__name__} for "
+                f"{log_context}: {e}"
+            )
+
+    # ==================== AUTO-GENERATE CODE ====================
+
+    async def get_next_code(
+        self, legal_entity_id: UUID, prefix: str = "EMP"
+    ) -> str:
+        """
+        Generate kode karyawan berikutnya (EMP-001, EMP-002, dst) berdasarkan
+        kode dengan angka urut TERBESAR yang sudah ada untuk prefix &
+        legal_entity_id ini.
+        """
+        return await self._repository.get_next_code(legal_entity_id, prefix)
 
     # ========================================================================
     # CREATE
@@ -215,9 +258,16 @@ class EmployeeService:
     ) -> dict[str, Any]:
         self._check_authority(created_by, "create_employee")
 
-        existing_code = await self._repository.get_by_code(employee_code, legal_entity_id)
+        # Auto-generate employee_code jika kosong.
+        code = (employee_code or "").strip()
+        if not code:
+            code = await self.get_next_code(legal_entity_id, "EMP")
+
+        existing_code = await self._repository.get_by_code(code, legal_entity_id)
         if existing_code:
-            raise EmployeeDuplicateError(f"Employee code '{employee_code}' sudah digunakan di entitas ini")
+            raise EmployeeDuplicateError(
+                f"Employee code '{code}' sudah digunakan di entitas ini"
+            )
         if nik:
             existing_nik = await self._repository.get_by_nik(nik, legal_entity_id)
             if existing_nik:
@@ -225,7 +275,7 @@ class EmployeeService:
 
         data = {
             "legal_entity_id": legal_entity_id,
-            "employee_code": employee_code,
+            "employee_code": code,
             "full_name": full_name,
             "nik": nik,
             "tax_id": npwp,
@@ -267,7 +317,7 @@ class EmployeeService:
 
         if self._event_publisher:
             try:
-                event = EmployeeCreatedEvent(
+                event = EmployeeCreatedEvent.create(
                     aggregate_id=UUID(employee["id"]),
                     aggregate_version=employee["version"],
                     employee_id=UUID(employee["id"]),
@@ -278,17 +328,25 @@ class EmployeeService:
                     user_id=str(created_by) if created_by else None,
                     correlation_id=correlation_id,
                 )
-                await self._publish_event(event, f"Employee {employee['employee_code']} (created)", correlation_id)
+                await self._publish_event(
+                    event,
+                    f"Employee {employee['employee_code']} (created)",
+                    correlation_id,
+                )
             except Exception as e:
-                # Don't let a broken event payload block employee creation - mirrors the
-                # try/except-and-warn pattern used by CustomerService/SupplierService.
-                logger.warning(f"Failed to publish EmployeeCreatedEvent for {employee['employee_code']}: {e}")
+                logger.warning(
+                    f"Failed to publish EmployeeCreatedEvent for "
+                    f"{employee['employee_code']}: {e}"
+                )
 
-        self._record_audit("create_employee", {
-            "employee_id": employee["id"],
-            "employee_code": employee_code,
-            "created_by": str(created_by) if created_by else None,
-        })
+        self._record_audit(
+            "create_employee",
+            {
+                "employee_id": employee["id"],
+                "employee_code": code,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
 
         return employee
 
@@ -308,13 +366,22 @@ class EmployeeService:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         return await self._repository.get_all(
-            legal_entity_id=legal_entity_id, limit=limit, offset=offset, status=status, search=search
+            legal_entity_id=legal_entity_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+            search=search,
         )
 
     async def count_employees(
-        self, legal_entity_id: UUID, status: str | None = None, search: str | None = None
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        search: str | None = None,
     ) -> int:
-        return await self._repository.count_all(legal_entity_id=legal_entity_id, status=status, search=search)
+        return await self._repository.count_all(
+            legal_entity_id=legal_entity_id, status=status, search=search
+        )
 
     # ========================================================================
     # UPDATE (general profile fields)
@@ -358,26 +425,7 @@ class EmployeeService:
         updated_by: UUID | None = None,
         correlation_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Update profil employee secara umum (partial update).
-
-        PENTING (fix): versi sebelumnya HANYA menerima ~20 field (identitas,
-        kontak, kepegawaian dasar, bank) - field form "Tambah/Ubah Karyawan"
-        lain yang SAMA PERSIS dipakai untuk form "Ubah" (job_level,
-        cost_center, dsb SUDAH ada, tapi basic_salary/allowances/
-        overtime_rate_multiplier/bpjs_*/join_date/marital_status/
-        dependents/birth_place/religion TIDAK PERNAH diteruskan ke sini -
-        field-field itu memang dideklarasikan di `form_fields` registry
-        yang dipakai ulang untuk dialog "Ubah", jadi user bisa mengisinya,
-        tapi karena tidak ada di signature/`candidate_changes` sebelumnya,
-        nilainya dibuang diam-diam setelah "Simpan" (silent data loss -
-        pola bug yang sama dengan yang sudah ditemukan di modul lain).
-        Sekarang SEMUA field yang ada di form_fields diterima di sini.
-
-        `marital_status`/`dependents` kalau diisi akan memicu re-kalkulasi
-        `ptkp_status` (sama seperti endpoint khusus `update_ptkp`) supaya
-        tidak jadi tidak-konsisten kalau user mengubahnya lewat form
-        umum ini alih-alih lewat aksi PTKP khusus.
-        """
+        """Update profil employee (partial update)."""
         self._check_authority(updated_by, "update_employee")
 
         candidate_changes = {
@@ -411,44 +459,43 @@ class EmployeeService:
             "bank_account_name": bank_account_name,
             "notes": notes,
         }
-        # Only send fields that were actually provided (not None) - partial update.
         changes = {k: v for k, v in candidate_changes.items() if v is not None}
 
-        # marital_status/dependents butuh penanganan khusus: ptkp_status
-        # harus ikut dihitung ulang, bukan sekadar disalin mentah - kalau
-        # tidak, ptkp_status akan jadi basi/tidak sinkron dengan status
-        # pernikahan & jumlah tanggungan yang baru.
+        # marital_status/dependents -> re-kalkulasi ptkp_status.
         current_for_ptkp: dict[str, Any] | None = None
         if marital_status is not None or dependents is not None:
             current_for_ptkp = await self._repository.get_by_id(employee_id)
             if not current_for_ptkp:
                 raise EmployeeNotFoundError(f"Employee {employee_id} not found")
-            effective_marital = marital_status if marital_status is not None else current_for_ptkp["marital_status"]
+            effective_marital = (
+                marital_status
+                if marital_status is not None
+                else current_for_ptkp["marital_status"]
+            )
             if dependents is not None:
                 effective_dependents = dependents
             else:
-                # Jumlah tanggungan TIDAK disimpan sebagai kolom skalar
-                # tersendiri di tabel employee (lihat catatan di
-                # EmployeeTable.dependents - itu relationship ke
-                # EmployeeDependentTable, bukan angka PTKP) - satu-
-                # satunya jejak jumlah tanggungan yang sudah tersimpan
-                # adalah angka di belakang "/" pada ptkp_status (mis.
-                # "K/2" -> 2). Ambil dari situ alih-alih asumsi 0, supaya
-                # mengubah marital_status saja tidak diam-diam me-reset
-                # jumlah tanggungan yang sudah ada.
                 old_ptkp = current_for_ptkp.get("ptkp_status") or "TK/0"
                 try:
                     effective_dependents = int(old_ptkp.rsplit("/", 1)[-1])
                 except (ValueError, AttributeError):
                     effective_dependents = 0
             changes["marital_status"] = effective_marital
-            changes["ptkp_status"] = compute_ptkp_status(effective_marital, effective_dependents)
+            changes["ptkp_status"] = compute_ptkp_status(
+                effective_marital, effective_dependents
+            )
 
         if not changes:
             return await self.get_employee(employee_id)
 
-        before = await self._repository.get_by_id(employee_id) if current_for_ptkp is None else current_for_ptkp
-        old_basic_salary = Decimal(str(before["basic_salary"])) if before else Decimal("0")
+        before = (
+            await self._repository.get_by_id(employee_id)
+            if current_for_ptkp is None
+            else current_for_ptkp
+        )
+        old_basic_salary = (
+            Decimal(str(before["basic_salary"])) if before else Decimal("0")
+        )
 
         employee = await self._repository.update(employee_id, changes)
         if not employee:
@@ -458,12 +505,10 @@ class EmployeeService:
         if self._event_publisher:
             try:
                 new_basic_salary = Decimal(str(employee["basic_salary"]))
-                if "basic_salary" in changes and new_basic_salary != old_basic_salary:
-                    # Hanya kirim event "structure updated" kalau memang
-                    # gaji pokok yang berubah - sebelumnya event ini selalu
-                    # dikirim untuk SETIAP update_employee (termasuk yang
-                    # cuma mengubah email/alamat) dengan old==new_basic_salary,
-                    # yang menyesatkan konsumen event (mis. modul Payroll).
+                if (
+                    "basic_salary" in changes
+                    and new_basic_salary != old_basic_salary
+                ):
                     event = EmployeeStructureUpdatedEvent(
                         aggregate_id=UUID(employee["id"]),
                         aggregate_version=employee["version"],
@@ -475,15 +520,25 @@ class EmployeeService:
                         user_id=str(updated_by) if updated_by else None,
                         correlation_id=correlation_id,
                     )
-                    await self._publish_event(event, f"Employee {employee['employee_code']} (updated)", correlation_id)
+                    await self._publish_event(
+                        event,
+                        f"Employee {employee['employee_code']} (updated)",
+                        correlation_id,
+                    )
             except Exception as e:
-                logger.warning(f"Failed to publish EmployeeStructureUpdatedEvent for {employee['employee_code']}: {e}")
+                logger.warning(
+                    f"Failed to publish EmployeeStructureUpdatedEvent for "
+                    f"{employee['employee_code']}: {e}"
+                )
 
-        self._record_audit("update_employee", {
-            "employee_id": str(employee_id),
-            "changes": list(changes.keys()),
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "update_employee",
+            {
+                "employee_id": str(employee_id),
+                "changes": list(changes.keys()),
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
 
         return employee
 
@@ -538,18 +593,24 @@ class EmployeeService:
                     correlation_id=correlation_id,
                 )
                 await self._publish_event(
-                    event, f"Employee {employee['employee_code']} (salary structure updated)", correlation_id
+                    event,
+                    f"Employee {employee['employee_code']} (salary structure updated)",
+                    correlation_id,
                 )
             except Exception as e:
                 logger.warning(
-                    f"Failed to publish EmployeeStructureUpdatedEvent for {employee['employee_code']}: {e}"
+                    f"Failed to publish EmployeeStructureUpdatedEvent for "
+                    f"{employee['employee_code']}: {e}"
                 )
 
-        self._record_audit("update_salary_structure", {
-            "employee_id": str(employee_id),
-            "changes": list(changes.keys()),
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "update_salary_structure",
+            {
+                "employee_id": str(employee_id),
+                "changes": list(changes.keys()),
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
 
         return employee
 
@@ -595,25 +656,39 @@ class EmployeeService:
 
         if self._event_publisher:
             try:
-                event = EmployeeBPJSUpdatedEvent(
+                event = EmployeeBPJSUpdatedEvent.create(
                     aggregate_id=UUID(employee["id"]),
                     aggregate_version=employee["version"],
                     employee_id=UUID(employee["id"]),
-                    employee_code=employee["employee_code"],
-                    changes=changes,
+                    employee_number=employee["employee_code"],
+                    bpjs_type="both",
+                    membership_number=bpjs_kesehatan_number
+                    or bpjs_ketenagakerjaan_number
+                    or "",
+                    is_active=True,
                     updated_by=str(updated_by) if updated_by else "system",
                     user_id=str(updated_by) if updated_by else None,
                     correlation_id=correlation_id,
                 )
-                await self._publish_event(event, f"Employee {employee['employee_code']} (BPJS updated)", correlation_id)
+                await self._publish_event(
+                    event,
+                    f"Employee {employee['employee_code']} (BPJS updated)",
+                    correlation_id,
+                )
             except Exception as e:
-                logger.warning(f"Failed to publish EmployeeBPJSUpdatedEvent for {employee['employee_code']}: {e}")
+                logger.warning(
+                    f"Failed to publish EmployeeBPJSUpdatedEvent for "
+                    f"{employee['employee_code']}: {e}"
+                )
 
-        self._record_audit("update_bpjs", {
-            "employee_id": str(employee_id),
-            "changes": list(changes.keys()),
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "update_bpjs",
+            {
+                "employee_id": str(employee_id),
+                "changes": list(changes.keys()),
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
 
         return employee
 
@@ -641,7 +716,8 @@ class EmployeeService:
         new_ptkp = compute_ptkp_status(marital_status, dependents)
 
         employee = await self._repository.update(
-            employee_id, {"marital_status": marital_status, "ptkp_status": new_ptkp}
+            employee_id,
+            {"marital_status": marital_status, "ptkp_status": new_ptkp},
         )
         if not employee:
             raise EmployeeNotFoundError(f"Employee {employee_id} not found")
@@ -649,31 +725,39 @@ class EmployeeService:
 
         if self._event_publisher:
             try:
-                event = EmployeePTKPUpdatedEvent(
+                event = EmployeePTKPUpdatedEvent.create(
                     aggregate_id=UUID(employee["id"]),
                     aggregate_version=employee["version"],
                     employee_id=UUID(employee["id"]),
-                    employee_code=employee["employee_code"],
-                    old_marital_status=old_marital,
-                    new_marital_status=employee["marital_status"],
-                    old_dependents=old_ptkp,
-                    new_dependents=new_ptkp,
+                    employee_number=employee["employee_code"],
+                    old_ptkp=old_ptkp,
+                    new_ptkp=new_ptkp,
                     updated_by=str(updated_by) if updated_by else "system",
                     user_id=str(updated_by) if updated_by else None,
                     correlation_id=correlation_id,
                 )
-                await self._publish_event(event, f"Employee {employee['employee_code']} (PTKP updated)", correlation_id)
+                await self._publish_event(
+                    event,
+                    f"Employee {employee['employee_code']} (PTKP updated)",
+                    correlation_id,
+                )
             except Exception as e:
-                logger.warning(f"Failed to publish EmployeePTKPUpdatedEvent for {employee['employee_code']}: {e}")
+                logger.warning(
+                    f"Failed to publish EmployeePTKPUpdatedEvent for "
+                    f"{employee['employee_code']}: {e}"
+                )
 
-        self._record_audit("update_ptkp", {
-            "employee_id": str(employee_id),
-            "old_marital_status": old_marital,
-            "new_marital_status": employee["marital_status"],
-            "old_ptkp_status": old_ptkp,
-            "new_ptkp_status": new_ptkp,
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "update_ptkp",
+            {
+                "employee_id": str(employee_id),
+                "old_marital_status": old_marital,
+                "new_marital_status": employee["marital_status"],
+                "old_ptkp_status": old_ptkp,
+                "new_ptkp_status": new_ptkp,
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
 
         return employee
 
@@ -692,33 +776,45 @@ class EmployeeService:
     ) -> dict[str, Any] | None:
         self._check_authority(resigned_by, "resign_employee")
 
-        employee = await self._repository.resign(employee_id, resignation_date, reason)
+        employee = await self._repository.resign(
+            employee_id, resignation_date, reason
+        )
         if not employee:
             raise EmployeeNotFoundError(f"Employee {employee_id} not found")
         self._stats["employees_updated"] += 1
 
         if self._event_publisher:
             try:
-                event = EmployeeResignedEvent(
+                event = EmployeeResignedEvent.create(
                     aggregate_id=UUID(employee["id"]),
                     aggregate_version=employee["version"],
                     employee_id=UUID(employee["id"]),
-                    employee_code=employee["employee_code"],
-                    resignation_date=resignation_date,
-                    reason=reason,
-                    resigned_by=str(resigned_by) if resigned_by else "system",
+                    employee_number=employee["employee_code"],
+                    full_name=employee["full_name"],
+                    resign_date=resignation_date,
+                    reason=reason or "No reason",
                     user_id=str(resigned_by) if resigned_by else None,
                     correlation_id=correlation_id,
                 )
-                await self._publish_event(event, f"Employee {employee['employee_code']} (resigned)", correlation_id)
+                await self._publish_event(
+                    event,
+                    f"Employee {employee['employee_code']} (resigned)",
+                    correlation_id,
+                )
             except Exception as e:
-                logger.warning(f"Failed to publish EmployeeResignedEvent for {employee['employee_code']}: {e}")
+                logger.warning(
+                    f"Failed to publish EmployeeResignedEvent for "
+                    f"{employee['employee_code']}: {e}"
+                )
 
-        self._record_audit("resign_employee", {
-            "employee_id": str(employee_id),
-            "resignation_date": resignation_date.isoformat(),
-            "resigned_by": str(resigned_by) if resigned_by else None,
-        })
+        self._record_audit(
+            "resign_employee",
+            {
+                "employee_id": str(employee_id),
+                "resignation_date": resignation_date.isoformat(),
+                "resigned_by": str(resigned_by) if resigned_by else None,
+            },
+        )
 
         return employee
 
@@ -734,13 +830,18 @@ class EmployeeService:
         permanent: bool = False,
     ) -> bool:
         self._check_authority(deleted_by, "delete_employee")
-        deleted = await self._repository.delete(employee_id, deleted_by, permanent=permanent)
+        deleted = await self._repository.delete(
+            employee_id, deleted_by, permanent=permanent
+        )
         if deleted:
-            self._record_audit("delete_employee", {
-                "employee_id": str(employee_id),
-                "permanent": permanent,
-                "deleted_by": str(deleted_by) if deleted_by else None,
-            })
+            self._record_audit(
+                "delete_employee",
+                {
+                    "employee_id": str(employee_id),
+                    "permanent": permanent,
+                    "deleted_by": str(deleted_by) if deleted_by else None,
+                },
+            )
         return deleted
 
     # ========================================================================
@@ -748,30 +849,46 @@ class EmployeeService:
     # ========================================================================
 
     async def upload_employee_photo(
-        self, employee_id: UUID, photo_data: bytes, mime_type: str, filename: str,
+        self,
+        employee_id: UUID,
+        photo_data: bytes,
+        mime_type: str,
+        filename: str,
         uploaded_by: UUID | None = None,
     ) -> bool:
         self._check_authority(uploaded_by, "update_employee")
-        ok = await self._repository.upload_photo(employee_id, photo_data, mime_type, filename)
+        ok = await self._repository.upload_photo(
+            employee_id, photo_data, mime_type, filename
+        )
         if not ok:
             raise EmployeeNotFoundError(f"Employee {employee_id} not found")
-        self._record_audit("upload_employee_photo", {
-            "employee_id": str(employee_id),
-            "filename": filename,
-            "uploaded_by": str(uploaded_by) if uploaded_by else None,
-        })
+        self._record_audit(
+            "upload_employee_photo",
+            {
+                "employee_id": str(employee_id),
+                "filename": filename,
+                "uploaded_by": str(uploaded_by) if uploaded_by else None,
+            },
+        )
         return ok
 
-    async def get_employee_photo(self, employee_id: UUID) -> dict[str, Any] | None:
+    async def get_employee_photo(
+        self, employee_id: UUID
+    ) -> dict[str, Any] | None:
         return await self._repository.get_photo(employee_id)
 
-    async def delete_employee_photo(self, employee_id: UUID, deleted_by: UUID | None = None) -> bool:
+    async def delete_employee_photo(
+        self, employee_id: UUID, deleted_by: UUID | None = None
+    ) -> bool:
         self._check_authority(deleted_by, "update_employee")
         ok = await self._repository.delete_photo(employee_id)
-        self._record_audit("delete_employee_photo", {
-            "employee_id": str(employee_id),
-            "deleted_by": str(deleted_by) if deleted_by else None,
-        })
+        self._record_audit(
+            "delete_employee_photo",
+            {
+                "employee_id": str(employee_id),
+                "deleted_by": str(deleted_by) if deleted_by else None,
+            },
+        )
         return ok
 
     # ========================================================================
@@ -779,10 +896,16 @@ class EmployeeService:
     # ========================================================================
 
     async def add_dependent(
-        self, employee_id: UUID, legal_entity_id: UUID, full_name: str,
-        relationship_type: str, birth_date: date | None = None,
-        occupation: str | None = None, is_ptkp_dependent: bool = True,
-        notes: str | None = None, created_by: UUID | None = None,
+        self,
+        employee_id: UUID,
+        legal_entity_id: UUID,
+        full_name: str,
+        relationship_type: str,
+        birth_date: date | None = None,
+        occupation: str | None = None,
+        is_ptkp_dependent: bool = True,
+        notes: str | None = None,
+        created_by: UUID | None = None,
     ) -> dict[str, Any]:
         self._check_authority(created_by, "update_employee")
         if relationship_type not in ("spouse", "child", "parent", "other"):
@@ -790,7 +913,8 @@ class EmployeeService:
                 "relationship_type must be one of: spouse, child, parent, other"
             )
         result = await self._repository.add_dependent(
-            employee_id, legal_entity_id,
+            employee_id,
+            legal_entity_id,
             {
                 "full_name": full_name,
                 "relationship_type": relationship_type,
@@ -801,39 +925,53 @@ class EmployeeService:
             },
             created_by=created_by,
         )
-        self._record_audit("add_dependent", {
-            "employee_id": str(employee_id),
-            "full_name": full_name,
-            "relationship_type": relationship_type,
-            "created_by": str(created_by) if created_by else None,
-        })
+        self._record_audit(
+            "add_dependent",
+            {
+                "employee_id": str(employee_id),
+                "full_name": full_name,
+                "relationship_type": relationship_type,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
         return result
 
     async def list_dependents(self, employee_id: UUID) -> list[dict[str, Any]]:
         return await self._repository.list_dependents(employee_id)
 
     async def update_dependent(
-        self, dependent_id: UUID, updated_by: UUID | None = None, **changes: Any
+        self,
+        dependent_id: UUID,
+        updated_by: UUID | None = None,
+        **changes: Any,
     ) -> dict[str, Any] | None:
         self._check_authority(updated_by, "update_employee")
         changes = {k: v for k, v in changes.items() if v is not None}
         result = await self._repository.update_dependent(dependent_id, changes)
         if result:
-            self._record_audit("update_dependent", {
-                "dependent_id": str(dependent_id),
-                "changes": list(changes.keys()),
-                "updated_by": str(updated_by) if updated_by else None,
-            })
+            self._record_audit(
+                "update_dependent",
+                {
+                    "dependent_id": str(dependent_id),
+                    "changes": list(changes.keys()),
+                    "updated_by": str(updated_by) if updated_by else None,
+                },
+            )
         return result
 
-    async def delete_dependent(self, dependent_id: UUID, deleted_by: UUID | None = None) -> bool:
+    async def delete_dependent(
+        self, dependent_id: UUID, deleted_by: UUID | None = None
+    ) -> bool:
         self._check_authority(deleted_by, "update_employee")
         ok = await self._repository.delete_dependent(dependent_id)
         if ok:
-            self._record_audit("delete_dependent", {
-                "dependent_id": str(dependent_id),
-                "deleted_by": str(deleted_by) if deleted_by else None,
-            })
+            self._record_audit(
+                "delete_dependent",
+                {
+                    "dependent_id": str(dependent_id),
+                    "deleted_by": str(deleted_by) if deleted_by else None,
+                },
+            )
         return ok
 
     # ========================================================================
@@ -841,24 +979,41 @@ class EmployeeService:
     # ========================================================================
 
     VALID_DOCUMENT_TYPES = (
-        "ktp", "kk", "bpjs_kesehatan", "bpjs_ketenagakerjaan", "npwp", "ijazah", "other",
+        "ktp",
+        "kk",
+        "bpjs_kesehatan",
+        "bpjs_ketenagakerjaan",
+        "npwp",
+        "ijazah",
+        "other",
     )
 
     async def add_employee_document(
-        self, employee_id: UUID, legal_entity_id: UUID, document_type: str,
-        file_data: bytes, file_mime_type: str, file_filename: str,
-        document_label: str | None = None, document_number: str | None = None,
-        notes: str | None = None, created_by: UUID | None = None,
+        self,
+        employee_id: UUID,
+        legal_entity_id: UUID,
+        document_type: str,
+        file_data: bytes,
+        file_mime_type: str,
+        file_filename: str,
+        document_label: str | None = None,
+        document_number: str | None = None,
+        notes: str | None = None,
+        created_by: UUID | None = None,
     ) -> dict[str, Any]:
         self._check_authority(created_by, "update_employee")
         if document_type not in self.VALID_DOCUMENT_TYPES:
             raise EmployeeServiceError(
-                f"document_type must be one of: {', '.join(self.VALID_DOCUMENT_TYPES)}"
+                f"document_type must be one of: "
+                f"{', '.join(self.VALID_DOCUMENT_TYPES)}"
             )
         if document_type == "other" and not document_label:
-            raise EmployeeServiceError("document_label wajib diisi untuk document_type='other'")
+            raise EmployeeServiceError(
+                "document_label wajib diisi untuk document_type='other'"
+            )
         result = await self._repository.add_document(
-            employee_id, legal_entity_id,
+            employee_id,
+            legal_entity_id,
             {
                 "document_type": document_type,
                 "document_label": document_label,
@@ -870,18 +1025,25 @@ class EmployeeService:
             },
             created_by=created_by,
         )
-        self._record_audit("add_employee_document", {
-            "employee_id": str(employee_id),
-            "document_type": document_type,
-            "filename": file_filename,
-            "created_by": str(created_by) if created_by else None,
-        })
+        self._record_audit(
+            "add_employee_document",
+            {
+                "employee_id": str(employee_id),
+                "document_type": document_type,
+                "filename": file_filename,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
         return result
 
-    async def list_employee_documents(self, employee_id: UUID) -> list[dict[str, Any]]:
+    async def list_employee_documents(
+        self, employee_id: UUID
+    ) -> list[dict[str, Any]]:
         return await self._repository.list_documents(employee_id)
 
-    async def get_employee_document_file(self, document_id: UUID) -> dict[str, Any] | None:
+    async def get_employee_document_file(
+        self, document_id: UUID
+    ) -> dict[str, Any] | None:
         return await self._repository.get_document_file(document_id)
 
     async def delete_employee_document(
@@ -890,10 +1052,13 @@ class EmployeeService:
         self._check_authority(deleted_by, "update_employee")
         ok = await self._repository.delete_document(document_id)
         if ok:
-            self._record_audit("delete_employee_document", {
-                "document_id": str(document_id),
-                "deleted_by": str(deleted_by) if deleted_by else None,
-            })
+            self._record_audit(
+                "delete_employee_document",
+                {
+                    "document_id": str(document_id),
+                    "deleted_by": str(deleted_by) if deleted_by else None,
+                },
+            )
         return ok
 
     # ========================================================================
@@ -904,23 +1069,29 @@ class EmployeeService:
         return dict(self._stats)
 
     # ========================================================================
-    # ACTIVATE / DEACTIVATE (toggle status tanpa full resign)
+    # ACTIVATE / DEACTIVATE
     # ========================================================================
 
     @audit
     async def set_active_status(
-        self, employee_id: UUID, is_active: bool, updated_by: UUID | None = None
+        self,
+        employee_id: UUID,
+        is_active: bool,
+        updated_by: UUID | None = None,
     ) -> dict[str, Any]:
         self._check_authority(updated_by, "set_active_status")
         await self._repository.update_status(employee_id, is_active)
         employee = await self._repository.get_by_id(employee_id)
         if not employee:
             raise EmployeeNotFoundError(f"Employee {employee_id} not found")
-        self._record_audit("set_active_status", {
-            "employee_id": str(employee_id),
-            "is_active": is_active,
-            "updated_by": str(updated_by) if updated_by else None,
-        })
+        self._record_audit(
+            "set_active_status",
+            {
+                "employee_id": str(employee_id),
+                "is_active": is_active,
+                "updated_by": str(updated_by) if updated_by else None,
+            },
+        )
         return employee
 
     # ========================================================================
@@ -928,15 +1099,23 @@ class EmployeeService:
     # ========================================================================
 
     async def import_employees_csv(
-        self, csv_content: str, legal_entity_id: UUID, created_by: UUID | None = None
+        self,
+        csv_content: str,
+        legal_entity_id: UUID,
+        created_by: UUID | None = None,
     ) -> int:
         self._check_authority(created_by, "import_employees_csv")
-        count = await self._repository.import_from_csv(csv_content, legal_entity_id, created_by)
-        self._record_audit("import_employees_csv", {
-            "legal_entity_id": str(legal_entity_id),
-            "imported": count,
-            "created_by": str(created_by) if created_by else None,
-        })
+        count = await self._repository.import_from_csv(
+            csv_content, legal_entity_id, created_by
+        )
+        self._record_audit(
+            "import_employees_csv",
+            {
+                "legal_entity_id": str(legal_entity_id),
+                "imported": count,
+                "created_by": str(created_by) if created_by else None,
+            },
+        )
         return count
 
 

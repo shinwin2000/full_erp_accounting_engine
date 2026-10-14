@@ -15,6 +15,18 @@ FIX v11 (UserEntity method attribute):
   di class SQLAlchemyIAMRepository untuk normalisasi baik method maupun
   atribut ke bool.
 
+FIX v12 (unlock_user updated_by column):
+- BUG: POST /iam/users/{id}/unlock selalu balas 500 dengan
+      sqlalchemy.exc.CompileError: Unconsumed column names: updated_by
+  Penyebab: `unlock_user()` menyertakan `updated_by=actor_id` di
+  `.values(...)` UPDATE statement, padahal tabel `iam_user`
+  (infrastructure/persistence_orm/iam_user_table.py) TIDAK punya kolom
+  `updated_by`. Satu-satunya kolom audit yang ada di tabel itu:
+  `created_by`, `created_at`, `updated_at`, `deleted_at`, `version`.
+- FIX: hapus `updated_by=actor_id` dari `unlock_user()`. Jejak "siapa
+  yang melakukan aksi" tetap tercatat lewat `_log_audit()` dan event
+  publisher — tidak perlu kolom fisik tambahan.
+
 FIX v10 (timezone-aware datetime):
 - BUG: percobaan login gagal berkali-kali menyebabkan akun terkunci, lalu
   login berikutnya crash dengan:
@@ -781,6 +793,22 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             return True
 
     async def unlock_user(self, user_id: UUID, actor_id: UUID) -> bool:
+        """Buka kunci akun user.
+
+        FIX v12: Sebelumnya method ini menyertakan `updated_by=actor_id`
+        di `.values(...)` UPDATE statement — padahal tabel `iam_user`
+        (lihat infrastructure/persistence_orm/iam_user_table.py) TIDAK
+        PUNYA kolom `updated_by`. SQLAlchemy langsung komplain:
+
+            sqlalchemy.exc.CompileError: Unconsumed column names: updated_by
+
+        dan endpoint POST /iam/users/{id}/unlock selalu balas 500.
+        Satu-satunya kolom audit yang ada di tabel adalah `created_by`
+        (untuk pembuatan record) dan `updated_at` (timestamp update);
+        tidak ada `updated_by` maupun `deleted_by` sebagai kolom fisik —
+        jejak "siapa yang melakukan aksi" disimpan via audit log in-memory
+        (_log_audit) dan event publisher, bukan di kolom tabel.
+        """
         try:
             stmt = (
                 update(IAMUserTable)
@@ -790,7 +818,6 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                     locked_until=None,
                     status="active",
                     updated_at=_utcnow(),
-                    updated_by=actor_id,
                 )
             )
             result = await self.session.execute(stmt)

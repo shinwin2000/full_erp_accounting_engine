@@ -4,14 +4,33 @@ Module: fastapi_supplier_router.py
 Layer: Adapters (Primary API - v1)
 Responsibility: REST API endpoint untuk Supplier/Vendor.
 
-PERBAIKAN (2026-10-12):
-- Tambah endpoint detail: attachments & notes.
+PERBAIKAN (2026-10-13):
+- Endpoint /export sekarang generate file .xlsx ASLI pakai openpyxl
+  ketika format=excel, tidak lagi mengembalikan CSV dengan ekstensi .xlsx
+  (yang membuat Excel menolak file dengan "format or file extension is
+  not valid").
 - Konsisten dengan pola yang sudah dipakai di customer router.
+
+Daftar endpoint:
+    /suppliers/suppliers                       CRUD utama
+    /suppliers/suppliers/{id}                  Get by ID
+    /suppliers/suppliers/{id}/activate|deactivate
+    /suppliers/suppliers/{id}/withholding-category
+    /suppliers/suppliers/{id}/balance
+    /suppliers/suppliers/{id}/history
+    /suppliers/suppliers/{id}/attachments      Tab Attachment
+    /suppliers/suppliers/{id}/notes            Tab Catatan
+    /suppliers/next-code                       Auto-generate code
+    /suppliers/stats                           Statistik
+    /suppliers/export                          Export CSV/Excel/JSON
+    /suppliers/import                          Import
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import logging
 from datetime import date, datetime
@@ -253,6 +272,39 @@ class AttachmentRequest(BaseModel):
 class NoteRequest(BaseModel):
     note: str = Field(..., min_length=1)
 
+class SupplierAddressRequest(BaseModel):
+    address_type: str = Field("other", max_length=20,
+        description="billing|shipping|warehouse|other")
+    label: str | None = Field(None, max_length=100)
+    address_line: str = Field(..., min_length=1)
+    city: str | None = Field(None, max_length=100)
+    province: str | None = Field(None, max_length=100)
+    district: str | None = Field(None, max_length=100)
+    postal_code: str | None = Field(None, max_length=20)
+    country: str = Field("ID", max_length=2)
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+    is_primary: bool = False
+
+
+class SupplierContactRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=150)
+    position: str | None = Field(None, max_length=100)
+    phone: str | None = Field(None, max_length=20)
+    mobile: str | None = Field(None, max_length=20)
+    email: str | None = Field(None, max_length=200)
+    whatsapp: str | None = Field(None, max_length=20)
+    is_primary: bool = False
+
+
+class SupplierTagRequest(BaseModel):
+    tag: str = Field(..., min_length=1, max_length=50)
+
+
+class UpdateCreditLimitRequest(BaseModel):
+    new_limit: Decimal = Field(..., ge=0)
+    reason: str | None = None
+
 
 # ============================================================================
 # HELPERS
@@ -305,6 +357,61 @@ def to_supplier_response(supplier: Supplier) -> SupplierResponseModel:
         created_by=supplier.created_by,
         version=supplier.version,
     )
+
+
+# ============================================================================
+# EXPORT COLUMNS (didefinisikan sekali, dipakai CSV & Excel)
+# ============================================================================
+
+_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("supplier_code", "Kode"),
+    ("name", "Nama Supplier"),
+    ("company_name", "Perusahaan"),
+    ("supplier_type", "Tipe"),
+    ("npwp", "NPWP"),
+    ("tax_name", "Nama Wajib Pajak"),
+    ("withholding_category", "Kategori PPh"),
+    ("address", "Alamat"),
+    ("city", "Kota"),
+    ("province", "Provinsi"),
+    ("postal_code", "Kode Pos"),
+    ("country", "Negara"),
+    ("phone", "Telepon"),
+    ("mobile", "HP"),
+    ("email", "Email"),
+    ("website", "Website"),
+    ("contact_person", "Contact Person"),
+    ("payment_terms_days", "Termin (hari)"),
+    ("credit_limit", "Limit Kredit"),
+    ("opening_balance", "Saldo Awal"),
+    ("bank_name", "Nama Bank"),
+    ("bank_account_number", "No. Rekening"),
+    ("bank_account_name", "Nama Pemilik Rekening"),
+    ("status", "Status"),
+    ("is_active", "Aktif"),
+    ("remarks", "Catatan"),
+    ("created_at", "Dibuat"),
+]
+_EXPORT_NUMERIC = {
+    "credit_limit",
+    "opening_balance",
+    "payment_terms_days",
+}
+
+
+def _export_cell(field: str, value: Any) -> Any:
+    if value is None:
+        return ""
+    if field in _EXPORT_NUMERIC:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    if field == "is_active":
+        return "Ya" if value else "Tidak"
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value)
 
 
 # ============================================================================
@@ -386,22 +493,117 @@ async def create_supplier(
         )
 
 
-@router.get("/export", summary="Export suppliers to CSV")
+# ============================================================================
+# EXPORT / IMPORT
+# ============================================================================
+
+
+@router.get(
+    "/export",
+    summary="Export daftar supplier (csv | excel | json)",
+)
 async def export_suppliers(
-    format: str = Query("csv"),
+    format: str = Query("csv", pattern="^(csv|excel|json)$"),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> Response:
+    """
+    Export suppliers ke 3 format:
+    - csv   : text/csv dengan BOM (kompatibel Excel)
+    - excel : file .xlsx asli (openpyxl)
+    - json  : application/json
+    """
     try:
-        csv_content = await service.export_csv(legal_entity_id)
+        results, _total = await service.list_suppliers(
+            legal_entity_id=legal_entity_id,
+            limit=100000,
+            offset=0,
+        )
+        headers_row = [label for _f, label in _EXPORT_COLUMNS]
+        rows = [
+            [_export_cell(f, getattr(s, f, None)) for f, _l in _EXPORT_COLUMNS]
+            for s in results
+        ]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+        if format == "json":
+            payload = [dict(zip(headers_row, r)) for r in rows]
+            return Response(
+                content=json.dumps(payload, ensure_ascii=False, indent=2),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="suppliers_{stamp}.json"'
+                    )
+                },
+            )
+
+        if format == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(headers_row)
+            writer.writerows(rows)
+            # BOM supaya Excel membaca UTF-8 dengan benar.
+            return Response(
+                content=("\ufeff" + buf.getvalue()).encode("utf-8"),
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="suppliers_{stamp}.csv"'
+                    )
+                },
+            )
+
+        # format == "excel" -> .xlsx asli via openpyxl
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=(
+                    "Export Excel membutuhkan paket 'openpyxl' "
+                    "(pip install openpyxl). Gunakan format csv."
+                ),
+            ) from exc
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Pemasok"
+        ws.append(headers_row)
+        for cell in ws[1]:
+            cell.font = Font(name="Arial", bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="0891B2")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        for r in rows:
+            ws.append(r)
+        for i, (field, label) in enumerate(_EXPORT_COLUMNS, start=1):
+            col = get_column_letter(i)
+            longest = max(
+                [len(label)] + [len(str(r[i - 1])) for r in rows[:500]]
+            )
+            ws.column_dimensions[col].width = min(max(longest + 2, 10), 45)
+            if field in ("credit_limit", "opening_balance"):
+                for cell in ws[col][1:]:
+                    cell.number_format = "#,##0.00"
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        out = io.BytesIO()
+        wb.save(out)
         return Response(
-            content=csv_content,
-            media_type="text/csv",
+            content=out.getvalue(),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
             headers={
-                "Content-Disposition": "attachment; filename=suppliers_export.csv"
+                "Content-Disposition": (
+                    f'attachment; filename="suppliers_{stamp}.xlsx"'
+                )
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error exporting suppliers: {e}", exc_info=True)
         raise HTTPException(
@@ -1115,5 +1317,287 @@ async def delete_supplier_note(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
+# ============================================================================
+# SUPPLIER ADDRESSES (Tab Alamat)
+# ============================================================================
 
+
+@router.get("/suppliers/{supplier_id}/addresses", response_model=list[dict])
+async def list_supplier_addresses(
+    supplier_id: UUID,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> list[dict]:
+    try:
+        return await service.list_addresses(supplier_id, legal_entity_id)
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.post(
+    "/suppliers/{supplier_id}/addresses",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_supplier_address(
+    supplier_id: UUID,
+    payload: SupplierAddressRequest,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> dict:
+    try:
+        return await service.add_address(
+            supplier_id, legal_entity_id, **payload.model_dump()
+        )
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.patch("/suppliers/{supplier_id}/addresses/{address_id}", response_model=dict)
+async def update_supplier_address(
+    supplier_id: UUID,
+    address_id: UUID,
+    payload: SupplierAddressRequest,
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> dict:
+    try:
+        return await service.update_address(
+            supplier_id, address_id, **payload.model_dump(exclude_unset=True)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/addresses/{address_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def delete_supplier_address(
+    supplier_id: UUID,
+    address_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> None:
+    ok = await service.delete_address(supplier_id, address_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Address not found")
+
+
+# ============================================================================
+# SUPPLIER CONTACTS (Tab Contact Person)
+# ============================================================================
+
+
+@router.get("/suppliers/{supplier_id}/contacts", response_model=list[dict])
+async def list_supplier_contacts(
+    supplier_id: UUID,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> list[dict]:
+    try:
+        return await service.list_contacts(supplier_id, legal_entity_id)
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.post(
+    "/suppliers/{supplier_id}/contacts",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_supplier_contact(
+    supplier_id: UUID,
+    payload: SupplierContactRequest,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> dict:
+    try:
+        return await service.add_contact(
+            supplier_id, legal_entity_id, **payload.model_dump()
+        )
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.patch("/suppliers/{supplier_id}/contacts/{contact_id}", response_model=dict)
+async def update_supplier_contact(
+    supplier_id: UUID,
+    contact_id: UUID,
+    payload: SupplierContactRequest,
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> dict:
+    try:
+        return await service.update_contact(
+            supplier_id, contact_id, **payload.model_dump(exclude_unset=True)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/contacts/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def delete_supplier_contact(
+    supplier_id: UUID,
+    contact_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> None:
+    ok = await service.delete_contact(supplier_id, contact_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+
+# ============================================================================
+# SUPPLIER TAGS (Tab Tag)
+# ============================================================================
+
+
+@router.get("/suppliers/{supplier_id}/tags", response_model=list[dict])
+async def list_supplier_tags(
+    supplier_id: UUID,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> list[dict]:
+    try:
+        return await service.list_tags(supplier_id, legal_entity_id)
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.post(
+    "/suppliers/{supplier_id}/tags",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_supplier_tag(
+    supplier_id: UUID,
+    payload: SupplierTagRequest,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> dict:
+    try:
+        return await service.add_tag(supplier_id, legal_entity_id, payload.tag)
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def remove_supplier_tag(
+    supplier_id: UUID,
+    tag_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> None:
+    ok = await service.remove_tag(supplier_id, tag_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+
+# ============================================================================
+# CREDIT LIMIT (Tombol Limit Kredit)
+# ============================================================================
+
+
+@router.post(
+    "/suppliers/{supplier_id}/credit-limit",
+    response_model=SupplierResponseModel,
+)
+async def update_supplier_credit_limit(
+    supplier_id: UUID,
+    payload: UpdateCreditLimitRequest,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> SupplierResponseModel:
+    try:
+        result = await service.update_credit_limit(
+            supplier_id=supplier_id,
+            legal_entity_id=legal_entity_id,
+            new_limit=payload.new_limit,
+            reason=payload.reason,
+            updated_by=user.user_id,
+        )
+        return to_supplier_response(result)
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    except SupplierServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/suppliers/{supplier_id}/credit-limit/history",
+    response_model=list[dict],
+)
+async def get_supplier_credit_history(
+    supplier_id: UUID,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> list[dict]:
+    try:
+        return await service.get_credit_history(
+            supplier_id, legal_entity_id, limit=limit, offset=offset
+        )
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    except Exception as e:
+        logger.error(
+            f"Error getting credit history for supplier {supplier_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+# ============================================================================
+# BALANCE HISTORY (Tab Riwayat Saldo)
+# ============================================================================
+
+@router.get(
+    "/suppliers/{supplier_id}/balance/history",
+    response_model=list[dict],
+)
+async def get_supplier_balance_history(
+    supplier_id: UUID,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> list[dict]:
+    try:
+        return await service.get_balance_history(
+            supplier_id, legal_entity_id, limit=limit, offset=offset
+        )
+    except SupplierNotFoundError:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    except Exception as e:
+        logger.error(
+            f"Error getting balance history for supplier {supplier_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+    
 __all__ = ["router"]
