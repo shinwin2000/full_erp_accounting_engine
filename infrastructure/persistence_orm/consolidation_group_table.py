@@ -3,14 +3,7 @@
 Module: consolidation_group_table.py
 Layer: Infrastructure / Persistence ORM
 Responsibility: SQLAlchemy ORM model untuk tabel consolidation_group.
-               Mendefinisikan grup konsolidasi yang mengelompokkan beberapa
-               entitas hukum (legal entity) untuk pelaporan keuangan konsolidasi.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- infrastructure.persistence_orm.base_model
-Audit: Perubahan grup konsolidasi dicatat.
 """
-
 from __future__ import annotations
 
 import uuid
@@ -29,17 +22,10 @@ if TYPE_CHECKING:
 
 
 class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "consolidation_group"  # type: ignore[assignment]
+    
+    # Sesuaikan nama index dengan yang ada di database
     __table_args__ = (
-        # Partial unique index: nama grup hanya wajib unik di antara yang
-        # masih aktif & belum di-soft-delete. Grup yang dinonaktifkan lewat
-        # tombol "Hapus" (is_active=False) tidak lagi memblokir nama yang
-        # sama dipakai grup baru. Lihat migrasi
-        # e5f6a7b8c9d0_fix_consolidation_group_name_uniqueness.py.
         Index(
             "idx_cons_group_name_active",
             "group_name",
@@ -51,9 +37,15 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     group_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    group_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    
+    # Hapus index=True di sini karena sudah ditangani oleh partial index di __table_args__
+    group_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Hapus deklarasi ForeignKey jika di DB tidak ada, cukup kolom biasa
     parent_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     fiscal_year_start: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     fiscal_year_end: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
@@ -62,18 +54,13 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    # =========================================================================
-    # RELATIONSHIPS — menggunakan string reference
-    # =========================================================================
+    # Relationships
     members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
         "ConsolidationGroupMemberTable",
         back_populates="group",
         cascade="all, delete-orphan",
     )
 
-    # =========================================================================
-    # METHODS
-    # =========================================================================
     def activate(self) -> None:
         self.is_active = True
 
