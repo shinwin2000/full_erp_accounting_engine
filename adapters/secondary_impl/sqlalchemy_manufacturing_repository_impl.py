@@ -857,14 +857,48 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
         table.updated_at = _utc_now()
 
     async def save_cost_card(self, cost_card: CostCardEntity) -> None:
+        """
+        Upsert by business key (product_id, period, legal_entity_id).
+        Fallback ke primary key (cost_card_id) kalau business key tidak cocok.
+        """
         session = await self._get_session()
-        existing = await session.get(ManufacturingCostCardTable, cost_card.cost_card_id)
+
+        # 1. Coba cari by business key dulu (unique constraint).
+        legal_entity_id = self._get_legal_entity_id()
+        period = f"{cost_card.created_at.year}-{cost_card.created_at.month:02d}"
+
+        conditions = [
+            ManufacturingCostCardTable.product_id == cost_card.product_id,
+            ManufacturingCostCardTable.period == period,
+        ]
+        if legal_entity_id is not None:
+            conditions.append(
+                ManufacturingCostCardTable.legal_entity_id == legal_entity_id
+            )
+
+        stmt = (
+            select(ManufacturingCostCardTable)
+            .where(and_(*conditions))
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
         if existing is None:
+            # Fallback: cek by primary key juga (untuk update via cost_card_id)
+            existing = await session.get(
+                ManufacturingCostCardTable, cost_card.cost_card_id
+            )
+
+        if existing is None:
+            # Insert baru
             table = ManufacturingCostCardTable(id=cost_card.cost_card_id)
             self._apply_cost_card(table, cost_card)
             session.add(table)
         else:
+            # Update existing (business key match atau primary key match)
             self._apply_cost_card(existing, cost_card)
+
         await session.flush()
         try:
             await session.commit()

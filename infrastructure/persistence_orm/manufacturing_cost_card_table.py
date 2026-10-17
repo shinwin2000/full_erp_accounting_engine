@@ -4,11 +4,10 @@ Module: manufacturing_cost_card_table.py
 Layer: Infrastructure - Persistence ORM
 Responsibility: ORM table untuk manufacturing cost card.
 
-Changelog v6.5:
-    - FIX: tambah kolom legal_entity_id (nullable).
-    - FIX: tambah __table_args__: UniqueConstraint, Index.
-    - FIX: perlebar unit_of_measure ke String(20).
-    - FIX: gunakan server_default agar sinkron dengan migrasi 0054/0055.
+Changelog v6.6:
+    - FIX: hapus ForeignKey ke inventory_item (logical reference, bukan hard FK).
+    - FIX: notes pakai Text (konsisten dengan DB TEXT).
+    - FIX: other_cost pakai Numeric(20, 2) (konsisten dengan kolom lain).
 """
 from __future__ import annotations
 
@@ -18,10 +17,10 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
-    ForeignKey,
     Index,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -45,12 +44,15 @@ class ManufacturingCostCardTable(Base):
         PG_UUID(as_uuid=True), nullable=False, index=True,
         comment="LEGACY: menyimpan work_order_id, bukan cost_card_id",
     )
+
+    # FIX: hapus ForeignKey ke inventory_item.
+    # product_id = logical reference (tidak dijamin ada di inventory_item).
     product_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
+
     product_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     period: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
@@ -63,8 +65,9 @@ class ManufacturingCostCardTable(Base):
     overhead_cost: Mapped[Decimal] = mapped_column(
         Numeric(20, 2), nullable=False, default=Decimal("0"), server_default=text("0")
     )
+    # FIX: samakan dengan kolom lain (dari 18,2 -> 20,2)
     other_cost: Mapped[Decimal] = mapped_column(
-        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default=text("0")
+        Numeric(20, 2), nullable=False, default=Decimal("0"), server_default=text("0")
     )
     total_cost: Mapped[Decimal] = mapped_column(
         Numeric(20, 2), nullable=False, default=Decimal("0"), server_default=text("0")
@@ -84,7 +87,8 @@ class ManufacturingCostCardTable(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="open", server_default=text("'open'"), index=True,
     )
-    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # FIX: pakai Text (konsisten dengan DB)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     legal_entity_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True, index=True,
