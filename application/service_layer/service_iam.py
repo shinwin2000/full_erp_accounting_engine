@@ -3,13 +3,13 @@
 Module: service_iam.py
 Layer: Application / Service Layer
 Responsibility: IAM service (identity and access management).
-               Memperbaiki: set_context(), login(), authenticate(),
-               dan konversi UserAggregate -> UserEntity.
-FIX v11: Perbaiki is_active/is_superuser/is_locked yang berupa METHOD pada
-         UserEntity — sebelumnya dikirim apa adanya sebagai bound method ke
-         UserAggregate, menyebabkan SQLAlchemy error "Not a boolean value".
-FIX v12: Tambah fallback lock_user di service supaya tidak crash kalau
-         repository tidak punya method itu (lihat catatan di method).
+
+FIX v13 (2026-10-14): _to_user_entity() sekarang MEMBACA mfa_enabled dan
+    mfa_secret dari UserAggregate (bukan hardcode False/None), sehingga blok
+    MFA check di authenticate() benar-benar jalan saat login.
+FIX v12: Fallback lock_user di service kalau repository tidak punya method itu.
+FIX v11: Normalisasi is_active/is_superuser/is_locked (method → bool) sebelum
+    dikirim ke UserAggregate, mencegah error SQLAlchemy "Not a boolean value".
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from uuid import UUID, uuid4
 try:
     import pyotp
     HAS_PYOTP = True
-except ImportError:  # pragma: no cover - fallback kalau dependency belum di-install
+except ImportError:
     HAS_PYOTP = False
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,16 +70,6 @@ from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
-# CATATAN: file domain/iam/password_hashed_vo.py sudah dicek langsung (user
-# upload). Dua hal terkonfirmasi dari sana:
-#  1. Nama atribut hash yang benar adalah `hashed_value` (tebakan sebelumnya
-#     berdasarkan clue di sqlalchemy_iam_user_repository_impl.py TERBUKTI BENAR).
-#  2. Ada factory method RESMI `PasswordHashedVO.create_from_plain(plain_password,
-#     username=..., algorithm=...)` — bukan `from_plain` (tidak pernah ada) dan
-#     bukan hash bcrypt manual (yang dipakai di fix sebelumnya). Method resmi ini
-#     lebih baik dipakai karena otomatis validasi kekuatan password (PasswordPolicy)
-#     dan memilih algoritma yang tersedia (bcrypt/argon2/pbkdf2 fallback).
-
 
 def _extract_password_hash_str(password_hash: PasswordHashedVO) -> str:
     """Ambil string hash dari PasswordHashedVO (atribut: hashed_value)."""
@@ -89,27 +79,20 @@ def _extract_password_hash_str(password_hash: PasswordHashedVO) -> str:
 def _to_bool(value: Any, default: bool = False) -> bool:
     """Normalisasi nilai yang mungkin berupa method/atribut menjadi bool.
 
-    BUG FIX: UserEntity.is_active, .is_locked, dan .is_superuser didefinisikan
-    sebagai METHOD (bukan atribut/property) di domain/iam/user_entity.py.
-    Kalau nilai ini dikirim apa adanya ke UserAggregate(...), yang tersimpan
-    adalah bound method — dan SQLAlchemy akan gagal saat flush ke kolom
-    BOOLEAN dengan error:
+    UserEntity.is_active, .is_locked, dan .is_superuser didefinisikan sebagai
+    METHOD (bukan atribut/property). Kalau nilai ini dikirim apa adanya ke
+    UserAggregate(...), yang tersimpan adalah bound method — dan SQLAlchemy
+    akan gagal saat flush ke kolom BOOLEAN dengan error:
         TypeError: Not a boolean value: <bound method UserEntity.is_active ...>
-
-    Helper ini memanggil method kalau memang callable, atau pakai nilainya
-    langsung kalau itu atribut biasa, dan fallback ke `default` kalau
-    hasilnya bukan bool valid.
     """
     if value is None:
         return default
-    # Kalau callable (bound method), panggil dulu
     if callable(value):
         try:
             value = value()
         except Exception:
             logger.debug("Gagal memanggil callable saat normalisasi bool", exc_info=True)
             return default
-    # Setelah itu, paksa jadi bool
     if isinstance(value, bool):
         return value
     try:
@@ -248,7 +231,6 @@ class MFAError(IAMServiceError):
 class PermissionDeniedError(IAMServiceError):
     pass
 
-
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -273,9 +255,7 @@ class IAMService:
         self._token_issuer = token_issuer
         self._cache = cache
         # Session request-scoped yang di-set lewat set_context(). Ini session
-        # SESUNGGUHNYA yang dipakai untuk semua operasi DB (di-inject langsung
-        # ke repository), beda dari self._uow yang di service ini tidak pernah
-        # benar-benar di-start/di-masuki. Lihat _commit().
+        # SESUNGGUHNYA yang dipakai untuk semua operasi DB.
         self._session: AsyncSession | None = None
         self._stats = {
             "users_created": 0,
@@ -320,23 +300,9 @@ class IAMService:
     async def _commit(self) -> None:
         """Commit perubahan ke DB.
 
-        FIX: sebelumnya setiap method di service ini manggil
-        `await self._uow.commit()` langsung — padahal `self._uow`
-        (UnitOfWorkPort) di service ini TIDAK PERNAH di-`begin()` atau
-        dimasuki lewat `async with self._uow:` (beda dari COAService/
-        CustomerService yang memang pakai pola itu). Satu-satunya session
-        yang benar-benar dipakai untuk query/insert/update di sini adalah
-        `session` yang di-inject langsung ke repository lewat
-        set_context()/set_session() — jadi manggil self._uow.commit() SELALU
-        gagal "UoW not started or transaction not active" karena UoW-nya
-        memang tidak pernah aktif (traceback user mengonfirmasi ini: data
-        sempat berhasil di-flush ke repo — log "User added: akuntan" — tapi
-        commit yang menyusul gagal, jadi baris itu sesungguhnya tidak pernah
-        ter-commit permanen ke DB).
-        Fix: commit session yang sesungguhnya dipakai (self._session).
-        Fallback ke self._uow.commit() dipertahankan HANYA untuk jaga-jaga
-        kalau ada caller yang belum sempat panggil set_context() (mis. dari
-        test/script lain di luar alur router biasa).
+        FIX: commit session yang sesungguhnya dipakai (self._session).
+        Fallback ke self._uow.commit() hanya untuk jaga-jaga kalau ada caller
+        yang belum sempat panggil set_context().
         """
         if self._session is not None:
             await self._session.commit()
@@ -368,7 +334,14 @@ class IAMService:
     # ========================================================================
 
     def _to_user_entity(self, agg: UserAggregate) -> UserEntity:
-        """Convert UserAggregate to proper UserEntity with profile and audit."""
+        """Convert UserAggregate to proper UserEntity with profile and audit.
+
+        FIX v13 (2026-10-14): SEBELUMNYA `mfa_enabled=False` dan
+        `mfa_secret=None` di-HARDCODE di sini, sehingga walaupun DB sudah
+        update jadi True (via verify_and_enable_mfa), entity yang dikembalikan
+        ke authenticate() selalu punya mfa_enabled=False dan blok MFA check
+        di-skip → login tanpa minta kode MFA. Sekarang dibaca dari aggregate.
+        """
         profile = UserProfile(
             full_name=agg.full_name,
             email=agg.email,
@@ -405,8 +378,9 @@ class IAMService:
             role_ids=agg.role_ids,
             failed_login_attempts=agg.failed_login_count,
             locked_until=agg.locked_until,
-            mfa_enabled=False,
-            mfa_secret=None,
+            # FIX v13: baca mfa_* dari aggregate (bukan hardcode False/None)
+            mfa_enabled=bool(getattr(agg, "mfa_enabled", False)),
+            mfa_secret=getattr(agg, "mfa_secret", None),
             audit=audit,
         )
 
@@ -423,18 +397,9 @@ class IAMService:
             if existing.email == request.email:
                 raise IAMServiceError(f"Email '{request.email}' already exists")
 
-        # FIX (final, dikonfirmasi dari domain/iam/password_hashed_vo.py):
-        # PasswordHashedVO TIDAK punya `.from_plain` (tidak pernah ada) — yang
-        # ada factory resmi `create_from_plain(plain_password, username=...)`,
-        # yang sekalian menjalankan PasswordPolicy.validate() (panjang/uppercase/
-        # digit/simbol/dst, raise PasswordError yang merupakan subclass
-        # ValueError — otomatis jadi HTTP 422 lewat except ValueError di router,
-        # bukan 500) dan memilih algoritma hash yang tersedia (bcrypt/argon2/
-        # pbkdf2 fallback) sendiri.
         password_hash = PasswordHashedVO.create_from_plain(
             request.password, username=request.username,
         )
-        # Buat UserEntity langsung (untuk ditambahkan ke IAM)
         user_entity = UserEntity(
             user_id=uuid4(),
             username=request.username,
@@ -457,7 +422,6 @@ class IAMService:
             ),
         )
 
-        # Convert ke UserAggregate untuk repository
         user_agg = UserAggregate(
             id=user_entity.user_id,
             username=user_entity.username,
@@ -527,7 +491,6 @@ class IAMService:
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        # Ambil data dari user entity
         current_full_name = user.profile.full_name
         current_email = user.email
         new_full_name = full_name or current_full_name
@@ -545,14 +508,10 @@ class IAMService:
         if not changes:
             return user
 
-        # Update UserAggregate
-        #
         # FIX v11: is_active/is_superuser di UserEntity adalah METHOD (bukan
         # atribut), jadi `user.is_active` mengembalikan bound method — bukan
-        # bool. Kalau dikirim apa adanya ke UserAggregate(...), SQLAlchemy
-        # akan gagal saat flush ke kolom BOOLEAN dengan error:
-        #   TypeError: Not a boolean value: <bound method ...>
-        # _to_bool() di atas menormalkan baik method maupun atribut ke bool.
+        # bool. _to_bool() menormalkan baik method maupun atribut ke bool.
+        # FIX v13: bawa juga mfa_* dari user lama supaya tidak reset.
         agg = UserAggregate(
             id=user.user_id,
             username=user.username,
@@ -568,10 +527,13 @@ class IAMService:
             locked_until=user.locked_until,
             must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
+            mfa_enabled=bool(getattr(user, "mfa_enabled", False)),
+            mfa_secret=getattr(user, "mfa_secret", None),
+            mfa_backup_codes=list(getattr(user, "mfa_backup_codes", []) or []),
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
+            version=user.audit.version,
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -580,7 +542,6 @@ class IAMService:
 
         self._stats["users_updated"] += 1
 
-        # Konversi kembali ke UserEntity untuk return
         updated_user_entity = self._to_user_entity(agg)
 
         if self._event_publisher:
@@ -638,10 +599,13 @@ class IAMService:
             locked_until=user.locked_until,
             must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
+            mfa_enabled=bool(getattr(user, "mfa_enabled", False)),
+            mfa_secret=getattr(user, "mfa_secret", None),
+            mfa_backup_codes=list(getattr(user, "mfa_backup_codes", []) or []),
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
+            version=user.audit.version,
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -704,10 +668,13 @@ class IAMService:
             locked_until=user.locked_until,
             must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
+            mfa_enabled=bool(getattr(user, "mfa_enabled", False)),
+            mfa_secret=getattr(user, "mfa_secret", None),
+            mfa_backup_codes=list(getattr(user, "mfa_backup_codes", []) or []),
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
+            version=user.audit.version,
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -751,14 +718,8 @@ class IAMService:
         """Lock user account.
 
         FIX v12: repository IAM (SQLAlchemyIAMRepository) TIDAK punya method
-        `lock_user` — hanya `unlock_user` yang didefinisikan. Sebelumnya
-        pemanggilan `self._iam_repo.lock_user(...)` langsung raise
-        AttributeError → 500 di endpoint POST /iam/users/{id}/lock.
-
-        Solusi: implementasi fallback di service ini sendiri, memakai
-        `update()` standar yang sudah ada (tidak butuh method baru di repo).
-        Kalau di masa depan repo menambah `lock_user()`, kita pakai itu
-        (fast path). Kalau tidak, pakai jalur update generik.
+        `lock_user` — hanya `unlock_user`. Solusi: implementasi fallback di
+        service ini sendiri, memakai `update()` standar yang sudah ada.
         """
         self._check_authority(locked_by, "lock_user")
         iam = await self._iam_repo.get()
@@ -770,11 +731,9 @@ class IAMService:
 
         lock_until = datetime.now(UTC) + timedelta(minutes=30)
 
-        # Fast path: repo punya method lock_user → pakai itu
         if hasattr(self._iam_repo, "lock_user") and callable(getattr(self._iam_repo, "lock_user")):
             await self._iam_repo.lock_user(user_id, locked_by, reason)
         else:
-            # Fallback: pakai update() generik dengan status LOCKED + locked_until
             agg = UserAggregate(
                 id=user.user_id,
                 username=user.username,
@@ -790,6 +749,9 @@ class IAMService:
                 locked_until=lock_until,
                 must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
                 password_changed_at=user.audit.last_password_change_at,
+                mfa_enabled=bool(getattr(user, "mfa_enabled", False)),
+                mfa_secret=getattr(user, "mfa_secret", None),
+                mfa_backup_codes=list(getattr(user, "mfa_backup_codes", []) or []),
                 created_at=user.audit.created_at,
                 updated_at=datetime.now(UTC),
                 created_by=user.audit.created_by,
@@ -890,10 +852,13 @@ class IAMService:
             locked_until=user.locked_until,
             must_change_password=_to_bool(getattr(user, 'must_change_password', False), default=False),
             password_changed_at=user.audit.last_password_change_at,
+            mfa_enabled=bool(getattr(user, "mfa_enabled", False)),
+            mfa_secret=getattr(user, "mfa_secret", None),
+            mfa_backup_codes=list(getattr(user, "mfa_backup_codes", []) or []),
             created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
             created_by=user.audit.created_by,
-            version=user.audit.version,  # FIX: jangan pre-increment, repo.update() yang increment
+            version=user.audit.version,
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
             role_ids=user.role_ids,
         )
@@ -1043,14 +1008,7 @@ class IAMService:
         return list(iam.roles.values())
 
     async def get_user_roles(self, user_id: UUID) -> list[RoleEntity]:
-        """Ambil semua Role yang di-assign ke seorang user.
-
-        CATATAN PERBAIKAN: method ini sebelumnya belum ada sama sekali,
-        padahal endpoint GET /iam/users/{user_id}/roles di router sudah
-        memanggilnya - jadi endpoint tsb selalu gagal dengan
-        AttributeError. Ditambahkan di sini mengikuti pola yang sama
-        dengan list_roles()/get_user() yang sudah ada dan terbukti jalan.
-        """
+        """Ambil semua Role yang di-assign ke seorang user."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if user is None:
@@ -1065,14 +1023,6 @@ class IAMService:
         if not role:
             raise RoleNotFoundError(f"Role {role_id} not found")
 
-        # FIX: sebelumnya SEMUA update ke role is_system (mis. "Administrator",
-        # "admin") diblok total, termasuk assign/revoke permission — padahal
-        # endpoint POST /iam/roles/{id}/permissions (gate permission terpisah
-        # "iam:role_assign") memang dirancang untuk bisa mengubah permission
-        # role manapun, termasuk role sistem. Proteksi is_system seharusnya
-        # hanya mencegah perubahan STRUKTURAL (rename, ganti deskripsi,
-        # is_default, pindah parent) yang bisa merusak identitas role bawaan
-        # sistem — bukan mencegah pemberian/pencabutan permission.
         is_structural_change = (
             (request.role_name is not None and request.role_name != role.role_name)
             or (request.description is not None and request.description != role.description)
@@ -1136,11 +1086,6 @@ class IAMService:
         if not changes:
             return role
 
-        # Update via repository
-        # NOTE: self._iam_repo di-bind ke IAMRepositoryPort (SQLAlchemyIAMRepository),
-        # yang override update_role()-nya menerima RoleEntity utuh, BUKAN kwargs
-        # (role_id, new_name, new_permissions, updated_by) milik base class
-        # IAMUserRepositoryPort yang di-shadow lewat MRO.
         role.updated_by = str(updated_by)
         role.updated_at = datetime.now(UTC)
         await self._iam_repo.update_role(role)
@@ -1291,9 +1236,6 @@ class IAMService:
     ) -> LoginResponse:
         if legal_entity_id is None:
             raise AuthenticationError("Legal entity context is required for login")
-        # FIX BUG: sebelumnya mfa_code diterima sebagai parameter tapi tidak
-        # pernah diteruskan ke authenticate() - jadi walau user sudah aktifkan
-        # MFA, backend tidak pernah mengecek kodenya sama sekali saat login.
         return await self.authenticate(
             username=username,
             password=password,
@@ -1317,7 +1259,6 @@ class IAMService:
         if self._token_issuer is None:
             raise AuthenticationError("Token issuer not configured")
 
-        # Repository authenticate mengembalikan UserAggregate
         user_agg = await self._iam_repo.authenticate(
             username=username,
             password=password,
@@ -1339,7 +1280,6 @@ class IAMService:
                 await self._event_publisher.publish(event)
             raise AuthenticationError("Invalid username or password")
 
-        # Konversi UserAggregate ke UserEntity
         user = self._to_user_entity(user_agg)
 
         if user.status != UserStatus.ACTIVE:
@@ -1373,20 +1313,16 @@ class IAMService:
         # ============================================================
         # MFA CHECK
         # ============================================================
-        # FIX BUG: sebelumnya blok ini tidak ada sama sekali - user dengan
-        # mfa_enabled=True bisa login hanya dengan password, kode MFA tidak
-        # pernah divalidasi.
         if user.mfa_enabled:
             if not mfa_code:
                 self._stats["login_failures"] += 1
                 await self._safe_record_login_attempt(username, False, ip_address, "mfa_code_required", user_agent)
                 raise MFARequiredError("Kode MFA diperlukan untuk akun ini")
-            if not self._verify_totp_code(user.mfa_secret, mfa_code, user_agg.mfa_backup_codes):
+            if not self._verify_totp_code(user.mfa_secret, mfa_code, getattr(user_agg, "mfa_backup_codes", None)):
                 self._stats["login_failures"] += 1
                 await self._safe_record_login_attempt(username, False, ip_address, "mfa_code_invalid", user_agent)
                 raise MFARequiredError("Kode MFA tidak valid")
 
-        # Dapatkan permissions dari IAM aggregate
         iam = await self._iam_repo.get()
         all_perms = iam.get_user_permissions(user.user_id)
         role_names = []
@@ -1395,23 +1331,13 @@ class IAMService:
             if role:
                 role_names.append(role.role_name)
 
-        # ============================================================
-        # FIX: Ubah permissions dari PermissionVO object ke string
-        # ============================================================
         permissions_list = [p.to_string for p in all_perms] if all_perms else []
 
-        # ============================================================
-        # LOGGING untuk debugging
-        # ============================================================
-        logger.info(
-            f"User {username} (id={user.user_id}) permissions: {permissions_list}"
-        )
-        logger.info(
-            f"User {username} roles: {role_names}"
-        )
+        logger.info(f"User {username} (id={user.user_id}) permissions: {permissions_list}")
+        logger.info(f"User {username} roles: {role_names}")
         if not permissions_list:
             logger.warning(
-                f"⚠️  User {username} has NO permissions! Check role assignments and permission mappings."
+                f"User {username} has NO permissions! Check role assignments and permission mappings."
             )
 
         access_token = await self._token_issuer.create_access_token(
@@ -1419,24 +1345,18 @@ class IAMService:
             username=user.username,
             legal_entity_id=user.legal_entity_id,
             roles=role_names,
-            permissions=permissions_list,  # <-- string list
+            permissions=permissions_list,
         )
         refresh_token = await self._token_issuer.create_refresh_token(
             user_id=user.user_id,
             username=user.username,
             legal_entity_id=user.legal_entity_id,
             roles=role_names,
-            permissions=permissions_list,  # <-- string list
+            permissions=permissions_list,
         )
 
         self._stats["logins"] += 1
 
-        # FIX BUG: sebelumnya sesi login dan riwayat percobaan login hanya
-        # dicatat lewat in-memory event publisher (yang di environment ini
-        # None / tidak wired), jadi tabel iam_session dan iam_login_attempt
-        # tidak pernah terisi walau login berhasil - itu sebabnya tab
-        # "Sesi Login Aktif" & "Riwayat Percobaan Login" di frontend selalu
-        # kosong. Sekarang ditulis langsung ke DB lewat repository.
         await self._safe_record_login_attempt(username, True, ip_address, None, user_agent)
         try:
             await self._iam_repo.create_session(
@@ -1594,7 +1514,7 @@ class IAMService:
             raise MFAError("Password salah")
 
         if user_agg.mfa_enabled:
-            if not mfa_code or not self._verify_totp_code(user_agg.mfa_secret, mfa_code, user_agg.mfa_backup_codes):
+            if not mfa_code or not self._verify_totp_code(user_agg.mfa_secret, mfa_code, getattr(user_agg, "mfa_backup_codes", None)):
                 self._record_audit("disable_mfa_failed", {"user_id": str(user_id), "reason": "invalid_mfa_code"})
                 raise MFAError("Kode MFA tidak valid")
 
@@ -1733,11 +1653,9 @@ class IAMService:
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        # Verify password via repository or aggregate
         if not user.password_hash.verify(old_password):
             raise AuthenticationError("Old password is incorrect")
 
-        # Update password via repository
         await self._iam_repo.change_password(
             user_id=user_id,
             old_password=old_password,
@@ -1772,7 +1690,6 @@ class IAMService:
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        # Use repository's change_password with force mode (old_password empty)
         await self._iam_repo.change_password(
             user_id=user_id,
             old_password="",
@@ -1802,12 +1719,6 @@ class IAMService:
     # ========================================================================
     # Password reset via token (alur self-service "Lupa Password")
     # ========================================================================
-    # CATATAN: server ini belum punya integrasi SMTP untuk benar-benar
-    # mengirim email. request_password_reset() mengembalikan token
-    # plaintext-nya langsung di response (reset_token/reset_url), BUKAN
-    # dikirim lewat email, sampai SMTP dikonfigurasi. Yang disimpan ke DB
-    # hanya HASH SHA-256 dari token (bukan plaintext), supaya kalaupun DB
-    # bocor, token asli tidak bisa dipakai orang lain.
 
     RESET_TOKEN_TTL_MINUTES = 60
 
@@ -1820,8 +1731,6 @@ class IAMService:
 
         user_agg = await self._iam_repo.get_by_email(email)
         if not user_agg:
-            # Sengaja tidak membocorkan apakah email terdaftar atau tidak
-            # (mencegah user enumeration) - selalu balas pesan yang sama.
             logger.info("Password reset requested for unknown email")
             return {"message": generic_message, "reset_token": None, "reset_url": None}
 
@@ -1835,8 +1744,6 @@ class IAMService:
         self._record_audit("request_password_reset", {"user_id": str(user_agg.id)})
         logger.info("Password reset token issued for user %s", user_agg.id)
 
-        # TODO: begitu SMTP dikonfigurasi, kirim `reset_url` lewat email dan
-        # jangan lagi kembalikan reset_token/reset_url langsung di response.
         return {
             "message": generic_message,
             "reset_token": token,
@@ -1935,3 +1842,4 @@ __all__ = [
     "UserResponse",
     "create_iam_service",
 ]
+

@@ -457,20 +457,28 @@ _reg(ModuleConfig(
     ],
 ))
 
-# IAM modules - sama
+# ============================================================
+# IAM MODULES
+# ============================================================
+# PENTING: base_path IAM HARUS "/iam/iam" (dobel) -- sesuai mounting
+# router IAM di app/main.py pada prefix "/api/v1/iam" DITAMBAH decorator
+# internal "/iam/..." di fastapi_iam_router.py. Sebelumnya di file ini
+# tertulis "/iam" (single) yang menyebabkan frontend request ke
+# "/api/v1/iam/login" sementara backend melayani "/api/v1/iam/iam/login"
+# -> 404 Not Found.
 _reg(ModuleConfig(
     key="iam_security", label="Keamanan Akun: Sesi, MFA & Password", category="Master Data", icon="🔐",
-    base_path="/iam", custom_page=True,
+    base_path="/iam/iam", custom_page=True,
     description="Manajemen sesi login, setup MFA, riwayat percobaan login, ganti password.",
 ))
 _reg(ModuleConfig(
     key="iam_roles", label="Role & Permission", category="Master Data", icon="🔑",
-    base_path="/iam", list_path="/roles", custom_page=True,
+    base_path="/iam/iam", list_path="/roles", custom_page=True,
     description="Manajemen role, permission, dan assignment role ke user.",
 ))
 _reg(ModuleConfig(
     key="iam_users", label="Pengguna & Role", category="Master Data", icon="🔐",
-    base_path="/iam", list_path="/users",
+    base_path="/iam/iam", list_path="/users",
     columns=[("username", "Username"), ("email", "Email"), ("full_name", "Nama"),
              ("department", "Departemen"), ("is_active", "Aktif"), ("is_locked", "Terkunci")],
     form_fields=[

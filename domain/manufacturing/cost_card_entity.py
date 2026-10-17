@@ -3,8 +3,12 @@
 Module: cost_card_entity.py
 Layer: 6 - Domain / Manufacturing
 Responsibility: Production cost card per work order.
-"""
 
+Changelog v6.4:
+    - FIX: tambah field `quantity_base`, `unit_of_measure`, `other_cost`.
+    - FIX: `unit_cost = total_cost / quantity_base` (bukan `completed_quantity`).
+    - FIX: `create()` menerima `quantity_base` + `unit_of_measure`.
+"""
 from __future__ import annotations
 
 import logging
@@ -21,14 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 class CostCardStatus(Enum):
-    """Cost card status."""
-
     OPEN = "open"
     CLOSED = "closed"
     ADJUSTED = "adjusted"
 
     @classmethod
-    def from_string(cls, value: str) -> CostCardStatus:
+    def from_string(cls, value: str) -> "CostCardStatus":
         for member in cls:
             if member.value == value.lower():
                 return member
@@ -37,24 +39,6 @@ class CostCardStatus(Enum):
 
 @dataclass(frozen=True)
 class CostEntry:
-    """
-    Individual cost entry within a cost card (immutable value object).
-
-    Attributes:
-        entry_id: Unique identifier.
-        cost_element: Type of cost (material, labor, overhead).
-        amount: Cost amount.
-        quantity: Quantity of the cost driver.
-        unit_cost: Cost per unit of quantity.
-        transaction_date: Date when the cost was incurred.
-        reference_type: Type of reference document.
-        reference_id: ID of the reference document.
-        reference_number: Human-readable reference number.
-        description: Optional description.
-        created_by: User who created this entry.
-        created_at: Creation timestamp.
-    """
-
     entry_id: UUID
     cost_element: CostElement
     amount: Decimal
@@ -99,13 +83,9 @@ class CostEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> CostEntry:
-        # Ensure cost_element is never None
+    def from_dict(cls, data: dict[str, Any]) -> "CostEntry":
         cost_element_raw = data.get("cost_element", "material")
-        cost_element = CostElement.from_string(cost_element_raw)
-        if cost_element is None:
-            cost_element = CostElement.MATERIAL
-
+        cost_element = CostElement.from_string(cost_element_raw) or CostElement.MATERIAL
         return cls(
             entry_id=UUID(data["entry_id"]),
             cost_element=cost_element,
@@ -118,20 +98,23 @@ class CostEntry:
             reference_number=data["reference_number"],
             description=data.get("description", ""),
             created_by=data.get("created_by", "system"),
-            created_at=datetime.fromisoformat(data["created_at"])
-            if data.get("created_at")
-            else datetime.now(UTC),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if data.get("created_at")
+                else datetime.now(UTC)
+            ),
         )
 
 
 @dataclass
 class CostCardEntity:
     """
-    Cost card entity for a work order.
+    Cost card entity.
 
-    Business context:
-    Records all costs incurred for a work order, including raw materials,
-    labor, and overhead. Used for cost tracking and final HPP calculation.
+    Catatan penting:
+    - `quantity_base` = basis hitung unit cost (mis. per 20 pcs).
+    - `completed_quantity` = progres produksi aktual.
+    - `unit_cost = total_cost / quantity_base`.
     """
 
     cost_card_id: UUID
@@ -148,6 +131,9 @@ class CostCardEntity:
     total_cost: Decimal
     unit_cost: Decimal
     status: CostCardStatus
+    quantity_base: Decimal = Decimal("1")
+    unit_of_measure: str = "pcs"
+    other_cost: Decimal = Decimal("0")
     entries: list[CostEntry] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -167,42 +153,45 @@ class CostCardEntity:
             raise ValueError(
                 f"Completed quantity {self.completed_quantity} exceeds planned {self.planned_quantity}"
             )
+        if self.quantity_base <= 0:
+            raise ValueError(f"Quantity base must be positive: {self.quantity_base}")
         if self.material_cost < 0 or self.labor_cost < 0 or self.overhead_cost < 0:
             raise ValueError("Cost components cannot be negative")
-        calc_total = self.material_cost + self.labor_cost + self.overhead_cost
+        if self.other_cost < 0:
+            raise ValueError("Other cost cannot be negative")
+
+        calc_total = (
+            self.material_cost + self.labor_cost + self.overhead_cost + self.other_cost
+        )
         if abs(self.total_cost - calc_total) > Decimal("0.01"):
             raise ValueError(
                 f"Total cost mismatch: {self.total_cost} vs sum of components {calc_total}"
             )
-        if self.completed_quantity > 0:
-            expected_unit = self.total_cost / self.completed_quantity
-            if abs(self.unit_cost - expected_unit) > Decimal("0.01"):
-                raise ValueError(f"Unit cost mismatch: {self.unit_cost} vs {expected_unit}")
-        else:
-            if self.unit_cost != Decimal(0):
-                raise ValueError("Unit cost must be zero when no units completed")
+
+        # FIX: unit_cost = total_cost / quantity_base (bukan completed_quantity)
+        expected_unit = self.total_cost / self.quantity_base
+        if abs(self.unit_cost - expected_unit) > Decimal("0.01"):
+            raise ValueError(
+                f"Unit cost mismatch: {self.unit_cost} vs {expected_unit} "
+                f"(total={self.total_cost}, quantity_base={self.quantity_base})"
+            )
+
         if self.version < 1:
             raise ValueError(f"Version must be >= 1: {self.version}")
         if self.created_at.tzinfo is None or self.updated_at.tzinfo is None:
             raise ValueError("Timestamps must be timezone-aware")
 
-    # ==================== AUDIT TRAIL ====================
-
     def _record_audit(self, action: str, user_id: str, details: dict | None = None) -> None:
-        self._audit_trail.append(
-            {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "action": action,
-                "user_id": user_id,
-                "details": details or {},
-                "version": self.version,
-            }
-        )
+        self._audit_trail.append({
+            "timestamp": datetime.now(UTC).isoformat(),
+            "action": action,
+            "user_id": user_id,
+            "details": details or {},
+            "version": self.version,
+        })
 
     def get_audit_trail(self) -> list[dict]:
         return self._audit_trail.copy()
-
-    # ==================== FACTORY METHOD ====================
 
     @classmethod
     def create(
@@ -213,10 +202,17 @@ class CostCardEntity:
         product_code: str,
         product_name: str,
         planned_quantity: Decimal,
+        quantity_base: Decimal | None = None,
+        unit_of_measure: str = "pcs",
         created_by: str = "system",
-    ) -> CostCardEntity:
+    ) -> "CostCardEntity":
         if planned_quantity <= 0:
             raise ValueError(f"Planned quantity must be positive: {planned_quantity}")
+        qb = (
+            quantity_base
+            if quantity_base is not None and quantity_base > 0
+            else planned_quantity
+        )
         instance = cls(
             cost_card_id=uuid4(),
             work_order_id=work_order_id,
@@ -229,15 +225,16 @@ class CostCardEntity:
             material_cost=Decimal(0),
             labor_cost=Decimal(0),
             overhead_cost=Decimal(0),
+            other_cost=Decimal(0),
             total_cost=Decimal(0),
             unit_cost=Decimal(0),
             status=CostCardStatus.OPEN,
+            quantity_base=qb,
+            unit_of_measure=unit_of_measure,
             created_by=created_by,
         )
         instance._record_audit("created", created_by, {"work_order_number": work_order_number})
         return instance
-
-    # ==================== COST ADDITION METHODS ====================
 
     def _add_cost_entry(
         self,
@@ -251,7 +248,7 @@ class CostCardEntity:
         reference_number: str,
         description: str,
         added_by: str,
-    ) -> CostCardEntity:
+    ) -> "CostCardEntity":
         if amount <= 0:
             raise ValueError("Amount must be positive")
         if quantity < 0:
@@ -272,30 +269,31 @@ class CostCardEntity:
             description=description,
             created_by=added_by,
         )
-
         new_entries = [*self.entries, entry]
 
         if cost_element == CostElement.MATERIAL:
             new_material = self.material_cost + amount
             new_labor = self.labor_cost
             new_overhead = self.overhead_cost
+            new_other = self.other_cost
         elif cost_element == CostElement.LABOR:
             new_material = self.material_cost
             new_labor = self.labor_cost + amount
             new_overhead = self.overhead_cost
+            new_other = self.other_cost
         elif cost_element == CostElement.OVERHEAD:
             new_material = self.material_cost
             new_labor = self.labor_cost
             new_overhead = self.overhead_cost + amount
+            new_other = self.other_cost
         else:
             new_material = self.material_cost
             new_labor = self.labor_cost
-            new_overhead = self.overhead_cost + amount
+            new_overhead = self.overhead_cost
+            new_other = self.other_cost + amount
 
-        new_total = new_material + new_labor + new_overhead
-        new_unit = (
-            new_total / self.completed_quantity if self.completed_quantity > 0 else Decimal(0)
-        )
+        new_total = new_material + new_labor + new_overhead + new_other
+        new_unit = new_total / self.quantity_base if self.quantity_base > 0 else Decimal(0)
 
         self._record_audit(
             "cost_added",
@@ -319,9 +317,12 @@ class CostCardEntity:
             material_cost=new_material,
             labor_cost=new_labor,
             overhead_cost=new_overhead,
+            other_cost=new_other,
             total_cost=new_total,
             unit_cost=new_unit,
             status=self.status,
+            quantity_base=self.quantity_base,
+            unit_of_measure=self.unit_of_measure,
             entries=new_entries,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
@@ -330,93 +331,56 @@ class CostCardEntity:
         )
 
     def add_material_cost(
-        self,
-        amount: Decimal,
-        quantity: Decimal,
-        unit_cost: Decimal,
-        transaction_date: datetime,
-        reference_type: str,
-        reference_id: UUID,
-        reference_number: str,
-        description: str = "",
-        added_by: str = "system",
-    ) -> CostCardEntity:
+        self, amount: Decimal, quantity: Decimal, unit_cost: Decimal,
+        transaction_date: datetime, reference_type: str, reference_id: UUID,
+        reference_number: str, description: str = "", added_by: str = "system",
+    ) -> "CostCardEntity":
         return self._add_cost_entry(
-            CostElement.MATERIAL,
-            amount,
-            quantity,
-            unit_cost,
-            transaction_date,
-            reference_type,
-            reference_id,
-            reference_number,
-            description,
-            added_by,
+            CostElement.MATERIAL, amount, quantity, unit_cost,
+            transaction_date, reference_type, reference_id,
+            reference_number, description, added_by,
         )
 
     def add_labor_cost(
-        self,
-        amount: Decimal,
-        quantity: Decimal,
-        unit_cost: Decimal,
-        transaction_date: datetime,
-        reference_type: str,
-        reference_id: UUID,
-        reference_number: str,
-        description: str = "",
-        added_by: str = "system",
-    ) -> CostCardEntity:
+        self, amount: Decimal, quantity: Decimal, unit_cost: Decimal,
+        transaction_date: datetime, reference_type: str, reference_id: UUID,
+        reference_number: str, description: str = "", added_by: str = "system",
+    ) -> "CostCardEntity":
         return self._add_cost_entry(
-            CostElement.LABOR,
-            amount,
-            quantity,
-            unit_cost,
-            transaction_date,
-            reference_type,
-            reference_id,
-            reference_number,
-            description,
-            added_by,
+            CostElement.LABOR, amount, quantity, unit_cost,
+            transaction_date, reference_type, reference_id,
+            reference_number, description, added_by,
         )
 
     def add_overhead_cost(
-        self,
-        amount: Decimal,
-        quantity: Decimal,
-        unit_cost: Decimal,
-        transaction_date: datetime,
-        reference_type: str,
-        reference_id: UUID,
-        reference_number: str,
-        description: str = "",
-        added_by: str = "system",
-    ) -> CostCardEntity:
+        self, amount: Decimal, quantity: Decimal, unit_cost: Decimal,
+        transaction_date: datetime, reference_type: str, reference_id: UUID,
+        reference_number: str, description: str = "", added_by: str = "system",
+    ) -> "CostCardEntity":
         return self._add_cost_entry(
-            CostElement.OVERHEAD,
-            amount,
-            quantity,
-            unit_cost,
-            transaction_date,
-            reference_type,
-            reference_id,
-            reference_number,
-            description,
-            added_by,
+            CostElement.OVERHEAD, amount, quantity, unit_cost,
+            transaction_date, reference_type, reference_id,
+            reference_number, description, added_by,
         )
 
-    # ==================== COMPLETION METHOD ====================
-
-    def complete_units(self, completed_quantity: Decimal, completed_by: str) -> CostCardEntity:
+    def complete_units(self, completed_quantity: Decimal, completed_by: str) -> "CostCardEntity":
         if completed_quantity <= 0:
             raise ValueError("Completed quantity must be positive")
         new_completed = self.completed_quantity + completed_quantity
         if new_completed > self.planned_quantity:
             raise ValueError(
-                f"Cannot complete {completed_quantity} units, only {self.planned_quantity - self.completed_quantity} remaining"
+                f"Cannot complete {completed_quantity} units, only "
+                f"{self.planned_quantity - self.completed_quantity} remaining"
             )
-        new_unit = self.total_cost / new_completed if new_completed > 0 else Decimal(0)
+        new_unit = (
+            self.total_cost / self.quantity_base
+            if self.quantity_base > 0
+            else Decimal(0)
+        )
         new_status = (
-            CostCardStatus.CLOSED if new_completed >= self.planned_quantity else self.status
+            CostCardStatus.CLOSED
+            if new_completed >= self.planned_quantity
+            else self.status
         )
 
         self._record_audit(
@@ -441,9 +405,12 @@ class CostCardEntity:
             material_cost=self.material_cost,
             labor_cost=self.labor_cost,
             overhead_cost=self.overhead_cost,
+            other_cost=self.other_cost,
             total_cost=self.total_cost,
             unit_cost=new_unit,
             status=new_status,
+            quantity_base=self.quantity_base,
+            unit_of_measure=self.unit_of_measure,
             entries=self.entries,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
@@ -451,9 +418,7 @@ class CostCardEntity:
             version=self.version + 1,
         )
 
-    # ==================== ADJUSTMENT METHOD ====================
-
-    def adjust_cost(self, new_total_cost: Decimal, reason: str, adjusted_by: str) -> CostCardEntity:
+    def adjust_cost(self, new_total_cost: Decimal, reason: str, adjusted_by: str) -> "CostCardEntity":
         if new_total_cost < 0:
             raise ValueError("Total cost cannot be negative")
 
@@ -462,10 +427,12 @@ class CostCardEntity:
             new_material = (self.material_cost * ratio).quantize(Decimal("0.01"))
             new_labor = (self.labor_cost * ratio).quantize(Decimal("0.01"))
             new_overhead = (self.overhead_cost * ratio).quantize(Decimal("0.01"))
+            new_other = (self.other_cost * ratio).quantize(Decimal("0.01"))
         else:
             new_material = Decimal(0)
             new_labor = Decimal(0)
             new_overhead = Decimal(0)
+            new_other = Decimal(0)
 
         adjustment_entry = CostEntry(
             entry_id=uuid4(),
@@ -481,9 +448,10 @@ class CostCardEntity:
             created_by=adjusted_by,
         )
         new_entries = [*self.entries, adjustment_entry]
-
         new_unit = (
-            new_total_cost / self.completed_quantity if self.completed_quantity > 0 else Decimal(0)
+            new_total_cost / self.quantity_base
+            if self.quantity_base > 0
+            else Decimal(0)
         )
 
         self._record_audit(
@@ -508,17 +476,18 @@ class CostCardEntity:
             material_cost=new_material,
             labor_cost=new_labor,
             overhead_cost=new_overhead,
+            other_cost=new_other,
             total_cost=new_total_cost,
             unit_cost=new_unit,
             status=CostCardStatus.ADJUSTED,
+            quantity_base=self.quantity_base,
+            unit_of_measure=self.unit_of_measure,
             entries=new_entries,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             created_by=adjusted_by,
             version=self.version + 1,
         )
-
-    # ==================== VALIDATION ====================
 
     def validate(self) -> list[str]:
         errors = []
@@ -530,14 +499,14 @@ class CostCardEntity:
             errors.append(
                 f"Completed quantity {self.completed_quantity} exceeds planned {self.planned_quantity}"
             )
-        calc_total = self.material_cost + self.labor_cost + self.overhead_cost
+        calc_total = (
+            self.material_cost + self.labor_cost + self.overhead_cost + self.other_cost
+        )
         if abs(self.total_cost - calc_total) > Decimal("0.01"):
             errors.append(f"Total cost mismatch: {self.total_cost} vs {calc_total}")
         return errors
 
-    # ==================== CLONE ====================
-
-    def clone(self) -> CostCardEntity:
+    def clone(self) -> "CostCardEntity":
         self._record_audit("cloned", "system", {"source_id": str(self.cost_card_id)})
         return CostCardEntity(
             cost_card_id=uuid4(),
@@ -551,15 +520,16 @@ class CostCardEntity:
             material_cost=self.material_cost,
             labor_cost=self.labor_cost,
             overhead_cost=self.overhead_cost,
+            other_cost=self.other_cost,
             total_cost=self.total_cost,
             unit_cost=self.unit_cost,
             status=self.status,
+            quantity_base=self.quantity_base,
+            unit_of_measure=self.unit_of_measure,
             entries=self.entries.copy(),
             created_by=self.created_by,
             version=1,
         )
-
-    # ==================== QUERY METHODS ====================
 
     def get_remaining_quantity(self) -> Decimal:
         return self.planned_quantity - self.completed_quantity
@@ -575,13 +545,13 @@ class CostCardEntity:
             "material_cost": str(self.material_cost),
             "labor_cost": str(self.labor_cost),
             "overhead_cost": str(self.overhead_cost),
+            "other_cost": str(self.other_cost),
             "total_cost": str(self.total_cost),
             "unit_cost": str(self.unit_cost),
+            "quantity_base": str(self.quantity_base),
             "completion_rate": self.get_completion_percentage(),
             "remaining_quantity": str(self.get_remaining_quantity()),
         }
-
-    # ==================== DICTIONARY METHODS ====================
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -598,8 +568,11 @@ class CostCardEntity:
             "material_cost": str(self.material_cost),
             "labor_cost": str(self.labor_cost),
             "overhead_cost": str(self.overhead_cost),
+            "other_cost": str(self.other_cost),
             "total_cost": str(self.total_cost),
             "unit_cost": str(self.unit_cost),
+            "quantity_base": str(self.quantity_base),
+            "unit_of_measure": self.unit_of_measure,
             "status": self.status.value,
             "entries": [e.to_dict() for e in self.entries],
             "summary": self.get_summary(),
@@ -610,14 +583,9 @@ class CostCardEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> CostCardEntity:
+    def from_dict(cls, data: dict[str, Any]) -> "CostCardEntity":
         entries = [CostEntry.from_dict(e) for e in data.get("entries", [])]
-        # Ensure status is never None
-        status_raw = data.get("status", "open")
-        status = CostCardStatus.from_string(status_raw)
-        if status is None:
-            status = CostCardStatus.OPEN
-
+        status = CostCardStatus.from_string(data.get("status", "open")) or CostCardStatus.OPEN
         return cls(
             cost_card_id=UUID(data["cost_card_id"]),
             work_order_id=UUID(data["work_order_id"]),
@@ -630,9 +598,12 @@ class CostCardEntity:
             material_cost=Decimal(data["material_cost"]),
             labor_cost=Decimal(data["labor_cost"]),
             overhead_cost=Decimal(data["overhead_cost"]),
+            other_cost=Decimal(data.get("other_cost", "0")),
             total_cost=Decimal(data["total_cost"]),
             unit_cost=Decimal(data["unit_cost"]),
             status=status,
+            quantity_base=Decimal(data.get("quantity_base", "1")),
+            unit_of_measure=data.get("unit_of_measure", "pcs"),
             entries=entries,
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
@@ -641,26 +612,17 @@ class CostCardEntity:
         )
 
 
-# ==================== REPOSITORY PROTOCOL ====================
-
-
 class CostCardRepository:
     async def get_by_id(self, cost_card_id: UUID, legal_entity_id: UUID) -> CostCardEntity | None:
         raise NotImplementedError
 
-    async def get_by_work_order(
-        self, work_order_id: UUID, legal_entity_id: UUID
-    ) -> CostCardEntity | None:
+    async def get_by_work_order(self, work_order_id: UUID, legal_entity_id: UUID) -> CostCardEntity | None:
         raise NotImplementedError
 
-    async def get_by_product(
-        self, product_id: UUID, legal_entity_id: UUID, status: CostCardStatus | None = None
-    ) -> list[CostCardEntity]:
+    async def get_by_product(self, product_id: UUID, legal_entity_id: UUID, status: CostCardStatus | None = None) -> list[CostCardEntity]:
         raise NotImplementedError
 
-    async def get_by_date_range(
-        self, legal_entity_id: UUID, from_date: datetime, to_date: datetime
-    ) -> list[CostCardEntity]:
+    async def get_by_date_range(self, legal_entity_id: UUID, from_date: datetime, to_date: datetime) -> list[CostCardEntity]:
         raise NotImplementedError
 
     async def get_open_cost_cards(self, legal_entity_id: UUID) -> list[CostCardEntity]:
@@ -672,8 +634,6 @@ class CostCardRepository:
     async def delete(self, cost_card_id: UUID, legal_entity_id: UUID) -> None:
         raise NotImplementedError
 
-
-# ==================== ALIAS ====================
 
 CostCard = CostCardEntity
 

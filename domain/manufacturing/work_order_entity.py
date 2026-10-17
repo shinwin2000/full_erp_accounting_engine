@@ -176,6 +176,140 @@ class WorkOrderEntity:
             raise ValueError("updated_at must be timezone-aware")
 
     # ------------------------------------------------------------------------
+    # Aliases for router compatibility
+    #
+    # Entity domain memakai field utama `work_order_id`, `planned_quantity`,
+    # dan tidak menyimpan `rejected_quantity`. Pydantic schema di router
+    # (WorkOrderResponseSchema) memakai nama-nama berikut:
+    #   - `.id`              -> alias untuk work_order_id
+    #   - `.planned_quantity` -> sama dengan field `planned_quantity` (native)
+    #   - `.rejected_quantity` -> tidak ada di domain, kembalikan Decimal(0)
+    #   - `.remaining_quantity` -> computed: planned - completed
+    # ------------------------------------------------------------------------
+
+    @property
+    def id(self) -> UUID:
+        """Alias untuk kompatibilitas dengan router yang memakai `.id`."""
+        return self.work_order_id
+
+    @property
+    def rejected_quantity(self) -> Decimal:
+        """Alias untuk kompatibilitas dengan router.
+
+        Entity domain tidak melacak `rejected_quantity` secara terpisah
+        (bukan bagian dari model bisnis immutable ini). Router schema
+        memakai field ini — kembalikan Decimal(0) supaya serialisasi
+        tidak crash. Kalau di masa depan rejected perlu di-track, ubah
+        dari property menjadi field asli.
+        """
+        return Decimal("0")
+
+    @property
+    def remaining_quantity(self) -> Decimal:
+        """Alias untuk kompatibilitas dengan router.
+
+        Router schema memakai `.remaining_quantity` (angka yang masih harus
+        diproduksi). Domain menghitungnya via method
+        `get_remaining_quantity()`; property ini menyediakan akses
+        atribut langsung dengan nilai yang sama.
+        """
+        return self.planned_quantity - self.completed_quantity
+
+        # ------------------------------------------------------------------------
+    # Additional aliases (router response schema)
+    # ------------------------------------------------------------------------
+
+    @property
+    def standard_material_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = material_standard_cost)."""
+        return self.material_standard_cost
+
+    @property
+    def standard_labor_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = labor_standard_cost)."""
+        return self.labor_standard_cost
+
+    @property
+    def standard_overhead_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = overhead_standard_cost)."""
+        return self.overhead_standard_cost
+
+    @property
+    def standard_total_cost(self) -> Decimal:
+        """Total standard cost per unit (material+labor+overhead)."""
+        return (
+            self.material_standard_cost
+            + self.labor_standard_cost
+            + self.overhead_standard_cost
+        )
+
+    @property
+    def actual_material_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = material_actual_cost)."""
+        return self.material_actual_cost
+
+    @property
+    def actual_labor_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = labor_actual_cost)."""
+        return self.labor_actual_cost
+
+    @property
+    def actual_overhead_cost(self) -> Decimal:
+        """Alias untuk kompatibilitas router (field di entity = overhead_actual_cost)."""
+        return self.overhead_actual_cost
+
+
+    @property
+    def actual_total_cost(self) -> Decimal:
+        """Total actual cost (material+labor+overhead)."""
+        return (
+            self.material_actual_cost
+            + self.labor_actual_cost
+            + self.overhead_actual_cost
+        )
+
+    @property
+    def material_variance(self) -> Decimal:
+        """Actual material - standard material (per unit)."""
+        return self.material_actual_cost - self.material_standard_cost
+
+    @property
+    def labor_variance(self) -> Decimal:
+        """Actual labor - standard labor (per unit)."""
+        return self.labor_actual_cost - self.labor_standard_cost
+
+    @property
+    def overhead_variance(self) -> Decimal:
+        """Actual overhead - standard overhead (per unit)."""
+        return self.overhead_actual_cost - self.overhead_standard_cost
+
+    @property
+    def total_variance(self) -> Decimal:
+        """Total variance (actual - standard)."""
+        return self.actual_total_cost - self.standard_total_cost
+
+    @property
+    def bom_code(self) -> str | None:
+        """Alias untuk kompatibilitas dengan router.
+
+        Entity domain menyimpan `bom_id: UUID`, bukan `bom_code: str`.
+        Router response schema (`WorkOrderResponseSchema.bom_code`)
+        menerima `str | None`. Return None (router fallback ke null)
+        supaya serialisasi tidak crash. Kalau kode BOM perlu
+        ditampilkan, resolve di layer service dari repository.
+        """
+        return None
+
+    @property
+    def routing_code(self) -> str | None:
+        """Alias untuk kompatibilitas dengan router.
+
+        Entity domain menyimpan `routing_id: UUID | None`, bukan
+        `routing_code: str`. Router schema menerima `str | None`.
+        """
+        return None
+
+    # ------------------------------------------------------------------------
     # Business logic methods (return new instance)
     # ------------------------------------------------------------------------
 
@@ -412,6 +546,7 @@ class WorkOrderEntity:
     def to_dict(self) -> dict[str, Any]:
         """Return dictionary representation."""
         return {
+            "id": str(self.work_order_id),
             "work_order_id": str(self.work_order_id),
             "work_order_number": self.work_order_number,
             "product_id": str(self.product_id),
@@ -420,6 +555,7 @@ class WorkOrderEntity:
             "planned_quantity": str(self.planned_quantity),
             "completed_quantity": str(self.completed_quantity),
             "remaining_quantity": str(self.get_remaining_quantity()),
+            "rejected_quantity": str(self.rejected_quantity),
             "completion_percentage": self.get_completion_percentage(),
             "status": self.status.value,
             "priority": self.priority.value,

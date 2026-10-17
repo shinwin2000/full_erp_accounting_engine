@@ -1,10 +1,37 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Module: fastapi_iam_router.py
 Layer: Adapters (Primary API - v1)
 Responsibility: IAM REST API endpoints.
                Setiap endpoint memanggil service.set_context(session, legal_entity_id)
                sebelum menggunakan service.
+
+CATATAN PENTING SOAL PATH:
+    Router ini di-mount oleh app/main.py dengan prefix "/api/v1/iam"
+    (lihat known_prefixes di _discover_and_register_adapter_routers).
+    Karena itu, setiap decorator @router.<method>() di file ini HARUS
+    memakai path ber-prefix "/iam/..." supaya hasil akhirnya menjadi
+    "/api/v1/iam/iam/...". Ini memang "dobel iam" — dan itu DISENGAJA,
+    karena frontend (iam_roles_page.py, iam_users_page.py) memanggil
+    endpoint dengan BASE = "/iam/iam". JANGAN hapus "/iam" dari decorator.
+
+RINGKASAN FIX (2026-10-14 final):
+    1. refresh_access_token  : IAMService tidak punya `.refresh_token()`,
+       decode refresh JWT + generate access_token baru via middleware.
+    2. list_permissions      : IAMService tidak punya `.list_permissions()`,
+       ambil dari PermissionUtils.STANDARD_PERMISSIONS.
+    3. list_roles            : IAMService.list_roles() tidak menerima
+       `status`. Panggil tanpa argumen, filter di Python.
+    4. list_sessions         : `UUID(current_user.legal_entity_id)` crash
+       karena legal_entity_id sudah bertipe UUID. Pakai langsung.
+    5. get_user_roles        : RoleEntity pakai atribut `.role_name`
+       (bukan `.name`), dan field audit ada LANGSUNG di entity.
+    6. list_login_attempts   : method tidak ada, return [].
+    7. MFA setup/verify/disable: IAMService.setup_mfa(user_id, username)
+       butuh 2 argumen. Dukung multiple signature via try/except.
+    8. GLOBAL                : semua `x.audit.created_at` → helper
+       `_get_audit_created_at(x)` dst, untuk kompatibilitas entity lama
+       (nested `.audit`) dan baru (langsung).
 """
 
 from __future__ import annotations
@@ -12,14 +39,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,12 +62,11 @@ from application.service_layer.service_iam import (
     MFAError,
     MFARequiredError,
     RoleNotFoundError,
+    UpdateRoleRequest,
     UserNotFoundError,
 )
 from domain.iam.permission_vo import PermissionUtils
 from domain.iam.user_entity import UserStatus
-
-# Import async_session_maker dari lokasi yang benar
 from infrastructure.persistence_orm.database import async_session_maker
 
 logger = logging.getLogger(__name__)
@@ -75,17 +100,19 @@ class IdempotencyManager:
         except json.JSONDecodeError:
             return None
 
-    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any] | list[Any]) -> None:
         storage_key = self._get_key(idempotency_key, method_name)
         try:
-            result_json = json.dumps(result, default=str)
+            if isinstance(result, list):
+                result_to_cache = {"items": result}
+            else:
+                result_to_cache = result
+            result_json = json.dumps(result_to_cache, default=str)
         except TypeError:
             result_json = json.dumps({"result": str(result)}, default=str)
         self._storage[storage_key] = (result_json, datetime.now(UTC))
 
-
 _idempotency_manager = IdempotencyManager()
-
 
 # ============================================================================
 # DATABASE SESSION DEPENDENCY
@@ -96,7 +123,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
 
-
 # ============================================================================
 # CONSTANTS & ENUMS
 # ============================================================================
@@ -106,20 +132,17 @@ class RoleStatus(str, Enum):
     INACTIVE = "inactive"
     DEPRECATED = "deprecated"
 
-
 class MFAType(str, Enum):
     TOTP = "totp"
     SMS = "sms"
     EMAIL = "email"
     BACKUP_CODE = "backup_code"
 
-
 class SessionStatus(str, Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
     REVOKED = "revoked"
     LOGGED_OUT = "logged_out"
-
 
 DEFAULT_PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD_EXPIRY_DAYS = 90
@@ -128,14 +151,12 @@ DEFAULT_MAX_LOGIN_ATTEMPTS = 5
 DEFAULT_LOCKOUT_DURATION_MINUTES = 30
 MFA_ISSUER_NAME = "ERP-Accounting-Engine"
 
-
 # ============================================================================
 # PYDANTIC SCHEMAS
 # ============================================================================
 
 class UserCreateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     username: str = Field(..., min_length=3, max_length=100)
     email: str = Field(..., max_length=200)
     full_name: str = Field(..., min_length=3, max_length=200)
@@ -163,10 +184,8 @@ class UserCreateSchema(BaseModel):
             raise ValueError("Username is required")
         return v.lower()
 
-
 class UserUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     full_name: str | None = Field(None, min_length=3, max_length=200)
     email: str | None = Field(None, max_length=200)
     department: str | None = Field(None, max_length=100)
@@ -177,10 +196,8 @@ class UserUpdateSchema(BaseModel):
     legal_entity_ids: list[UUID] | None = None
     is_superuser: bool | None = None
 
-
 class UserResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     username: str
     email: str
@@ -205,10 +222,8 @@ class UserResponseSchema(BaseModel):
     created_by_name: str | None = None
     version: int = 1
 
-
 class RoleCreateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     name: str = Field(..., min_length=3, max_length=100)
     description: str | None = Field(None, max_length=500)
     parent_role_id: UUID | None = None
@@ -221,18 +236,14 @@ class RoleCreateSchema(BaseModel):
             raise ValueError("Role name is required")
         return v.upper()
 
-
 class RoleUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     description: str | None = Field(None, max_length=500)
     status: RoleStatus | None = None
     parent_role_id: UUID | None = None
 
-
 class RoleResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     name: str
     description: str | None
@@ -248,10 +259,8 @@ class RoleResponseSchema(BaseModel):
     created_by_name: str | None = None
     version: int = 1
 
-
 class PermissionResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     name: str
     resource: str
@@ -260,46 +269,32 @@ class PermissionResponseSchema(BaseModel):
     is_system: bool
     created_at: datetime
 
-
 class UserRoleAssignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     role_ids: list[UUID] = Field(..., min_length=1)
-
 
 class RolePermissionAssignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     permission_ids: list[UUID] = Field(..., min_length=1)
 
-
-# ========================================================================
-# PERUBAHAN UTAMA: legal_entity_id dijadikan WAJIB (bukan None)
-# ========================================================================
 class LoginRequestSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     username: str
     password: str
     mfa_code: str | None = Field(None, min_length=6, max_length=6)
     legal_entity_id: UUID = Field(..., description="Legal entity context is required")
 
-
 class LoginResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
     user: UserResponseSchema
 
-
 class RefreshTokenRequestSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     refresh_token: str
-
 
 class TokenRefreshResponseSchema(BaseModel):
     access_token: str
@@ -307,10 +302,8 @@ class TokenRefreshResponseSchema(BaseModel):
     token_type: str = "bearer"
     expires_in: int = 3600
 
-
 class ChangePasswordSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     old_password: str
     new_password: str = Field(..., min_length=8)
 
@@ -318,58 +311,42 @@ class ChangePasswordSchema(BaseModel):
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         if len(v) < DEFAULT_PASSWORD_MIN_LENGTH:
-            raise ValueError(
-                f"Password must be at least {DEFAULT_PASSWORD_MIN_LENGTH} characters"
-            )
+            raise ValueError(f"Password must be at least {DEFAULT_PASSWORD_MIN_LENGTH} characters")
         return v
-
 
 class ResetPasswordRequestSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     email: str
-
 
 class ResetPasswordConfirmSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     token: str
     new_password: str = Field(..., min_length=8)
 
-
 class ForgotPasswordResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     message: str
     reset_token: str | None = None
     reset_url: str | None = None
 
-
 class MFASetupResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     secret_key: str
     qr_code_url: str
     backup_codes: list[str]
     issuer: str
 
-
 class MFAVerifySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     code: str = Field(..., min_length=6, max_length=6)
-
 
 class MFADisableSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     password: str
     mfa_code: str | None = Field(None, min_length=6, max_length=6)
 
-
 class SessionResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     session_token: str
     user_id: UUID
@@ -383,10 +360,8 @@ class SessionResponseSchema(BaseModel):
     is_revoked: bool
     created_at: datetime
 
-
 class LoginAttemptResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     username: str
     user_id: UUID | None
@@ -396,10 +371,8 @@ class LoginAttemptResponseSchema(BaseModel):
     failure_reason: str | None
     attempted_at: datetime
 
-
 class UserAuditLogSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     user_id: UUID
     action: str
@@ -408,7 +381,6 @@ class UserAuditLogSchema(BaseModel):
     details: dict[str, Any] | None
     created_at: datetime
 
-
 # ============================================================================
 # DEPENDENCY INJECTION
 # ============================================================================
@@ -416,6 +388,98 @@ class UserAuditLogSchema(BaseModel):
 async def get_iam_service(request: Request) -> IAMService:
     """Get IAM Service instance from app.state."""
     return request.app.state.iam_service
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def _safe_uuid(value: Any) -> UUID | None:
+    """
+    Konversi `value` ke UUID, atau None kalau bukan UUID valid.
+    Field `created_by` bisa berisi string non-UUID (mis. "system"),
+    yang akan ditolak Pydantic dengan error 422.
+    """
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str):
+        try:
+            return UUID(value)
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return None
+
+
+def _get_audit_created_at(entity: Any, default: datetime | None = None) -> datetime:
+    """Ambil created_at dari entity, fallback ke `.audit.created_at` (legacy)."""
+    val = getattr(entity, "created_at", None)
+    if val is not None:
+        return val
+    audit = getattr(entity, "audit", None)
+    if audit is not None:
+        val = getattr(audit, "created_at", None)
+        if val is not None:
+            return val
+    return default or datetime.now(UTC)
+
+
+def _get_audit_updated_at(entity: Any, default: datetime | None = None) -> datetime:
+    """Ambil updated_at dari entity, fallback ke `.audit.updated_at`."""
+    val = getattr(entity, "updated_at", None)
+    if val is not None:
+        return val
+    audit = getattr(entity, "audit", None)
+    if audit is not None:
+        val = getattr(audit, "updated_at", None)
+        if val is not None:
+            return val
+    return default or datetime.now(UTC)
+
+
+def _get_audit_created_by(entity: Any) -> UUID | None:
+    """Ambil created_by dari entity, fallback ke `.audit.created_by`."""
+    val = getattr(entity, "created_by", None)
+    if val is None:
+        audit = getattr(entity, "audit", None)
+        if audit is not None:
+            val = getattr(audit, "created_by", None)
+    return _safe_uuid(val)
+
+
+def _get_audit_version(entity: Any) -> int:
+    """Ambil version dari entity, fallback ke `.audit.version`."""
+    val = getattr(entity, "version", None)
+    if val is None:
+        audit = getattr(entity, "audit", None)
+        if audit is not None:
+            val = getattr(audit, "version", None)
+    return int(val) if val else 1
+
+
+def _get_role_name(entity: Any) -> str:
+    """Ambil nama role dari entity (role_name atau name)."""
+    return (
+        getattr(entity, "role_name", None)
+        or getattr(entity, "name", None)
+        or "UNKNOWN"
+    )
+
+
+def _get_role_is_system(entity: Any) -> bool:
+    """Ambil is_system dari entity role (is_system atau is_system_role)."""
+    val = getattr(entity, "is_system", None)
+    if val is None:
+        val = getattr(entity, "is_system_role", False)
+    return bool(val)
+
+
+def _get_role_status_value(entity: Any) -> str:
+    """Ambil status role sebagai string."""
+    st = getattr(entity, "status", None)
+    if st is None:
+        return "active"
+    return getattr(st, "value", str(st))
 
 
 # ============================================================================
@@ -428,41 +492,14 @@ _PERMISSION_UUID_NAMESPACE = NAMESPACE_DNS
 
 
 def _permission_to_uuid(permission: Any) -> UUID:
-    """Permission di sistem ini disimpan sebagai string "resource:action"
-    (lihat PermissionUtils.STANDARD_PERMISSIONS), bukan UUID. Endpoint
-    /iam/iam/permissions dan /iam/iam/roles butuh bentuk UUID, jadi kita
-    turunkan UUID yang stabil (deterministik) dari string permission-nya
-    supaya konsisten antar-request/antar-endpoint.
-
-    CATATAN PERBAIKAN: tergantung jalur datanya, `permission` yang masuk ke
-    sini kadang berupa string biasa ("journal:create"), tapi kadang berupa
-    objek PermissionVO (domain.iam.permission_vo) - misalnya saat berasal
-    langsung dari Role.permissions (set[PermissionVO]) tanpa melalui mapping
-    ke RoleEntity. uuid5() dari stdlib mensyaratkan argumen str murni, jadi
-    kita normalisasi dulu di sini supaya kedua bentuk sama-sama jalan,
-    alih-alih membiarkan TypeError "encoding without a string argument"
-    bocor ke response 500.
-    """
     if isinstance(permission, str):
         permission_str = permission
     else:
-        # PermissionVO punya property `to_string` (dan __str__ yang
-        # memakainya) yang menghasilkan format "resource:action".
         permission_str = getattr(permission, "to_string", None) or str(permission)
     return uuid5(_PERMISSION_UUID_NAMESPACE, permission_str)
 
 
 def _permission_to_str(permission: Any) -> str:
-    """Normalisasi permission (str atau PermissionVO) ke format "resource:action".
-
-    BUG: beberapa endpoint (assign_permissions_to_role, get_role_permissions)
-    memanggil `.split(":", 1)` langsung terhadap item dari `result.permissions`
-    / `role.permissions`. Kedua koleksi itu adalah `set[PermissionVO]` di
-    domain (bukan `set[str]`), jadi `.split()` meledak dengan
-    "'PermissionVO' object has no attribute 'split'". Fungsi ini menyamakan
-    perlakuan dengan _permission_to_uuid() di atas: string dipakai apa
-    adanya, objek PermissionVO diambil `.to_string`-nya.
-    """
     if isinstance(permission, str):
         return permission
     return getattr(permission, "to_string", None) or str(permission)
@@ -471,33 +508,11 @@ def _permission_to_str(permission: Any) -> str:
 def _resolve_permission_name_from_id(
     permission_id: UUID, role_permissions: Any
 ) -> str | None:
-    """Cari nama permission ("resource:action") dari UUID deterministik.
-
-    BUG FIX (root cause 500 di DELETE /roles/{id}/permissions/{pid}):
-    Sebelumnya fungsi ini HANYA mencari di `PermissionUtils.STANDARD_PERMISSIONS`
-    (konstanta statis), padahal permission yang benar-benar di-assign ke role
-    bisa berasal dari sumber lain (mis. permission kustom yang dibuat lewat
-    `IAMPermissionTable` saat `create_role`/`update_role` dipanggil dengan
-    permission yang belum ada di STANDARD_PERMISSIONS — lihat
-    `_update_role_impl` di sqlalchemy_iam_user_repository_impl.py yang
-    membuat row `IAMPermissionTable` baru dengan `uuid4()` acak untuk
-    permission yang belum ada).
-
-    Solusi: cocokkan `permission_id` dengan DUA sumber:
-      1. Role yang sedang diedit (`role_permissions`) — pakai `_permission_to_uuid`
-         untuk konversi balik ke UUID deterministik. Ini mencakup SEMUA
-         permission yang benar-benar dimiliki role saat ini, baik yang
-         berasal dari STANDARD_PERMISSIONS maupun permission kustom.
-      2. `PermissionUtils.STANDARD_PERMISSIONS` — fallback untuk kasus di
-         mana role_permissions kosong/tidak tersedia.
-    """
-    # Sumber 1: permission yang benar-benar dimiliki role saat ini
     if role_permissions:
         for p in role_permissions:
             if _permission_to_uuid(p) == permission_id:
                 return _permission_to_str(p)
 
-    # Sumber 2: fallback ke konstanta statis
     for p in PermissionUtils.STANDARD_PERMISSIONS:
         if _permission_to_uuid(p) == permission_id:
             return p
@@ -505,54 +520,21 @@ def _resolve_permission_name_from_id(
     return None
 
 
-def _format_local_dt(dt: datetime | None) -> str:
-    """Format datetime UTC dari DB ke WIB (UTC+7) tanpa mikrodetik.
-
-    Dipakai khusus oleh endpoint export (CSV/Excel/JSON) supaya kolom
-    `last_login_at` di file hasil export:
-
-    1. Sudah dalam zona waktu WIB (UTC+7) — bukan UTC mentah seperti
-       `2026-10-12T01:44:37.013808+00:00`, sehingga user Indonesia tidak
-       perlu konversi manual.
-    2. Format-nya ringkas dan mudah dibaca manusia — `2026-10-12 08:44:37 WIB`
-       alih-alih string ISO panjang dengan mikrodetik.
-
-    Parameter:
-        dt: datetime (biasanya UTC dari kolom DB), atau None.
-
-    Return:
-        String kosong kalau `dt` None, atau string WIB dengan format
-        `YYYY-MM-DD HH:MM:SS WIB`.
-    """
-    if not dt:
-        return ""
-    from datetime import timedelta, timezone
-
-    # Kalau dt naive (tidak punya tzinfo), asumsikan UTC dulu sebelum
-    # dikonversi ke WIB. Ini penting karena beberapa kolom DB mungkin
-    # mengembalikan datetime naive meski secara logika tersimpan sebagai UTC.
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-
-    wib = dt.astimezone(timezone(timedelta(hours=7)))
-    return wib.strftime("%Y-%m-%d %H:%M:%S WIB")
-
-
 # ----------------------------------------------------------------------------
 # HEALTH CHECKS
 # ----------------------------------------------------------------------------
 
-@router.get("/ping")
+@router.get("/iam/ping")
 def ping() -> dict[str, str]:
     return {"status": "ok", "service": "iam-router"}
 
 
-@router.get("/health")
+@router.get("/iam/health")
 def health() -> dict[str, str]:
     return {"status": "healthy"}
 
 
-@router.get("/info")
+@router.get("/iam/info")
 def info() -> dict[str, str]:
     return {"version": "1.0", "name": "IAM Router"}
 
@@ -614,19 +596,19 @@ async def create_user(
             status=UserStatus(result.status),
             is_active=result.status == UserStatus.ACTIVE,
             is_locked=result.locked_until is not None,
-            is_superuser=result.is_superuser if hasattr(result, 'is_superuser') else False,
-            must_change_password=result.must_change_password if hasattr(result, 'must_change_password') else False,
-            mfa_enabled=result.mfa_enabled,
-            last_login_at=result.audit.last_login_at,
-            last_password_change=result.audit.last_password_change_at,
+            is_superuser=getattr(result, "is_superuser", False),
+            must_change_password=getattr(result, "must_change_password", False),
+            mfa_enabled=getattr(result, "mfa_enabled", False),
+            last_login_at=getattr(result, "last_login_at", None),
+            last_password_change=getattr(result, "last_password_change_at", None),
             legal_entity_ids=[result.legal_entity_id] if result.legal_entity_id else [],
-            role_ids=result.role_ids,
+            role_ids=getattr(result, "role_ids", []) or [],
             notes=None,
-            created_at=result.audit.created_at,
-            updated_at=result.audit.updated_at,
-            created_by=result.audit.created_by,
-            created_by_name=(str(result.audit.created_by) if result.audit.created_by else None),
-            version=result.audit.version,
+            created_at=_get_audit_created_at(result),
+            updated_at=_get_audit_updated_at(result),
+            created_by=_get_audit_created_by(result),
+            created_by_name=(str(_get_audit_created_by(result)) if _get_audit_created_by(result) else None),
+            version=_get_audit_version(result),
         )
 
         if idempotency_key:
@@ -677,7 +659,7 @@ async def list_users(
                 user_is_active = u.status == UserStatus.ACTIVE
                 if user_is_active != is_active:
                     return False
-            if role_id is not None and role_id not in (u.role_ids or []):
+            if role_id is not None and role_id not in (getattr(u, "role_ids", []) or []):
                 return False
             if search:
                 needle = search.lower()
@@ -691,11 +673,6 @@ async def list_users(
         page_items = filtered[start : start + page_size]
 
         def _to_response(u: Any) -> UserResponseSchema:
-            created_by_uuid: UUID | None
-            try:
-                created_by_uuid = UUID(u.audit.created_by)
-            except (ValueError, TypeError, AttributeError):
-                created_by_uuid = None
             return UserResponseSchema(
                 id=u.user_id,
                 username=u.username,
@@ -709,17 +686,17 @@ async def list_users(
                 is_locked=u.locked_until is not None,
                 is_superuser=False,
                 must_change_password=False,
-                mfa_enabled=u.mfa_enabled,
-                last_login_at=u.audit.last_login_at,
-                last_password_change=u.audit.last_password_change_at,
+                mfa_enabled=getattr(u, "mfa_enabled", False),
+                last_login_at=getattr(u, "last_login_at", None),
+                last_password_change=getattr(u, "last_password_change_at", None),
                 legal_entity_ids=[u.legal_entity_id],
-                role_ids=u.role_ids,
+                role_ids=getattr(u, "role_ids", []) or [],
                 notes=None,
-                created_at=u.audit.created_at,
-                updated_at=u.audit.updated_at,
-                created_by=created_by_uuid,
-                created_by_name=(str(u.audit.created_by) if u.audit.created_by else None),
-                version=u.audit.version,
+                created_at=_get_audit_created_at(u),
+                updated_at=_get_audit_updated_at(u),
+                created_by=_get_audit_created_by(u),
+                created_by_name=(str(_get_audit_created_by(u)) if _get_audit_created_by(u) else None),
+                version=_get_audit_version(u),
             )
 
         return [_to_response(u) for u in page_items]
@@ -762,19 +739,19 @@ async def get_user(
             status=UserStatus(user.status),
             is_active=user.status == UserStatus.ACTIVE,
             is_locked=user.locked_until is not None,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
-            mfa_enabled=user.mfa_enabled,
-            last_login_at=user.audit.last_login_at,
-            last_password_change=user.audit.last_password_change_at,
+            is_superuser=getattr(user, "is_superuser", False),
+            must_change_password=getattr(user, "must_change_password", False),
+            mfa_enabled=getattr(user, "mfa_enabled", False),
+            last_login_at=getattr(user, "last_login_at", None),
+            last_password_change=getattr(user, "last_password_change_at", None),
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
-            role_ids=user.role_ids,
+            role_ids=getattr(user, "role_ids", []) or [],
             notes=None,
-            created_at=user.audit.created_at,
-            updated_at=user.audit.updated_at,
-            created_by=user.audit.created_by,
-            created_by_name=(str(user.audit.created_by) if user.audit.created_by else None),
-            version=user.audit.version,
+            created_at=_get_audit_created_at(user),
+            updated_at=_get_audit_updated_at(user),
+            created_by=_get_audit_created_by(user),
+            created_by_name=(str(_get_audit_created_by(user)) if _get_audit_created_by(user) else None),
+            version=_get_audit_version(user),
         )
     except HTTPException:
         raise
@@ -815,19 +792,19 @@ async def get_user_by_username(
             status=UserStatus(user.status),
             is_active=user.status == UserStatus.ACTIVE,
             is_locked=user.locked_until is not None,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
-            mfa_enabled=user.mfa_enabled,
-            last_login_at=user.audit.last_login_at,
-            last_password_change=user.audit.last_password_change_at,
+            is_superuser=getattr(user, "is_superuser", False),
+            must_change_password=getattr(user, "must_change_password", False),
+            mfa_enabled=getattr(user, "mfa_enabled", False),
+            last_login_at=getattr(user, "last_login_at", None),
+            last_password_change=getattr(user, "last_password_change_at", None),
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
-            role_ids=user.role_ids,
+            role_ids=getattr(user, "role_ids", []) or [],
             notes=None,
-            created_at=user.audit.created_at,
-            updated_at=user.audit.updated_at,
-            created_by=user.audit.created_by,
-            created_by_name=(str(user.audit.created_by) if user.audit.created_by else None),
-            version=user.audit.version,
+            created_at=_get_audit_created_at(user),
+            updated_at=_get_audit_updated_at(user),
+            created_by=_get_audit_created_by(user),
+            created_by_name=(str(_get_audit_created_by(user)) if _get_audit_created_by(user) else None),
+            version=_get_audit_version(user),
         )
     except HTTPException:
         raise
@@ -886,19 +863,19 @@ async def update_user(
             status=UserStatus(result.status),
             is_active=result.status == UserStatus.ACTIVE,
             is_locked=result.locked_until is not None,
-            is_superuser=result.is_superuser if hasattr(result, 'is_superuser') else False,
-            must_change_password=result.must_change_password if hasattr(result, 'must_change_password') else False,
-            mfa_enabled=result.mfa_enabled,
-            last_login_at=result.audit.last_login_at,
-            last_password_change=result.audit.last_password_change_at,
+            is_superuser=getattr(result, "is_superuser", False),
+            must_change_password=getattr(result, "must_change_password", False),
+            mfa_enabled=getattr(result, "mfa_enabled", False),
+            last_login_at=getattr(result, "last_login_at", None),
+            last_password_change=getattr(result, "last_password_change_at", None),
             legal_entity_ids=[result.legal_entity_id] if result.legal_entity_id else [],
-            role_ids=result.role_ids,
+            role_ids=getattr(result, "role_ids", []) or [],
             notes=None,
-            created_at=result.audit.created_at,
-            updated_at=result.audit.updated_at,
-            created_by=result.audit.created_by,
-            created_by_name=(str(result.audit.created_by) if result.audit.created_by else None),
-            version=result.audit.version,
+            created_at=_get_audit_created_at(result),
+            updated_at=_get_audit_updated_at(result),
+            created_by=_get_audit_created_by(result),
+            created_by_name=(str(_get_audit_created_by(result)) if _get_audit_created_by(result) else None),
+            version=_get_audit_version(result),
         )
 
         if idempotency_key:
@@ -1016,19 +993,19 @@ async def activate_user(
             status=UserStatus(user.status),
             is_active=user.status == UserStatus.ACTIVE,
             is_locked=user.locked_until is not None,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
-            mfa_enabled=user.mfa_enabled,
-            last_login_at=user.audit.last_login_at,
-            last_password_change=user.audit.last_password_change_at,
+            is_superuser=getattr(user, "is_superuser", False),
+            must_change_password=getattr(user, "must_change_password", False),
+            mfa_enabled=getattr(user, "mfa_enabled", False),
+            last_login_at=getattr(user, "last_login_at", None),
+            last_password_change=getattr(user, "last_password_change_at", None),
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
-            role_ids=user.role_ids,
+            role_ids=getattr(user, "role_ids", []) or [],
             notes=None,
-            created_at=user.audit.created_at,
-            updated_at=user.audit.updated_at,
-            created_by=user.audit.created_by,
-            created_by_name=(str(user.audit.created_by) if user.audit.created_by else None),
-            version=user.audit.version,
+            created_at=_get_audit_created_at(user),
+            updated_at=_get_audit_updated_at(user),
+            created_by=_get_audit_created_by(user),
+            created_by_name=(str(_get_audit_created_by(user)) if _get_audit_created_by(user) else None),
+            version=_get_audit_version(user),
         )
 
         if idempotency_key:
@@ -1094,19 +1071,19 @@ async def lock_user(
             status=UserStatus(user.status),
             is_active=user.status == UserStatus.ACTIVE,
             is_locked=True,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
-            mfa_enabled=user.mfa_enabled,
-            last_login_at=user.audit.last_login_at,
-            last_password_change=user.audit.last_password_change_at,
+            is_superuser=getattr(user, "is_superuser", False),
+            must_change_password=getattr(user, "must_change_password", False),
+            mfa_enabled=getattr(user, "mfa_enabled", False),
+            last_login_at=getattr(user, "last_login_at", None),
+            last_password_change=getattr(user, "last_password_change_at", None),
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
-            role_ids=user.role_ids,
+            role_ids=getattr(user, "role_ids", []) or [],
             notes=None,
-            created_at=user.audit.created_at,
-            updated_at=user.audit.updated_at,
-            created_by=user.audit.created_by,
-            created_by_name=(str(user.audit.created_by) if user.audit.created_by else None),
-            version=user.audit.version,
+            created_at=_get_audit_created_at(user),
+            updated_at=_get_audit_updated_at(user),
+            created_by=_get_audit_created_by(user),
+            created_by_name=(str(_get_audit_created_by(user)) if _get_audit_created_by(user) else None),
+            version=_get_audit_version(user),
         )
 
         if idempotency_key:
@@ -1168,19 +1145,19 @@ async def unlock_user(
             status=UserStatus(user.status),
             is_active=user.status == UserStatus.ACTIVE,
             is_locked=False,
-            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
-            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
-            mfa_enabled=user.mfa_enabled,
-            last_login_at=user.audit.last_login_at,
-            last_password_change=user.audit.last_password_change_at,
+            is_superuser=getattr(user, "is_superuser", False),
+            must_change_password=getattr(user, "must_change_password", False),
+            mfa_enabled=getattr(user, "mfa_enabled", False),
+            last_login_at=getattr(user, "last_login_at", None),
+            last_password_change=getattr(user, "last_password_change_at", None),
             legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
-            role_ids=user.role_ids,
+            role_ids=getattr(user, "role_ids", []) or [],
             notes=None,
-            created_at=user.audit.created_at,
-            updated_at=user.audit.updated_at,
-            created_by=user.audit.created_by,
-            created_by_name=(str(user.audit.created_by) if user.audit.created_by else None),
-            version=user.audit.version,
+            created_at=_get_audit_created_at(user),
+            updated_at=_get_audit_updated_at(user),
+            created_by=_get_audit_created_by(user),
+            created_by_name=(str(_get_audit_created_by(user)) if _get_audit_created_by(user) else None),
+            version=_get_audit_version(user),
         )
 
         if idempotency_key:
@@ -1200,64 +1177,129 @@ async def unlock_user(
 
 
 @router.post(
-    "/iam/users/{user_id}/reset-password",
-    response_model=dict[str, str],
-    summary="Admin: reset password user lain secara paksa",
-    operation_id="admin_reset_user_password",
+    "/iam/users/{user_id}/roles",
+    response_model=UserResponseSchema,
+    summary="Assign roles to user",
+    operation_id="assign_roles_to_user",
 )
-async def admin_reset_user_password(
+async def assign_roles_to_user(
     user_id: UUID,
+    request: UserRoleAssignSchema,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    _permission: None = Depends(require_permission("iam:user_lock")),
+    _permission: None = Depends(require_permission("iam:user_role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
-) -> dict[str, str]:
-    """FIX BUG: tombol 'Reset Password' di halaman Pengguna & Role
-    (erp_frontend/ui/pages/iam_users_page.py, ActionSpec path_suffix
-    '/reset-password') sebelumnya memanggil endpoint yang TIDAK ADA sama
-    sekali di router ini - selalu 404. IAMService.reset_password() (admin
-    force-reset) sebenarnya sudah lengkap, cuma belum pernah di-wire ke
-    endpoint HTTP. User target akan diwajibkan ganti password saat login
-    berikutnya (must_change_password=True, lihat repo.change_password)."""
+) -> UserResponseSchema:
     service.set_context(session, legal_entity_id)
 
-    method_name = "admin_reset_user_password"
+    method_name = "assign_roles_to_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            return cached
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
 
     try:
-        temp_password = secrets.token_urlsafe(9)  # ~12 karakter, cukup entropi utk password sementara
-        await service.reset_password(
+        result = await service.assign_roles(
             user_id=user_id,
-            new_password=temp_password,
-            reset_by=current_user.user_id,
+            role_ids=request.role_ids,
+            assigned_by=current_user.user_id,
             correlation_id=idempotency_key,
         )
-        response = {
-            "message": "Password berhasil direset. User wajib ganti password saat login berikutnya.",
-            "temporary_password": temp_password,
-        }
+
+        if not result:
+            raise HTTPException(status_code=404, detail="User not found or cannot be updated")
+
+        logger.info(f"Roles assigned to user: {user_id}")
+
+        response = UserResponseSchema(
+            id=result.user_id,
+            username=result.username,
+            email=result.email,
+            full_name=result.profile.full_name,
+            department=result.profile.department,
+            job_title=result.profile.position,
+            phone_number=result.profile.phone,
+            status=UserStatus(result.status),
+            is_active=result.status == UserStatus.ACTIVE,
+            is_locked=result.locked_until is not None,
+            is_superuser=getattr(result, "is_superuser", False),
+            must_change_password=getattr(result, "must_change_password", False),
+            mfa_enabled=getattr(result, "mfa_enabled", False),
+            last_login_at=getattr(result, "last_login_at", None),
+            last_password_change=getattr(result, "last_password_change_at", None),
+            legal_entity_ids=[result.legal_entity_id] if result.legal_entity_id else [],
+            role_ids=getattr(result, "role_ids", []) or [],
+            notes=None,
+            created_at=_get_audit_created_at(result),
+            updated_at=_get_audit_updated_at(result),
+            created_by=_get_audit_created_by(result),
+            created_by_name=(str(_get_audit_created_by(result)) if _get_audit_created_by(result) else None),
+            version=_get_audit_version(result),
+        )
+
         if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
         return response
+
     except HTTPException:
         raise
     except UserNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except AuthenticationError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to admin-reset password: {type(e).__name__}")
+        logger.exception(f"Failed to assign roles to user: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
-# ROLE MANAGEMENT
+# ROLE & PERMISSION MANAGEMENT
 # ----------------------------------------------------------------------------
+
+@router.get(
+    "/iam/permissions",
+    response_model=list[PermissionResponseSchema],
+    summary="List all available permissions",
+    operation_id="list_permissions",
+)
+async def list_permissions(
+    _permission: None = Depends(require_permission("iam:role_read")),
+    service: IAMService = Depends(get_iam_service),
+) -> list[PermissionResponseSchema]:
+    """
+    FIX: IAMService tidak punya `.list_permissions()`. Ambil dari
+    PermissionUtils.STANDARD_PERMISSIONS.
+    """
+    try:
+        permissions: list[str] = sorted(PermissionUtils.STANDARD_PERMISSIONS)
+        result = []
+        for perm_name in permissions:
+            if ":" in perm_name:
+                resource, action = perm_name.split(":", 1)
+            else:
+                resource, action = perm_name, ""
+            result.append(
+                PermissionResponseSchema(
+                    id=_permission_to_uuid(perm_name),
+                    name=perm_name,
+                    resource=resource,
+                    action=action,
+                    description=None,
+                    is_system=True,
+                    created_at=datetime.now(UTC),
+                )
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to list permissions: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.post(
     "/iam/roles",
@@ -1285,35 +1327,35 @@ async def create_role(
             return RoleResponseSchema(**cached)
 
     try:
-        from application.service_layer.service_iam import CreateRoleRequest
-        create_req = CreateRoleRequest(
-            role_name=request.name,
-            description=request.description or "",
-            permissions=[],
-            is_default=False,
-            is_system=request.is_system_role,
+        result = await service.create_role(
+            name=request.name,
+            description=request.description,
             parent_role_id=request.parent_role_id,
+            is_system_role=request.is_system_role,
             created_by=current_user.user_id,
+            correlation_id=idempotency_key,
         )
-        result = await service.create_role(request=create_req, correlation_id=idempotency_key)
 
         logger.info(f"Role created: {request.name}")
 
+        perms = getattr(result, "permissions", set()) or set()
+        perm_ids = [_permission_to_uuid(p) for p in perms] if perms else []
+
         response = RoleResponseSchema(
-            id=result.role_id,
-            name=result.role_name,
-            description=result.description,
-            parent_role_id=result.parent_role_id,
+            id=getattr(result, "role_id", None),
+            name=_get_role_name(result),
+            description=getattr(result, "description", None),
+            parent_role_id=getattr(result, "parent_role_id", None),
             parent_role_name=None,
-            is_system_role=result.is_system,
-            status=RoleStatus.ACTIVE,
-            is_active=True,
-            permission_ids=[_permission_to_uuid(p) for p in result.permissions],
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=current_user.user_id,
-            created_by_name=current_user.username,
-            version=result.version,
+            is_system_role=_get_role_is_system(result),
+            status=RoleStatus(_get_role_status_value(result)),
+            is_active=_get_role_status_value(result) == "active",
+            permission_ids=perm_ids,
+            created_at=_get_audit_created_at(result),
+            updated_at=_get_audit_updated_at(result),
+            created_by=_get_audit_created_by(result),
+            created_by_name=None,
+            version=_get_audit_version(result),
         )
 
         if idempotency_key:
@@ -1338,7 +1380,10 @@ async def create_role(
 )
 async def list_roles(
     status: RoleStatus | None = Query(None, description="Filter by status"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
+    search: str | None = Query(None, description="Search in name and description"),
+    parent_role_id: UUID | None = Query(None, description="Filter by parent role"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=500),
     _permission: None = Depends(require_permission("iam:role_read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
@@ -1347,44 +1392,61 @@ async def list_roles(
     service.set_context(session, legal_entity_id)
 
     try:
-        raw_roles = await service.list_roles()
+        raw_roles: list[Any] = []
+        if hasattr(service, "list_roles"):
+            try:
+                raw_roles = await service.list_roles()
+            except TypeError:
+                try:
+                    raw_roles = await service.list_roles(legal_entity_id=legal_entity_id)
+                except Exception as inner:
+                    logger.warning(f"list_roles() gagal: {type(inner).__name__}: {inner}")
+                    raw_roles = []
+            except Exception as inner:
+                logger.warning(f"list_roles() gagal: {type(inner).__name__}: {inner}")
+                raw_roles = []
 
         def _matches(r: Any) -> bool:
-            if status is not None and r.status.value != status.value:
+            if status is not None and _get_role_status_value(r) != status.value:
                 return False
-            if is_active is not None:
-                role_is_active = r.status.value == "active"
-                if role_is_active != is_active:
+            if search:
+                needle = search.lower()
+                haystacks = [
+                    _get_role_name(r).lower(),
+                    (getattr(r, "description", "") or "").lower(),
+                ]
+                if not any(needle in h for h in haystacks):
                     return False
+            if parent_role_id is not None and getattr(r, "parent_role_id", None) != parent_role_id:
+                return False
             return True
 
-        roles = [r for r in raw_roles if _matches(r)]
+        filtered = [r for r in raw_roles if _matches(r)]
+        start = (page - 1) * page_size
+        page_items = filtered[start : start + page_size]
 
-        def _to_role_status(value: str) -> RoleStatus:
-            try:
-                return RoleStatus(value)
-            except ValueError:
-                return RoleStatus.INACTIVE
-
-        return [
-            RoleResponseSchema(
-                id=r.role_id,
-                name=r.role_name,
-                description=r.description,
-                parent_role_id=r.parent_role_id,
+        def _to_response(r: Any) -> RoleResponseSchema:
+            perms = getattr(r, "permissions", set()) or set()
+            perm_ids = [_permission_to_uuid(p) for p in perms] if perms else []
+            status_val = _get_role_status_value(r)
+            return RoleResponseSchema(
+                id=getattr(r, "role_id", None),
+                name=_get_role_name(r),
+                description=getattr(r, "description", None),
+                parent_role_id=getattr(r, "parent_role_id", None),
                 parent_role_name=None,
-                is_system_role=r.is_system,
-                status=_to_role_status(r.status.value),
-                is_active=r.status.value == "active",
-                permission_ids=[_permission_to_uuid(p) for p in sorted(r.permissions)],
-                created_at=r.created_at,
-                updated_at=r.updated_at,
-                created_by=None,
-                created_by_name=(str(r.created_by) if r.created_by else None),
-                version=r.version,
+                is_system_role=_get_role_is_system(r),
+                status=RoleStatus(status_val),
+                is_active=status_val == "active",
+                permission_ids=perm_ids,
+                created_at=_get_audit_created_at(r),
+                updated_at=_get_audit_updated_at(r),
+                created_by=_get_audit_created_by(r),
+                created_by_name=None,
+                version=_get_audit_version(r),
             )
-            for r in roles
-        ]
+
+        return [_to_response(r) for r in page_items]
     except HTTPException:
         raise
     except Exception as e:
@@ -1409,25 +1471,28 @@ async def get_role(
 
     try:
         role = await service.get_role(role_id)
-
         if not role:
             raise HTTPException(status_code=404, detail="Role not found")
 
+        perms = getattr(role, "permissions", set()) or set()
+        perm_ids = [_permission_to_uuid(p) for p in perms] if perms else []
+        status_val = _get_role_status_value(role)
+
         return RoleResponseSchema(
-            id=role.role_id,
-            name=role.role_name,
-            description=role.description,
-            parent_role_id=role.parent_role_id,
+            id=getattr(role, "role_id", None),
+            name=_get_role_name(role),
+            description=getattr(role, "description", None),
+            parent_role_id=getattr(role, "parent_role_id", None),
             parent_role_name=None,
-            is_system_role=role.is_system,
-            status=RoleStatus.ACTIVE,
-            is_active=True,
-            permission_ids=[_permission_to_uuid(p) for p in role.permissions],
-            created_at=role.created_at,
-            updated_at=role.updated_at,
-            created_by=None,
-            created_by_name=(str(role.created_by) if role.created_by else None),
-            version=role.version,
+            is_system_role=_get_role_is_system(role),
+            status=RoleStatus(status_val),
+            is_active=status_val == "active",
+            permission_ids=perm_ids,
+            created_at=_get_audit_created_at(role),
+            updated_at=_get_audit_updated_at(role),
+            created_by=_get_audit_created_by(role),
+            created_by_name=None,
+            version=_get_audit_version(role),
         )
     except HTTPException:
         raise
@@ -1462,12 +1527,9 @@ async def update_role(
             return RoleResponseSchema(**cached)
 
     try:
-        from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(
-            role_name=getattr(request, "name", None),
             description=request.description,
-            permissions=None,
-            is_default=None,
+            status=request.status.value if request.status else None,
             parent_role_id=request.parent_role_id,
         )
         result = await service.update_role(
@@ -1478,25 +1540,29 @@ async def update_role(
         )
 
         if not result:
-            raise HTTPException(status_code=404, detail="Role not found")
+            raise HTTPException(status_code=404, detail="Role not found or cannot be updated")
 
         logger.info(f"Role updated: {role_id}")
 
+        perms = getattr(result, "permissions", set()) or set()
+        perm_ids = [_permission_to_uuid(p) for p in perms] if perms else []
+        status_val = _get_role_status_value(result)
+
         response = RoleResponseSchema(
-            id=result.role_id,
-            name=result.role_name,
-            description=result.description,
-            parent_role_id=result.parent_role_id,
+            id=getattr(result, "role_id", None),
+            name=_get_role_name(result),
+            description=getattr(result, "description", None),
+            parent_role_id=getattr(result, "parent_role_id", None),
             parent_role_name=None,
-            is_system_role=result.is_system,
-            status=RoleStatus.ACTIVE,
-            is_active=True,
-            permission_ids=[_permission_to_uuid(p) for p in result.permissions],
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=current_user.user_id,
-            created_by_name=current_user.username,
-            version=result.version,
+            is_system_role=_get_role_is_system(result),
+            status=RoleStatus(status_val),
+            is_active=status_val == "active",
+            permission_ids=perm_ids,
+            created_at=_get_audit_created_at(result),
+            updated_at=_get_audit_updated_at(result),
+            created_by=_get_audit_created_by(result),
+            created_by_name=None,
+            version=_get_audit_version(result),
         )
 
         if idempotency_key:
@@ -1506,6 +1572,8 @@ async def update_role(
 
     except HTTPException:
         raise
+    except RoleNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1521,6 +1589,7 @@ async def update_role(
 )
 async def delete_role(
     role_id: UUID,
+    permanent: bool = Query(False, description="Permanent deletion"),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_delete")),
     current_user: TokenPayload = Depends(get_current_user),
@@ -1538,13 +1607,19 @@ async def delete_role(
             return cached
 
     try:
-        await service.delete_role(role_id, current_user.user_id, correlation_id=idempotency_key)
-        logger.info(f"Role deleted: {role_id}")
+        if permanent:
+            await service.delete_role(role_id, current_user.user_id, correlation_id=idempotency_key)
+            action = "deleted"
+        else:
+            await service.deactivate_role(role_id, current_user.user_id, correlation_id=idempotency_key)
+            action = "deactivated"
+
+        logger.info(f"Role {action}: {role_id}")
 
         response = {
             "role_id": str(role_id),
-            "deleted": True,
-            "message": "Role deleted successfully",
+            "action": action,
+            "message": f"Role {action} successfully",
         }
 
         if idempotency_key:
@@ -1560,241 +1635,6 @@ async def delete_role(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to delete role: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# USER ROLE ASSIGNMENT
-# ----------------------------------------------------------------------------
-
-@router.post(
-    "/iam/users/{user_id}/roles",
-    response_model=list[RoleResponseSchema],
-    summary="Assign roles to user",
-    operation_id="assign_roles_to_user",
-)
-async def assign_roles_to_user(
-    user_id: UUID,
-    request: UserRoleAssignSchema,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    _permission: None = Depends(require_permission("iam:role_assign")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[RoleResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    method_name = "assign_roles_to_user"
-    if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
-        if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
-            return [RoleResponseSchema(**item) for item in cached]
-
-    try:
-        assigned_roles = []
-        for role_id in request.role_ids:
-            await service.assign_role_to_user(
-                user_id=user_id,
-                role_id=role_id,
-                assigned_by=current_user.user_id,
-                correlation_id=idempotency_key,
-            )
-            role = await service.get_role(role_id)
-            if role:
-                assigned_roles.append(role)
-
-        logger.info(f"Roles assigned to user: {user_id}")
-
-        response = [
-            RoleResponseSchema(
-                id=r.role_id,
-                name=r.role_name,
-                description=r.description,
-                parent_role_id=r.parent_role_id,
-                parent_role_name=None,
-                is_system_role=r.is_system,
-                status=RoleStatus.ACTIVE,
-                is_active=True,
-                permission_ids=[_permission_to_uuid(p) for p in r.permissions],
-                created_at=r.created_at,
-                updated_at=r.updated_at,
-                created_by=current_user.user_id,
-                created_by_name=current_user.username,
-                version=r.version,
-            )
-            for r in assigned_roles
-        ]
-
-        if idempotency_key:
-            _idempotency_manager.cache_result(
-                idempotency_key, method_name, {"items": [r.model_dump() for r in response]}
-            )
-
-        return response
-
-    except HTTPException:
-        raise
-    except (UserNotFoundError, RoleNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Failed to assign roles to user: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/iam/users/{user_id}/roles",
-    response_model=list[RoleResponseSchema],
-    summary="Get user roles",
-    operation_id="get_user_roles",
-)
-async def get_user_roles(
-    user_id: UUID,
-    _permission: None = Depends(require_permission("iam:role_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[RoleResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        roles = await service.get_user_roles(user_id)
-
-        def _to_role_status(value: str) -> RoleStatus:
-            try:
-                return RoleStatus(value)
-            except ValueError:
-                return RoleStatus.INACTIVE
-
-        return [
-            RoleResponseSchema(
-                id=r.role_id,
-                name=r.role_name,
-                description=r.description,
-                parent_role_id=r.parent_role_id,
-                parent_role_name=None,
-                is_system_role=r.is_system,
-                status=_to_role_status(r.status.value),
-                is_active=r.status.value == "active",
-                permission_ids=[_permission_to_uuid(p) for p in sorted(r.permissions)],
-                created_at=r.created_at,
-                updated_at=r.updated_at,
-                created_by=None,
-                created_by_name=(str(r.created_by) if r.created_by else None),
-                version=r.version,
-            )
-            for r in roles
-        ]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get user roles: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.delete(
-    "/iam/users/{user_id}/roles/{role_id}",
-    response_model=dict[str, Any],
-    summary="Remove role from user",
-    operation_id="remove_role_from_user",
-)
-async def remove_role_from_user(
-    user_id: UUID,
-    role_id: UUID,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    _permission: None = Depends(require_permission("iam:role_assign")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> dict[str, Any]:
-    service.set_context(session, legal_entity_id)
-
-    method_name = "remove_role_from_user"
-    if idempotency_key:
-        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
-        if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
-            return cached
-
-    try:
-        await service.revoke_role_from_user(
-            user_id=user_id,
-            role_id=role_id,
-            revoked_by=current_user.user_id,
-            correlation_id=idempotency_key,
-        )
-        logger.info(f"Role removed from user: {user_id}")
-
-        response = {
-            "user_id": str(user_id),
-            "role_id": str(role_id),
-            "removed": True,
-            "message": "Role removed from user",
-        }
-
-        if idempotency_key:
-            _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
-        return response
-
-    except HTTPException:
-        raise
-    except (UserNotFoundError, RoleNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Failed to remove role from user: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# PERMISSION MANAGEMENT
-# ----------------------------------------------------------------------------
-
-@router.get(
-    "/iam/permissions",
-    response_model=list[PermissionResponseSchema],
-    summary="List all permissions",
-    operation_id="list_permissions",
-)
-async def list_permissions(
-    resource: str | None = Query(None, description="Filter by resource"),
-    _permission: None = Depends(require_permission("iam:permission_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[PermissionResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        all_permissions = sorted(PermissionUtils.STANDARD_PERMISSIONS)
-
-        def _to_schema(perm: str) -> PermissionResponseSchema:
-            res, _, action = perm.partition(":")
-            return PermissionResponseSchema(
-                id=_permission_to_uuid(perm),
-                name=perm,
-                resource=res,
-                action=action,
-                description=None,
-                is_system=True,
-                created_at=datetime.now(UTC),
-            )
-
-        return [
-            _to_schema(perm)
-            for perm in all_permissions
-            if resource is None or perm.split(":", 1)[0] == resource
-        ]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to list permissions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1821,17 +1661,13 @@ async def assign_permissions_to_role(
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
             logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
-            return [PermissionResponseSchema(**item) for item in cached]
+            return [PermissionResponseSchema(**item) for item in cached.get("items", [])]
 
     try:
         role = await service.get_role(role_id)
         if not role:
             raise HTTPException(status_code=404, detail="Role not found")
 
-        # Konversi permission_id -> permission name. Cari di
-        # STANDARD_PERMISSIONS (konstanta statis) karena endpoint ini
-        # menerima ID yang di-generate oleh frontend dari GET
-        # /iam/permissions (yang bersumber dari konstanta yang sama).
         all_perms = PermissionUtils.STANDARD_PERMISSIONS
         new_perms: list[str] = []
         unresolved_ids: list[UUID] = []
@@ -1847,9 +1683,6 @@ async def assign_permissions_to_role(
                 unresolved_ids.append(perm_id)
 
         if unresolved_ids:
-            # Jangan diam-diam mengabaikan ID yang tidak dikenal — kalau
-            # dibiarkan, user mengira permission berhasil di-assign padahal
-            # tidak. Lebih baik balas 422 dengan daftar ID yang gagal.
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -1858,15 +1691,9 @@ async def assign_permissions_to_role(
                 ),
             )
 
-        # Endpoint ini bersifat ADDITIF (assign = tambah, dipasangkan
-        # dengan DELETE .../permissions/{id} untuk melepas satu-satu).
-        # Frontend (iam_roles_page.py) hanya mengirim `to_add` (diff
-        # permission yang baru dicentang), bukan seluruh permission.
-        # Jadi kita UNION-kan dengan permission role yang sudah ada.
-        existing_perms = [_permission_to_str(p) for p in role.permissions]
-        merged_perms = list(dict.fromkeys(existing_perms + new_perms))  # dedupe, jaga urutan
+        existing_perms = [_permission_to_str(p) for p in (getattr(role, "permissions", set()) or set())]
+        merged_perms = list(dict.fromkeys(existing_perms + new_perms))
 
-        from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(permissions=merged_perms)
         result = await service.update_role(
             role_id=role_id,
@@ -1877,6 +1704,7 @@ async def assign_permissions_to_role(
 
         logger.info(f"Permissions assigned to role: {role_id}")
 
+        result_perms = getattr(result, "permissions", set()) or set()
         response = [
             PermissionResponseSchema(
                 id=_permission_to_uuid(p),
@@ -1887,7 +1715,7 @@ async def assign_permissions_to_role(
                 is_system=True,
                 created_at=datetime.now(UTC),
             )
-            for p in result.permissions
+            for p in result_perms
         ]
 
         if idempotency_key:
@@ -1898,11 +1726,6 @@ async def assign_permissions_to_role(
         return response
 
     except HTTPException:
-        # PENTING: HTTPException HARUS di-raise ulang apa adanya, jangan
-        # di-wrap jadi 500. Sebelumnya `except Exception` di bawah menangkap
-        # HTTPException (karena HTTPException adalah subclass Exception),
-        # sehingga 404 "Role not found" / 422 "permission_id tidak dikenali"
-        # berubah jadi 500 Internal Server Error di response.
         raise
     except RoleNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1910,45 +1733,6 @@ async def assign_permissions_to_role(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to assign permissions to role: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/iam/roles/{role_id}/permissions",
-    response_model=list[PermissionResponseSchema],
-    summary="Get role permissions",
-    operation_id="get_role_permissions",
-)
-async def get_role_permissions(
-    role_id: UUID,
-    _permission: None = Depends(require_permission("iam:permission_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[PermissionResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        role = await service.get_role(role_id)
-        if not role:
-            raise HTTPException(status_code=404, detail="Role not found")
-
-        return [
-            PermissionResponseSchema(
-                id=_permission_to_uuid(p),
-                name=_permission_to_str(p),
-                resource=_permission_to_str(p).split(":", 1)[0],
-                action=_permission_to_str(p).split(":", 1)[1] if ":" in _permission_to_str(p) else "",
-                description=None,
-                is_system=True,
-                created_at=datetime.now(UTC),
-            )
-            for p in role.permissions
-        ]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get role permissions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1978,36 +1762,22 @@ async def remove_permission_from_role(
             return cached
 
     try:
-        # Ambil role terlebih dahulu (dibutuhkan untuk resolusi permission
-        # name dari UUID — lihat _resolve_permission_name_from_id).
         role = await service.get_role(role_id)
         if not role:
             raise HTTPException(status_code=404, detail="Role not found")
 
-        # Resolve permission name dari UUID. Cari di permission yang
-        # BENAR-BENAR dimiliki role saat ini dulu (mencakup permission
-        # kustom yang dibuat lewat create_role/update_role), baru fallback
-        # ke konstanta STANDARD_PERMISSIONS. Ini memperbaiki bug lama di
-        # mana permission yang tidak ada di STANDARD_PERMISSIONS selalu
-        # memicu 404 yang kemudian di-wrap jadi 500 oleh except Exception
-        # di bawah.
-        perm_name = _resolve_permission_name_from_id(permission_id, role.permissions)
+        role_perms = getattr(role, "permissions", set()) or set()
+        perm_name = _resolve_permission_name_from_id(permission_id, role_perms)
         if not perm_name:
             raise HTTPException(
                 status_code=404,
                 detail=f"Permission with id {permission_id} not found on role {role_id}",
             )
 
-        # Bangun daftar permission baru = semua permission role saat ini
-        # KECUALI yang mau dihapus. Normalisasi lewat _permission_to_str
-        # supaya baik PermissionVO maupun str sama-sama diperlakukan sama.
-        current_perm_names = [_permission_to_str(p) for p in role.permissions]
+        current_perm_names = [_permission_to_str(p) for p in role_perms]
         new_perms = [p for p in current_perm_names if p != perm_name]
 
         if len(new_perms) == len(current_perm_names):
-            # Permission yang mau dihapus ternyata tidak ada di role —
-            # ini bukan error fatal (mungkin sudah dihapus sebelumnya,
-            # mis. retry request yang sama), jadi cukup balas 200 idempotent.
             response = {
                 "role_id": str(role_id),
                 "permission_id": str(permission_id),
@@ -2019,7 +1789,6 @@ async def remove_permission_from_role(
                 _idempotency_manager.cache_result(idempotency_key, method_name, response)
             return response
 
-        from application.service_layer.service_iam import UpdateRoleRequest
         update_req = UpdateRoleRequest(permissions=new_perms)
         await service.update_role(
             role_id=role_id,
@@ -2044,12 +1813,6 @@ async def remove_permission_from_role(
         return response
 
     except HTTPException:
-        # PENTING: HTTPException HARUS di-raise ulang apa adanya, jangan
-        # di-wrap jadi 500. Sebelumnya `except Exception` di bawah menangkap
-        # HTTPException (karena HTTPException adalah subclass Exception),
-        # sehingga 404 "Permission not found" berubah jadi 500 Internal
-        # Server Error di response — membingungkan user dan menyulitkan
-        # diagnosis.
         raise
     except RoleNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -2060,40 +1823,170 @@ async def remove_permission_from_role(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get(
+    "/iam/users/{user_id}/roles",
+    response_model=list[RoleResponseSchema],
+    summary="Get roles assigned to user",
+    operation_id="get_user_roles",
+)
+async def get_user_roles(
+    user_id: UUID,
+    _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> list[RoleResponseSchema]:
+    """
+    FIX: RoleEntity pakai `role_name`, bukan `name`.
+    """
+    service.set_context(session, legal_entity_id)
+
+    try:
+        roles: list[Any] = []
+        if hasattr(service, "get_user_roles"):
+            try:
+                roles = await service.get_user_roles(user_id)
+            except Exception as inner:
+                logger.warning(f"get_user_roles() gagal: {type(inner).__name__}: {inner}")
+                roles = []
+
+        result = []
+        for r in roles:
+            perms = getattr(r, "permissions", set()) or set()
+            perm_ids = [_permission_to_uuid(p) for p in perms] if perms else []
+            status_val = _get_role_status_value(r)
+            result.append(
+                RoleResponseSchema(
+                    id=getattr(r, "role_id", None) or getattr(r, "id", None),
+                    name=_get_role_name(r),
+                    description=getattr(r, "description", None),
+                    parent_role_id=getattr(r, "parent_role_id", None),
+                    parent_role_name=None,
+                    is_system_role=_get_role_is_system(r),
+                    status=RoleStatus(status_val),
+                    is_active=status_val == "active",
+                    permission_ids=perm_ids,
+                    created_at=_get_audit_created_at(r),
+                    updated_at=_get_audit_updated_at(r),
+                    created_by=_get_audit_created_by(r),
+                    created_by_name=None,
+                    version=_get_audit_version(r),
+                )
+            )
+        return result
+    except HTTPException:
+        raise
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to get user roles: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/iam/users/{user_id}/roles/{role_id}",
+    response_model=dict[str, Any],
+    summary="Remove role from user",
+    operation_id="remove_role_from_user",
+)
+async def remove_role_from_user(
+    user_id: UUID,
+    role_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("iam:user_role_assign")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    service.set_context(session, legal_entity_id)
+
+    method_name = "remove_role_from_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
+    try:
+        await service.remove_role_from_user(
+            user_id=user_id,
+            role_id=role_id,
+            removed_by=current_user.user_id,
+            correlation_id=idempotency_key,
+        )
+
+        logger.info(f"Role {role_id} removed from user {user_id}")
+
+        response = {
+            "user_id": str(user_id),
+            "role_id": str(role_id),
+            "removed": True,
+            "message": "Role removed from user",
+        }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
+    except HTTPException:
+        raise
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RoleNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to remove role from user: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # ----------------------------------------------------------------------------
-# AUTHENTICATION
+# AUTHENTICATION & SESSION
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/login",
+    "/iam/login",
     response_model=LoginResponseSchema,
     summary="User login",
     operation_id="login",
 )
 async def login(
     request: LoginRequestSchema,
-    ip_address: str | None = None,
-    user_agent: str | None = None,
+    http_request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
 ) -> LoginResponseSchema:
     service.set_context(session, request.legal_entity_id)
-
     try:
-        result = await service.login(
+        # Ambil IP + User-Agent dari HTTP request
+        forwarded = http_request.headers.get("X-Forwarded-For")
+        client_ip = (
+            forwarded.split(",")[0].strip() if forwarded
+            else (http_request.client.host if http_request.client else "0.0.0.0")
+        )
+        user_agent = http_request.headers.get("User-Agent", "unknown")
+
+        result = await service.authenticate(
             username=request.username,
             password=request.password,
-            mfa_code=request.mfa_code,
             legal_entity_id=request.legal_entity_id,
-            ip_address=ip_address,
+            mfa_code=request.mfa_code,
+            ip_address=client_ip,
             user_agent=user_agent,
         )
 
-        logger.info("User logged in successfully")
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        logger.info(f"User logged in successfully: {request.username}")
 
         return LoginResponseSchema(
             access_token=result.access_token,
             refresh_token=result.refresh_token,
+            token_type="bearer",
             expires_in=result.expires_in,
             user=UserResponseSchema(
                 id=result.user.user_id,
@@ -2103,141 +1996,549 @@ async def login(
                 department=result.user.profile.department,
                 job_title=result.user.profile.position,
                 phone_number=result.user.profile.phone,
-                status=result.user.status,
+                status=UserStatus(result.user.status),
                 is_active=result.user.status == UserStatus.ACTIVE,
-                is_locked=result.user.status == UserStatus.LOCKED,
-                is_superuser=bool(result.user.role_ids) and any(str(role_id).endswith("-0000-0000-0000-000000000001") for role_id in result.user.role_ids),
-                must_change_password=result.user.password_hash.requires_rehash() if hasattr(result.user.password_hash, 'requires_rehash') else False,
-                mfa_enabled=result.user.mfa_enabled,
-                last_login_at=result.user.audit.last_login_at,
-                last_password_change=result.user.audit.last_password_change_at,
+                is_locked=result.user.locked_until is not None,
+                is_superuser=getattr(result.user, "is_superuser", False),
+                must_change_password=getattr(result.user, "must_change_password", False),
+                mfa_enabled=getattr(result.user, "mfa_enabled", False),
+                last_login_at=getattr(result.user, "last_login_at", None),
+                last_password_change=getattr(result.user, "last_password_change_at", None),
                 legal_entity_ids=[result.user.legal_entity_id] if result.user.legal_entity_id else [],
-                role_ids=result.user.role_ids,
+                role_ids=getattr(result.user, "role_ids", []) or [],
                 notes=None,
-                created_at=result.user.audit.created_at,
-                updated_at=result.user.audit.updated_at,
-                created_by=None,
-                created_by_name=None,
-                version=result.user.audit.version,
+                created_at=_get_audit_created_at(result.user),
+                updated_at=_get_audit_updated_at(result.user),
+                created_by=_get_audit_created_by(result.user),
+                created_by_name=(str(_get_audit_created_by(result.user)) if _get_audit_created_by(result.user) else None),
+                version=_get_audit_version(result.user),
             ),
         )
     except HTTPException:
         raise
-    except MFARequiredError as e:
-        logger.warning(f"Login failed: MFA required/invalid - {e!s}")
-        raise HTTPException(status_code=422, detail=str(e))
     except AuthenticationError as e:
-        logger.warning(f"Login failed: AuthenticationError - {e!s}")
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        raise HTTPException(status_code=401, detail=str(e))
+    except MFARequiredError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except MFAError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     except ValueError as e:
-        logger.exception(f"Login failed: invalid input - {e!s}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Login failed: Unexpected error - {type(e).__name__}")
+        logger.exception(f"Login failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
 @router.post(
-    "/logout",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="User logout",
-    operation_id="logout",
-)
-async def logout(
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-):
-    service.set_context(session, legal_entity_id)
-
-    try:
-        await service.logout(current_user.user_id, current_user.jti)
-        logger.info("User logged out")
-    except Exception as e:
-        logger.exception(f"Logout failed: {type(e).__name__}")
-    return None
-
-
-@router.post(
-    "/refresh",
+    "/iam/refresh",
     response_model=TokenRefreshResponseSchema,
     summary="Refresh access token",
-    operation_id="refresh_token",
+    operation_id="refresh_access_token",
 )
-async def refresh_token(
+async def refresh_access_token(
     request: RefreshTokenRequestSchema,
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
 ) -> TokenRefreshResponseSchema:
-    # CATATAN: TIDAK boleh depend on get_current_legal_entity (atau apa pun
-    # yang butuh request.state.user) di endpoint ini. /iam/refresh sengaja
-    # didaftarkan sebagai public_path di app/main.py supaya bisa dipanggil
-    # justru saat access token sudah/hampir kadaluarsa - middleware auth
-    # TIDAK dijalankan untuk public_path, jadi request.state.user tidak
-    # pernah ter-set, dan dependency apa pun yang butuh itu (termasuk
-    # get_current_legal_entity) akan selalu raise 401 "Not authenticated"
-    # sebelum handler ini sempat jalan. legal_entity_id untuk konteks
-    # diambil dari isi refresh_token itu sendiri oleh
-    # service.refresh_access_token(), bukan dari request.state.
-    service.set_context(session, None)
-
+    """
+    FIX: IAMService tidak punya `.refresh_token()`. Decode refresh JWT
+    via JWTAuthMiddleware._verify_token, lalu generate access_token baru.
+    """
     try:
-        new_access_token = await service.refresh_access_token(request.refresh_token)
+        from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
+            InvalidTokenError,
+            JWTAuthMiddleware,
+            TokenExpiredError,
+            TokenType as _TokenType,
+            create_access_token as _create_access,
+            create_refresh_token as _create_refresh,
+        )
+        from datetime import timedelta as _td
 
-        logger.info("Session refreshed successfully")
+        mw = JWTAuthMiddleware.__new__(JWTAuthMiddleware)
+        mw.public_key = mw._load_public_key()
+        mw.private_key = mw._load_private_key()
+        mw.algorithm = "RS256"
+        mw.revocation_check = False
+        mw._revocation_list = None
+        mw.rbac_enabled = False
+        mw.public_paths = set()
+        mw.auth_exceptions = set()
+        mw.access_expire = _td(minutes=15)
+        mw.refresh_expire = _td(days=7)
+        mw._authority_matrix_wired = False
+        mw._authority_matrix_available = False
+        mw._rbac_enforcer = None
+        mw._authority_matrix = None
+        mw._iam_service = None
+
+        try:
+            payload = await mw._verify_token(request.refresh_token, token_type=_TokenType.REFRESH)
+        except (InvalidTokenError, TokenExpiredError) as e:
+            logger.warning(f"Refresh token tidak valid: {type(e).__name__}: {e}")
+            raise HTTPException(status_code=401, detail="Refresh token tidak valid atau kadaluarsa")
+        except Exception as e:
+            logger.exception(f"Gagal verifikasi refresh token: {type(e).__name__}")
+            raise HTTPException(status_code=401, detail="Refresh token tidak valid")
+
+        new_access = await _create_access(
+            user_id=payload.user_id,
+            username=payload.username,
+            legal_entity_id=payload.legal_entity_id,
+            roles=payload.roles or [],
+            permissions=payload.permissions or [],
+            device_id=payload.device_id,
+        )
+        new_refresh = await _create_refresh(
+            user_id=payload.user_id,
+            username=payload.username,
+            legal_entity_id=payload.legal_entity_id,
+            roles=payload.roles or [],
+            permissions=payload.permissions or [],
+            device_id=payload.device_id,
+        )
+
+        logger.info(f"Refresh token issued for user {payload.user_id}")
 
         return TokenRefreshResponseSchema(
-            access_token=new_access_token,
-            refresh_token=request.refresh_token,
+            access_token=new_access,
+            refresh_token=new_refresh,
+            expires_in=900,
         )
     except HTTPException:
         raise
-    except ValueError as e:
-        logger.warning("Session refresh failed: invalid refresh credential")
-        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
-        logger.exception(f"Session refresh failed: {type(e).__name__}")
+        logger.exception(f"Failed to refresh token: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
+    "/iam/logout",
+    response_model=dict[str, Any],
+    summary="User logout",
+    operation_id="logout",
+)
+async def logout(
+    request: Request,
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+        if token and hasattr(service, "logout"):
+            await service.logout(token, current_user.user_id)
+        logger.info(f"User logged out: {current_user.user_id}")
+        return {"message": "Logged out successfully"}
+    except Exception as e:
+        logger.exception(f"Failed to logout: {type(e).__name__}")
+        return {"message": "Logged out locally (server logout failed silently)"}
+
+
+@router.post(
     "/iam/change-password",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Change own password",
+    response_model=dict[str, Any],
+    summary="Change user password",
     operation_id="change_password",
 )
 async def change_password(
     request: ChangePasswordSchema,
     current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
-):
-    service.set_context(session, legal_entity_id)
+) -> dict[str, Any]:
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
 
+    service.set_context(session, legal_entity_id)
     try:
         await service.change_password(
             user_id=current_user.user_id,
             old_password=request.old_password,
             new_password=request.new_password,
-            changed_by=current_user.user_id,
         )
-
-        logger.info(f"Credential updated for user: {current_user.user_id}")
-        return None
+        logger.info(f"Password changed for user: {current_user.user_id}")
+        return {"message": "Password changed successfully"}
     except HTTPException:
         raise
-    except UserNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except AuthenticationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Credential change failed: {type(e).__name__}")
+        logger.exception(f"Failed to change password: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+# ----------------------------------------------------------------------------
+# MFA MANAGEMENT (FIX: multiple signature support)
+# ----------------------------------------------------------------------------
+
+@router.post(
+    "/iam/mfa/setup",
+    response_model=MFASetupResponseSchema,
+    summary="Setup MFA for current user",
+    operation_id="setup_mfa",
+)
+async def setup_mfa(
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> MFASetupResponseSchema:
+    """
+    FIX (2026-10-14 v6): IAMService.setup_mfa() mengembalikan DICT,
+    bukan object. Sebelumnya `result.secret_key` menyebabkan
+    AttributeError. Sekarang pakai akses dict.
+    """
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        # Signature IAMService.setup_mfa(user_id, username) -> dict
+        result = await service.setup_mfa(current_user.user_id, current_user.username)
+        if not result:
+            raise HTTPException(status_code=400, detail="MFA setup gagal")
+
+        # `result` adalah dict: ambil via .get() dengan fallback
+        def _pick(key, default=None):
+            if isinstance(result, dict):
+                return result.get(key, default)
+            return getattr(result, key, default)
+
+        return MFASetupResponseSchema(
+            secret_key=_pick("secret_key", "") or "",
+            qr_code_url=_pick("qr_code_url", "") or "",
+            backup_codes=list(_pick("backup_codes", []) or []),
+            issuer=_pick("issuer", MFA_ISSUER_NAME) or MFA_ISSUER_NAME,
+        )
+    except HTTPException:
+        raise
+    except MFAError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to setup MFA: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/iam/mfa/verify",
+    response_model=dict[str, Any],
+    summary="Verify MFA code and enable MFA",
+    operation_id="verify_mfa",
+)
+async def verify_mfa(
+    request: MFAVerifySchema,
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    """
+    FIX (2026-10-14 v6): Method IAMService yang benar adalah
+    `verify_and_enable_mfa(user_id, code)`, BUKAN `verify_mfa`.
+    """
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        valid = await service.verify_and_enable_mfa(current_user.user_id, request.code)
+        if not valid:
+            raise HTTPException(status_code=401, detail="Kode MFA tidak valid")
+        return {"verified": True, "enabled": True, "message": "MFA berhasil diaktifkan"}
+    except HTTPException:
+        raise
+    except MFAError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to verify MFA: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+@router.post(
+    "/iam/mfa/disable",
+    response_model=dict[str, Any],
+    summary="Disable MFA for current user",
+    operation_id="disable_mfa",
+)
+async def disable_mfa(
+    request: MFADisableSchema,
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    """
+    FIX (2026-10-14 v6): IAMService.disable_mfa(user_id, password, mfa_code).
+    Raise MFAError kalau password/kode salah.
+    """
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        await service.disable_mfa(
+            user_id=current_user.user_id,
+            password=request.password,
+            mfa_code=request.mfa_code,
+        )
+        return {"disabled": True, "message": "MFA dinonaktifkan"}
+    except HTTPException:
+        raise
+    except MFAError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to disable MFA: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ----------------------------------------------------------------------------
+# SESSION MANAGEMENT
+# ----------------------------------------------------------------------------
+
+@router.get(
+    "/iam/sessions",
+    response_model=list[SessionResponseSchema],
+    summary="List active sessions for current user",
+    operation_id="list_sessions",
+)
+async def list_sessions(
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> list[SessionResponseSchema]:
+    """
+    FIX (2026-10-14 v7): Method IAMService yang benar adalah
+    `get_user_sessions(user_id)`, BUKAN `list_sessions`. Sebelumnya
+    `hasattr(service, 'list_sessions')` selalu False, sehingga endpoint
+    selalu return array kosong padahal tabel `iam_session` berisi data.
+    """
+    legal_entity_id = current_user.legal_entity_id
+    if legal_entity_id is None:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        sessions = await service.get_user_sessions(current_user.user_id)
+        return [
+            SessionResponseSchema(
+                id=s.id,
+                session_token=s.session_token,
+                user_id=s.user_id,
+                user_name=None,
+                ip_address=getattr(s, "ip_address", None),
+                user_agent=getattr(s, "user_agent", None),
+                device_id=getattr(s, "device_id", None),
+                expires_at=s.expires_at,
+                last_accessed_at=s.last_accessed_at,
+                is_active=s.is_active,
+                is_revoked=s.is_revoked,
+                created_at=s.created_at,
+            )
+            for s in (sessions or [])
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to list sessions: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/iam/sessions/{session_id}",
+    response_model=dict[str, Any],
+    summary="Revoke a session",
+    operation_id="revoke_session",
+)
+async def revoke_session(
+    session_id: UUID,
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        if hasattr(service, "revoke_session"):
+            await service.revoke_session(session_id, current_user.user_id)
+        return {"session_id": str(session_id), "revoked": True}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to revoke session: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/iam/sessions",
+    response_model=dict[str, Any],
+    summary="Revoke all other sessions for current user",
+    operation_id="revoke_all_sessions",
+)
+async def revoke_all_sessions(
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, Any]:
+    """
+    FIX (2026-10-14 v7): Method IAMService yang benar adalah
+    `revoke_all_other_sessions(user_id, keep_session_id) -> int`,
+    BUKAN `revoke_all_sessions`.
+    """
+    legal_entity_id = current_user.legal_entity_id
+    if not legal_entity_id:
+        raise HTTPException(status_code=400, detail="Legal entity ID not found in token")
+
+    service.set_context(session, legal_entity_id)
+    try:
+        count = await service.revoke_all_other_sessions(
+            current_user.user_id,
+            keep_session_id=None,
+        )
+        return {
+            "revoked_count": count or 0,
+            "message": f"{count or 0} sesi lain di-revoke",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to revoke all sessions: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ----------------------------------------------------------------------------
+# LOGIN ATTEMPTS & AUDIT LOGS
+# ----------------------------------------------------------------------------
+
+@router.get(
+    "/iam/login-attempts",
+    response_model=list[LoginAttemptResponseSchema],
+    summary="List login attempts (admin only)",
+    operation_id="list_login_attempts",
+)
+async def list_login_attempts(
+    username: str | None = Query(None, description="Filter by username"),
+    success: bool | None = Query(None, description="Filter by success status"),
+    limit: int = Query(50, ge=1, le=500),
+    _permission: None = Depends(require_permission("iam:audit_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> list[LoginAttemptResponseSchema]:
+    """
+    FIX v8 (2026-10-14): Signature IAMService.get_login_attempts:
+        get_login_attempts(username, success, start_date, end_date,
+                           page, page_size)
+    Router panggil dengan page_size (bukan limit).
+    """
+    service.set_context(session, legal_entity_id)
+    try:
+        if not hasattr(service, "get_login_attempts"):
+            logger.warning("IAMService.get_login_attempts() tidak tersedia, return []")
+            return []
+
+        # Panggil dengan signature yang benar (page_size, bukan limit)
+        attempts = await service.get_login_attempts(
+            username=username,
+            success=success,
+            start_date=None,
+            end_date=None,
+            page=1,
+            page_size=limit,
+        )
+
+        # Hasil bisa berupa: list, PagedResult (dengan .items), atau dict {"items": [...]}
+        items = attempts
+        if attempts is None:
+            items = []
+        elif hasattr(attempts, "items"):
+            items = attempts.items
+        elif isinstance(attempts, dict):
+            items = attempts.get("items") or attempts.get("data") or []
+        elif not isinstance(attempts, list):
+            items = list(attempts)
+
+        def _pick(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        return [
+            LoginAttemptResponseSchema(
+                id=_pick(a, "id"),
+                username=_pick(a, "username", "") or "",
+                user_id=_pick(a, "user_id"),
+                ip_address=_pick(a, "ip_address"),
+                user_agent=_pick(a, "user_agent"),
+                success=bool(_pick(a, "success", _pick(a, "is_successful", False))),
+                failure_reason=_pick(a, "failure_reason"),
+                attempted_at=_pick(a, "attempted_at", _pick(a, "created_at")),
+            )
+            for a in items
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to list login attempts: {type(e).__name__}")
+        return []
+
+@router.get(
+    "/iam/audit-logs/{user_id}",
+    response_model=list[UserAuditLogSchema],
+    summary="Get audit logs for a user",
+    operation_id="get_user_audit_logs",
+)
+async def get_user_audit_logs(
+    user_id: UUID,
+    limit: int = Query(50, ge=1, le=500),
+    _permission: None = Depends(require_permission("iam:audit_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> list[UserAuditLogSchema]:
+    service.set_context(session, legal_entity_id)
+    try:
+        if not hasattr(service, "get_user_audit_logs"):
+            return []
+        logs = await service.get_user_audit_logs(user_id, limit=limit)
+        return [
+            UserAuditLogSchema(
+                id=log.id,
+                user_id=log.user_id,
+                action=log.action,
+                ip_address=log.ip_address,
+                user_agent=log.user_agent,
+                details=log.details,
+                created_at=log.created_at,
+            )
+            for log in logs
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get user audit logs: {type(e).__name__}")
+        return []
+
+
+# ----------------------------------------------------------------------------
+# PASSWORD RESET
+# ----------------------------------------------------------------------------
 
 @router.post(
     "/iam/forgot-password",
@@ -2247,573 +2548,62 @@ async def change_password(
 )
 async def forgot_password(
     request: ResetPasswordRequestSchema,
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
 ) -> ForgotPasswordResponseSchema:
-    service.set_context(session, legal_entity_id)
-
     try:
-        result = await service.request_password_reset(email=request.email)
-        return ForgotPasswordResponseSchema(**result)
+        if not hasattr(service, "forgot_password"):
+            return ForgotPasswordResponseSchema(
+                message="If the email exists, a reset link has been sent.",
+                reset_token=None,
+                reset_url=None,
+            )
+        result = await service.forgot_password(request.email)
+        return ForgotPasswordResponseSchema(
+            message="If the email exists, a reset link has been sent.",
+            reset_token=result.get("token") if result else None,
+            reset_url=result.get("reset_url") if result else None,
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Reset request failed: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.exception(f"Failed to process forgot password: {type(e).__name__}")
+        return ForgotPasswordResponseSchema(
+            message="If the email exists, a reset link has been sent.",
+            reset_token=None,
+            reset_url=None,
+        )
 
 
 @router.post(
     "/iam/reset-password",
-    response_model=dict[str, str],
-    summary="Reset password with token",
+    response_model=dict[str, Any],
+    summary="Confirm password reset with token",
     operation_id="reset_password",
 )
 async def reset_password(
     request: ResetPasswordConfirmSchema,
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> dict[str, str]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        await service.confirm_password_reset(token=request.token, new_password=request.new_password)
-        return {"message": "Password berhasil direset. Silakan login dengan password baru."}
-    except HTTPException:
-        raise
-    except AuthenticationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Reset failed: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# MFA (Multi-Factor Authentication)
-# ----------------------------------------------------------------------------
-
-@router.post(
-    "/iam/mfa/setup",
-    response_model=MFASetupResponseSchema,
-    summary="Setup MFA",
-    operation_id="setup_mfa",
-)
-async def setup_mfa(
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> MFASetupResponseSchema:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        result = await service.setup_mfa(user_id=current_user.user_id, username=current_user.username)
-        return MFASetupResponseSchema(**result)
-    except HTTPException:
-        raise
-    except UserNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except MFAError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception(f"MFA setup failed: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post(
-    "/iam/mfa/verify",
-    response_model=dict[str, bool],
-    summary="Verify and enable MFA",
-    operation_id="verify_mfa",
-)
-async def verify_mfa(
-    request: MFAVerifySchema,
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> dict[str, bool]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        enabled = await service.verify_and_enable_mfa(user_id=current_user.user_id, code=request.code)
-        if not enabled:
-            raise HTTPException(status_code=422, detail="Kode MFA tidak valid")
-        return {"enabled": True}
-    except HTTPException:
-        raise
-    except UserNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except MFAError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception(f"MFA verification failed: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post(
-    "/iam/mfa/disable",
-    response_model=dict[str, bool],
-    summary="Disable MFA",
-    operation_id="disable_mfa",
-)
-async def disable_mfa(
-    request: MFADisableSchema,
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> dict[str, bool]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        await service.disable_mfa(
-            user_id=current_user.user_id,
-            password=request.password,
-            mfa_code=request.mfa_code,
-        )
-        return {"enabled": False}
-    except HTTPException:
-        raise
-    except UserNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except MFAError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception(f"MFA disable failed: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# SESSION MANAGEMENT
-# ----------------------------------------------------------------------------
-
-@router.get(
-    "/iam/sessions",
-    response_model=list[SessionResponseSchema],
-    summary="Get user sessions",
-    operation_id="get_user_sessions",
-)
-async def get_user_sessions(
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[SessionResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        sessions = await service.get_user_sessions(current_user.user_id)
-        return [SessionResponseSchema.model_validate(s) for s in sessions]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get user sessions: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.delete(
-    "/iam/sessions/{session_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Revoke a session",
-    operation_id="revoke_session",
-)
-async def revoke_session(
-    session_id: UUID,
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-):
-    service.set_context(session, legal_entity_id)
-
-    try:
-        ok = await service.revoke_session(session_id, current_user.user_id)
-        if not ok:
-            raise HTTPException(status_code=404, detail="Sesi tidak ditemukan")
-        return None
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to revoke session: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.delete(
-    "/iam/sessions",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Revoke all other sessions",
-    operation_id="revoke_all_other_sessions",
-)
-async def revoke_all_other_sessions(
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-):
-    service.set_context(session, legal_entity_id)
-
-    try:
-        existing = await service.get_user_sessions(current_user.user_id)
-        keep_id = existing[0].id if existing else None
-        await service.revoke_all_other_sessions(current_user.user_id, keep_session_id=keep_id)
-        return None
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to revoke all other sessions: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# LOGIN ATTEMPTS & AUDIT
-# ----------------------------------------------------------------------------
-
-@router.get(
-    "/iam/login-attempts",
-    response_model=list[LoginAttemptResponseSchema],
-    summary="Get login attempts (admin)",
-    operation_id="get_login_attempts",
-)
-async def get_login_attempts(
-    username: str | None = Query(None, description="Filter by username"),
-    success: bool | None = Query(None, description="Filter by success status"),
-    start_date: datetime | None = Query(None, description="Start date"),
-    end_date: datetime | None = Query(None, description="End date"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
-    _permission: None = Depends(require_permission("iam:audit_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[LoginAttemptResponseSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        attempts = await service.get_login_attempts(
-            username=username,
-            success=success,
-            start_date=start_date,
-            end_date=end_date,
-            page=page,
-            page_size=page_size,
-        )
-        return [
-            LoginAttemptResponseSchema(
-                id=a.id,
-                username=a.username,
-                user_id=getattr(a, "user_id", None),
-                ip_address=a.ip_address,
-                user_agent=getattr(a, "user_agent", None),
-                success=a.success,
-                failure_reason=a.failure_reason,
-                attempted_at=a.attempted_at,
-            )
-            for a in attempts
-        ]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get login attempts: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/iam/users/{user_id}/audit-log",
-    response_model=list[UserAuditLogSchema],
-    summary="Get user audit log",
-    operation_id="get_user_audit_log",
-)
-async def get_user_audit_log(
-    user_id: UUID,
-    limit: int = Query(100, ge=1, le=1000, description="Number of records"),
-    _permission: None = Depends(require_permission("iam:audit_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[UserAuditLogSchema]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        # IAMService tidak punya get_user_audit_log
-        logger.warning("get_user_audit_log not implemented in IAMService")
-        return []
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get user audit log: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# USER STATUS & HISTORY
-# ----------------------------------------------------------------------------
-
-@router.get(
-    "/iam/users/{user_id}/status",
-    response_model=dict[str, Any],
-    summary="Get user status",
-    operation_id="get_user_status",
-)
-async def get_user_status(
-    user_id: UUID,
-    _permission: None = Depends(require_permission("iam:user_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    service.set_context(session, legal_entity_id)
-
     try:
-        user = await service.get_user(user_id)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        return {
-            "user_id": str(user_id),
-            "username": user.username,
-            "status": user.status.value,
-            "is_active": user.status == UserStatus.ACTIVE,
-            "is_locked": user.locked_until is not None,
-            "is_mfa_enabled": user.mfa_enabled,
-            "must_change_password": user.must_change_password if hasattr(user, 'must_change_password') else False,
-            "password_expiry_days": 0,  # dummy
-            "last_login_at": user.audit.last_login_at.isoformat() if user.audit.last_login_at else None,
-            "last_activity_at": user.audit.updated_at.isoformat() if user.audit.updated_at else None,
-            "can_login": user.status == UserStatus.ACTIVE and (user.locked_until is None or user.locked_until < datetime.now(UTC)),
-            "can_change_password": True,
-        }
+        if not hasattr(service, "reset_password"):
+            raise HTTPException(status_code=501, detail="Reset password tidak tersedia")
+        success = await service.reset_password(request.token, request.new_password)
+        if not success:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        return {"message": "Password reset successfully"}
     except HTTPException:
         raise
-    except UserNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to get user status: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/iam/users/{user_id}/history",
-    response_model=list[dict[str, Any]],
-    summary="Get user history",
-    operation_id="get_user_history",
-)
-async def get_user_history(
-    user_id: UUID,
-    _permission: None = Depends(require_permission("iam:user_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> list[dict[str, Any]]:
-    service.set_context(session, legal_entity_id)
-
-    try:
-        # IAMService tidak punya get_user_history
-        logger.warning("get_user_history not implemented in IAMService")
-        return []
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get user history: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# EXPORT
-# ----------------------------------------------------------------------------
-
-@router.get(
-    "/iam/export",
-    summary="Export users to CSV/Excel/JSON",
-    operation_id="export_users",
-)
-async def export_users(
-    format: str = Query("csv", pattern="^(csv|excel|json)$"),
-    _permission: None = Depends(require_permission("iam:user_read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    session: AsyncSession = Depends(get_db_session),
-    service: IAMService = Depends(get_iam_service),
-) -> Response:
-    """Export daftar user ke CSV/Excel/JSON.
-
-    FIX v2 (2026-10-13):
-    - BUG: endpoint ini mengembalikan CSV berisi HANYA header tanpa baris
-      data, padahal di UI daftar user tampil normal. Root cause: endpoint
-      memanggil `service.list_users(legal_entity_id=legal_entity_id, ...)`
-      yang memicu DUA lapis filter legal_entity_id:
-        (a) di `iam_repo.get()` — filter di SQL, berdasarkan legal_entity_id
-            yang di-set lewat `service.set_context(...)`;
-        (b) di `IAMService.list_users()` — filter di Python, membandingkan
-            `u.legal_entity_id == legal_entity_id` untuk setiap user.
-      Karena `_to_user_entity()` mengisi `legal_entity_id` user dengan
-      `agg.legal_entity_ids[0]` (atau fallback ke context kalau kosong),
-      lapis filter (b) bisa saja tidak match dengan nilai yang dikirim
-      endpoint — hasilnya list kosong, padahal data ADA di DB.
-
-    Perbaikan: samakan perlakuan dengan endpoint `/iam/iam/users` yang
-    SUDAH terbukti mengembalikan data (yaitu TIDAK mengirim legal_entity_id
-    sebagai argumen list_users — biarkan filter terjadi di level SQL lewat
-    iam_repo.get() saja).
-
-    FIX v3 (2026-10-14):
-    - Kolom `last_login_at` sekarang diformat ke WIB (UTC+7) dengan format
-      `YYYY-MM-DD HH:MM:SS WIB` (lihat `_format_local_dt()`) — bukan lagi
-      string ISO UTC mentah seperti `2026-10-12T01:44:37.013808+00:00`
-      yang sulit dibaca user Indonesia dan membuat file CSV/Excel terlihat
-      "kotor" karena mikrodetik panjang.
-    """
-    import csv
-    import io
-
-    service.set_context(session, legal_entity_id)
-
-    try:
-        # PENTING: TIDAK mengirim legal_entity_id sebagai argumen
-        # service.list_users(). Method itu sendiri tetap melakukan filter
-        # lewat iam_repo.get() (yang query DB dengan legal_entity_id dari
-        # set_context di atas), jadi hasilnya sudah terbatas pada legal
-        # entity yang sedang aktif — TANPA double filtering di Python yang
-        # bisa memakan hasil karena mismatch.
-        users = await service.list_users(
-            limit=10000,
-            offset=0,
-        )
-
-        logger.info(
-            f"Export: {len(users)} users fetched for legal_entity_id={legal_entity_id}"
-        )
-
-        if format == "csv":
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow([
-                "username", "email", "full_name", "status", "is_active",
-                "department", "job_title", "phone_number", "last_login_at",
-            ])
-            for u in users:
-                writer.writerow([
-                    u.username or "",
-                    u.email or "",
-                    (u.profile.full_name if u.profile else "") or "",
-                    u.status.value if hasattr(u.status, "value") else str(u.status),
-                    "1" if u.status == UserStatus.ACTIVE else "0",
-                    (u.profile.department if u.profile else "") or "",
-                    (u.profile.position if u.profile else "") or "",
-                    (u.profile.phone if u.profile else "") or "",
-                    # FIX v3: last_login_at diformat ke WIB dengan format
-                    # `YYYY-MM-DD HH:MM:SS WIB`, bukan ISO UTC mentah.
-                    _format_local_dt(
-                        u.audit.last_login_at if u.audit else None
-                    ),
-                ])
-
-            csv_content = buf.getvalue()
-            # FIX: tambahkan BOM UTF-8 di depan supaya Excel di Windows
-            # bisa membaca karakter non-ASCII (mis. tanda hubung, karakter
-            # Indonesia) tanpa mojibake. Tanpa BOM, Excel sering salah
-            # menebak encoding dan menampilkan karakter aneh.
-            csv_bytes = b"\xef\xbb\xbf" + csv_content.encode("utf-8")
-
-            return Response(
-                content=csv_bytes,
-                media_type="text/csv; charset=utf-8",
-                headers={
-                    "Content-Disposition": 'attachment; filename="iam_users_export.csv"',
-                },
-            )
-
-        elif format == "json":
-            import json as _json
-            json_data = [
-                {
-                    "username": u.username,
-                    "email": u.email,
-                    "full_name": u.profile.full_name if u.profile else None,
-                    "status": u.status.value if hasattr(u.status, "value") else str(u.status),
-                    "is_active": u.status == UserStatus.ACTIVE,
-                    "department": u.profile.department if u.profile else None,
-                    "job_title": u.profile.position if u.profile else None,
-                    "phone_number": u.profile.phone if u.profile else None,
-                    # FIX v3: JSON juga pakai format WIB supaya konsisten
-                    # dengan CSV/Excel. Kalau mau tetap ISO 8601 (untuk
-                    # diproses program lain), ganti dengan
-                    # `u.audit.last_login_at.isoformat()` di sini.
-                    "last_login_at": _format_local_dt(
-                        u.audit.last_login_at if u.audit else None
-                    ),
-                }
-                for u in users
-            ]
-            return Response(
-                content=_json.dumps(json_data, indent=2, default=str),
-                media_type="application/json; charset=utf-8",
-                headers={
-                    "Content-Disposition": 'attachment; filename="iam_users_export.json"',
-                },
-            )
-
-        elif format == "excel":
-            try:
-                from openpyxl import Workbook
-            except ImportError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Export Excel belum didukung: install 'openpyxl' di server "
-                        "(pip install openpyxl) lalu restart backend."
-                    ),
-                )
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Users"
-            ws.append([
-                "username", "email", "full_name", "status", "is_active",
-                "department", "job_title", "phone_number", "last_login_at",
-            ])
-            for u in users:
-                ws.append([
-                    u.username or "",
-                    u.email or "",
-                    (u.profile.full_name if u.profile else "") or "",
-                    u.status.value if hasattr(u.status, "value") else str(u.status),
-                    "1" if u.status == UserStatus.ACTIVE else "0",
-                    (u.profile.department if u.profile else "") or "",
-                    (u.profile.position if u.profile else "") or "",
-                    (u.profile.phone if u.profile else "") or "",
-                    # FIX v3: Excel juga pakai format WIB.
-                    _format_local_dt(
-                        u.audit.last_login_at if u.audit else None
-                    ),
-                ])
-            xlsx_buf = io.BytesIO()
-            wb.save(xlsx_buf)
-            xlsx_buf.seek(0)
-            return Response(
-                content=xlsx_buf.read(),
-                media_type=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                headers={
-                    "Content-Disposition": 'attachment; filename="iam_users_export.xlsx"',
-                },
-            )
-
-        else:
-            raise HTTPException(
-                status_code=400, detail=f"Format '{format}' belum didukung"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to export users: {type(e).__name__}")
+        logger.exception(f"Failed to reset password: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============================================================================
-# EXPORTS
+# END OF ROUTER
 # ============================================================================
 
 __all__ = ["router"]

@@ -4,15 +4,17 @@ Module: fastapi_auth_jwt_middleware.py
 Layer: Adapters (Primary API - Common)
 Responsibility: Middleware untuk autentikasi berbasis JWT.
 
-PERBAIKAN:
-- _map_path_to_resource() memetakan path ke ResourceType (bukan potongan URL mentah).
-- _ensure_authority_matrix_wired() meng-inject user repository ke AuthorityMatrixGuard.
-- FIX V12: _check_rbac() memeriksa wildcard permission dari token terlebih dahulu.
-- FIX V13: Bila authority matrix belum di-wire (session_maker belum diset),
-  lewati pemanggilan matrix sebagai hard-requirement. RBACEnforcer dianggap SUDAH CUKUP.
-- FIX V14 (2026-10-12): ACTION_OVERRIDES untuk /customers/export disesuaikan
-  dengan pola DOUBLE endpoint (/api/v1/customers/customers/export), plus
-  /customers/stats ditambahkan.
+Changelog v16 (2026-10-16):
+    - FIX CRITICAL: default `public_paths` sekarang mencakup prefix
+      `/api/v1/iam/iam/login` supaya login endpoint tidak perlu auth.
+    - FIX: `TokenPayload.has_permission()` sekarang mengenali wildcard
+      `*:*` dan `resource:*` langsung (tanpa harus fallback ke
+      has_permission_wildcard).
+    - FIX: tambahkan helper `install_jwt_middleware(app, ...)` agar
+      middleware bisa dipasang dengan mudah dan konsisten.
+    - FIX: logging lebih detail di `dispatch()` untuk debug 401/403.
+    - FIX: `_check_rbac()` sekarang log path/resource/action saat skip.
+    - FIX: `get_current_user()` tidak lagi raise 401 tanpa log warning.
 """
 from __future__ import annotations
 
@@ -23,14 +25,13 @@ import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import Depends, HTTPException
 import jwt
+from fastapi import Depends, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
-# --- Import dengan penanganan error ---
 try:
     from application.service_layer.service_iam import IAMService
 except ImportError as e:
@@ -57,14 +58,9 @@ except ImportError as e:
 
 try:
     from kernel.guards.authority_matrix import AuthorityMatrix
-except ImportError as e:
-    logging.critical(f"Failed to import AuthorityMatrix: {e}")
-    raise
-
-try:
     from kernel.guards.authority_matrix import set_authority_matrix_user_repository
 except ImportError as e:
-    logging.critical(f"Failed to import set_authority_matrix_user_repository: {e}")
+    logging.critical(f"Failed to import AuthorityMatrix: {e}")
     raise
 
 try:
@@ -89,6 +85,39 @@ class TokenType:
 DEFAULT_ALGORITHM = "RS256"
 DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 15
 DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+
+# ============================================================================
+# DEFAULT PUBLIC PATHS
+# ============================================================================
+
+# FIX v16: tambahkan semua endpoint login, health, docs, dan metrics.
+# Endpoint dengan prefix `/api/v1/iam/iam/login` sekarang public.
+DEFAULT_PUBLIC_PATHS: list[str] = [
+    "/",
+    "/metrics",
+    "/api/health",
+    "/api/ready",
+    "/api/docs",
+    "/api/openapi.json",
+    "/api/redoc",
+    # IAM login (dengan prefix DOBEL karena router mount /api/v1/iam
+    # dan decorator internal /iam)
+    "/api/v1/iam/iam/login",
+    "/api/v1/iam/iam/refresh",
+    "/api/v1/iam/iam/logout",
+    "/api/v1/iam/iam/login-options",
+    # Auth (alternatif)
+    "/api/auth/login",
+    "/api/auth/refresh",
+    # Health probes
+    "/health",
+    "/healthz",
+    "/ready",
+    "/readiness",
+    "/liveness",
+]
+
 
 # ============================================================================
 # PATH -> RESOURCE MAPPING
@@ -139,6 +168,7 @@ RESOURCE_PATH_MAP: dict[str, str] = {
     "roles": "role",
 }
 
+
 # ============================================================================
 # ACTION OVERRIDES (permission halus per endpoint)
 # ============================================================================
@@ -146,48 +176,31 @@ RESOURCE_PATH_MAP: dict[str, str] = {
 ACTION_OVERRIDES: list[tuple[str, re.Pattern[str], str]] = [
     (m, re.compile(rx), act)
     for m, rx, act in (
-        # --- Customer (DOUBLE prefix karena router mount di /api/v1/customers) ---
+        # --- Customer ---
         ("GET", r"^/api/v1/customers/customers/export/?$", "export"),
         ("GET", r"^/api/v1/customers/customers/stats/?$", "read"),
         ("POST", r"^/api/v1/customers/customers/[^/]+/credit-limit/?$", "approve"),
         ("POST", r"^/api/v1/customers/customers/[^/]+/balance/?$", "post"),
-        (
-            "POST",
-            r"^/api/v1/customers/customers/[^/]+/(activate|deactivate|block)/?$",
-            "update",
-        ),
+        ("POST", r"^/api/v1/customers/customers/[^/]+/(activate|deactivate|block)/?$", "update"),
         ("POST", r"^/api/v1/customers/customers/bulk-update-status/?$", "update"),
         ("POST", r"^/api/v1/customers/customers/bulk-delete/?$", "delete"),
         # --- Supplier ---
         ("GET", r"^/api/v1/suppliers/export/?$", "export"),
         ("POST", r"^/api/v1/suppliers/import/?$", "import"),
-        (
-            "POST",
-            r"^/api/v1/suppliers/suppliers/[^/]+/(activate|deactivate|status)/?$",
-            "update",
-        ),
-        (
-            "POST",
-            r"^/api/v1/suppliers/suppliers/[^/]+/withholding-category/?$",
-            "approve",
-        ),
+        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/(activate|deactivate|status)/?$", "update"),
+        ("POST", r"^/api/v1/suppliers/suppliers/[^/]+/withholding-category/?$", "approve"),
         # --- Employee ---
         ("POST", r"^/api/v1/employees/employees/import/?$", "import"),
-        (
-            "POST",
-            r"^/api/v1/employees/employees/[^/]+/(activate|deactivate)/?$",
-            "update",
-        ),
-        (
-            "POST",
-            r"^/api/v1/employees/employees/[^/]+/(salary-structure|bpjs|ptkp|resign)/?$",
-            "approve",
-        ),
-        (
-            "POST",
-            r"^/api/v1/employees/employees/[^/]+/(photo|dependents|documents)/?$",
-            "update",
-        ),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(activate|deactivate)/?$", "update"),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(salary-structure|bpjs|ptkp|resign)/?$", "approve"),
+        ("POST", r"^/api/v1/employees/employees/[^/]+/(photo|dependents|documents)/?$", "update"),
+        # --- Manufacturing (FIX v16) ---
+        ("POST", r"^/api/v1/manufacturing/manufacturing/cost-cards/?$", "create"),
+        ("GET", r"^/api/v1/manufacturing/manufacturing/cost-cards/?$", "read"),
+        ("POST", r"^/api/v1/manufacturing/manufacturing/work-orders/?$", "create"),
+        ("GET", r"^/api/v1/manufacturing/manufacturing/work-orders/?$", "read"),
+        ("POST", r"^/api/v1/manufacturing/manufacturing/bom/?$", "create"),
+        ("GET", r"^/api/v1/manufacturing/manufacturing/bom/?$", "read"),
     )
 ]
 
@@ -218,22 +231,14 @@ class InsufficientPermissionError(JWTAuthError):
 
 
 # ============================================================================
-# VALUE OBJECTS
+# TOKEN PAYLOAD
 # ============================================================================
 
 
 class TokenPayload:
     __slots__ = (
-        "device_id",
-        "exp",
-        "iat",
-        "jti",
-        "legal_entity_id",
-        "permissions",
-        "roles",
-        "token_type",
-        "user_id",
-        "username",
+        "device_id", "exp", "iat", "jti", "legal_entity_id",
+        "permissions", "roles", "token_type", "user_id", "username",
     )
 
     def __init__(
@@ -264,7 +269,28 @@ class TokenPayload:
         return datetime.now(UTC) >= self.exp
 
     def has_permission(self, permission: str) -> bool:
-        return permission in self.permissions
+        """
+        FIX v16: Kenali wildcard langsung:
+        - "*:*" → selalu True
+        - "resource:*" → True untuk semua action pada resource
+        - "*:action" → True untuk action pada semua resource
+        - "resource:action" → exact match
+        """
+        if permission in self.permissions:
+            return True
+        if "*:*" in self.permissions:
+            return True
+        if ":" in permission:
+            resource, action = permission.split(":", 1)
+            for perm in self.permissions:
+                if ":" not in perm:
+                    continue
+                p_res, p_act = perm.split(":", 1)
+                if p_act == "*" and p_res == resource:
+                    return True
+                if p_res == "*" and p_act == action:
+                    return True
+        return False
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
@@ -272,14 +298,6 @@ class TokenPayload:
     def has_permission_wildcard(
         self, resource: str | None, action: str | None
     ) -> bool:
-        """
-        Cek apakah token memiliki permission yang mencakup resource dan action
-        tertentu dengan dukungan wildcard:
-        - "*:*" : semuanya
-        - "resource:*" : semua action pada resource
-        - "*:action" : action pada semua resource
-        - "resource:action" : exact match
-        """
         if not resource and not action:
             return True
         for perm in self.permissions:
@@ -312,19 +330,16 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         revocation_check: bool = True,
     ):
         super().__init__(app)
-        self.public_paths = set(
-            public_paths
-            or [
-                "/api/health",
-                "/api/ready",
-                "/api/docs",
-                "/api/openapi.json",
-                "/api/auth/login",
-                "/api/auth/refresh",
-                "/metrics",
-                "/",
-            ]
-        )
+        # FIX v16: gunakan DEFAULT_PUBLIC_PATHS + extra dari argumen
+        combined = list(DEFAULT_PUBLIC_PATHS)
+        if public_paths:
+            combined.extend(public_paths)
+        self.public_paths = set(combined)
+
+        # Normalisasi: hilangkan trailing slash agar prefix matching konsisten
+        self.public_paths = {
+            p.rstrip("/") if p != "/" else p for p in self.public_paths
+        }
         self.auth_exceptions = set(auth_exceptions or [])
         self.rbac_enabled = rbac_enabled
         self.revocation_check = revocation_check
@@ -342,6 +357,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.access_expire = timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
         self.refresh_expire = timedelta(days=DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS)
 
+        logger.info(
+            "JWTAuthMiddleware initialized (public_paths=%d, rbac=%s, revocation=%s)",
+            len(self.public_paths), rbac_enabled, revocation_check,
+        )
+
     def _load_public_key(self) -> str:
         key_path = os.getenv("JWT_PUBLIC_KEY_PATH", "/secrets/jwt_public.pem")
         try:
@@ -350,12 +370,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             logger.warning(
                 "Could not load public authentication material via path %s: %s",
-                key_path,
-                type(e).__name__,
+                key_path, type(e).__name__,
             )
-            return os.getenv(
-                "JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod"
-            )
+            return os.getenv("JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod")
 
     def _load_private_key(self) -> str:
         key_path = os.getenv("JWT_PRIVATE_KEY_PATH", "/secrets/jwt_private.pem")
@@ -365,12 +382,23 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             logger.warning(
                 "Could not load private authentication material via path %s: %s",
-                key_path,
-                type(e).__name__,
+                key_path, type(e).__name__,
             )
-            return os.getenv(
-                "JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod"
-            )
+            return os.getenv("JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod")
+
+    def _is_public_path(self, path: str) -> bool:
+        """PREFIX-AWARE match untuk public_paths."""
+        if path == "/":
+            return True
+        normalized = path.rstrip("/") if path != "/" else path
+        if normalized in self.public_paths:
+            return True
+        for public in self.public_paths:
+            if public == "/":
+                continue
+            if normalized.startswith(public + "/"):
+                return True
+        return False
 
     async def _get_revocation_list(self) -> JWTRevocationList:
         if self._revocation_list is None:
@@ -379,16 +407,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         return self._revocation_list
 
     async def _ensure_authority_matrix_wired(self) -> None:
-        """
-        Inject user repository ke singleton AuthorityMatrixGuard.
-        TIDAK fatal bila gagal: authority matrix hanya jadi second-opinion.
-        """
         if self._authority_matrix_wired:
             return
         try:
-            mod = importlib.import_module(
-                "bootstrap.dependency_container.ioc_container"
-            )
+            mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
             get_container = mod.get_container
             container = get_container()
             user_repo = await container.resolve_async(IAMUserRepositoryPort)
@@ -399,8 +421,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             logger.warning(
                 "Tidak bisa wiring user repository asli ke AuthorityMatrix "
                 "guard (authority matrix akan di-skip, RBAC enforcer tetap "
-                "dipakai): %s",
-                type(e).__name__,
+                "dipakai): %s", type(e).__name__,
             )
             self._authority_matrix_available = False
 
@@ -410,44 +431,29 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             self._rbac_enforcer = RBACEnforcer(self._authority_matrix)
         return self._rbac_enforcer
 
-    async def _get_iam_service(self) -> IAMService:
-        if self._iam_service is None:
-            try:
-                mod = importlib.import_module(
-                    "bootstrap.dependency_container.ioc_container"
-                )
-                get_container = mod.get_container
-                container = get_container()
-                self._iam_service = await container.resolve_async(IAMService)
-            except Exception as e:
-                logger.error(
-                    "Failed to resolve IAMService from container: %s",
-                    type(e).__name__,
-                )
-                raise RuntimeError("IAMService not available") from e
-        return self._iam_service
-
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        if (
-            request.url.path in self.public_paths
-            or request.url.path in self.auth_exceptions
-        ):
+        path = request.url.path
+        method = request.method
+
+        # Skip public paths
+        if self._is_public_path(path) or path in self.auth_exceptions:
+            logger.debug("Public path dilewati dari JWT auth: %s %s", method, path)
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             logger.warning(
-                "Authentication failed: missing or invalid Authorization header"
+                "Authentication failed: missing or invalid Authorization header "
+                "(path=%s method=%s)",
+                path, method,
             )
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
                 content={
-                    "detail": (
-                        "Missing or invalid Authorization header. "
-                        "Expected 'Bearer <token>'"
-                    )
+                    "detail": "Missing or invalid Authorization header. "
+                              "Expected 'Bearer <token>'"
                 },
             )
 
@@ -468,54 +474,39 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         except TokenExpiredError:
-            logger.warning("Authentication failed: expired")
+            logger.warning("Authentication failed: expired (path=%s)", path)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "Authentication expired",
-                    "code": "auth_expired",
-                },
+                content={"detail": "Authentication expired", "code": "auth_expired"},
             )
         except TokenRevokedError:
-            logger.warning("Authentication failed: revoked")
+            logger.warning("Authentication failed: revoked (path=%s)", path)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "Authentication revoked",
-                    "code": "auth_revoked",
-                },
+                content={"detail": "Authentication revoked", "code": "auth_revoked"},
             )
-        except InvalidTokenError:
-            logger.warning("Authentication failed: invalid")
+        except InvalidTokenError as e:
+            logger.warning("Authentication failed: invalid (%s) path=%s", e, path)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "Invalid authentication",
-                    "code": "auth_invalid",
-                },
+                content={"detail": "Invalid authentication", "code": "auth_invalid"},
             )
         except InsufficientPermissionError as e:
-            logger.warning("Authorization failed: insufficient permission")
+            logger.warning("Authorization failed: %s (path=%s)", e, path)
             return JSONResponse(
                 status_code=HTTP_403_FORBIDDEN,
-                content={
-                    "detail": str(e),
-                    "code": "insufficient_permission",
-                },
+                content={"detail": str(e), "code": "insufficient_permission"},
             )
         except jwt.PyJWTError as e:
-            logger.warning("JWT decoding error: %s", type(e).__name__)
+            logger.warning("JWT decoding error: %s (path=%s)", type(e).__name__, path)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "Authentication validation failed",
-                    "code": "jwt_error",
-                },
+                content={"detail": "Authentication validation failed", "code": "jwt_error"},
             )
         except Exception as e:
             logger.exception(
-                "Unexpected error in authentication middleware: %s",
-                type(e).__name__,
+                "Unexpected error in authentication middleware: %s (path=%s)",
+                type(e).__name__, path,
             )
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
@@ -527,9 +518,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     ) -> TokenPayload:
         try:
             claims = jwt.decode(
-                token,
-                self.public_key,
-                algorithms=[self.algorithm],
+                token, self.public_key, algorithms=[self.algorithm],
                 options={"verify_aud": False},
             )
         except jwt.ExpiredSignatureError:
@@ -545,8 +534,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             username = claims["username"]
             legal_entity_id = (
                 UUID(claims["legal_entity_id"])
-                if claims.get("legal_entity_id")
-                else None
+                if claims.get("legal_entity_id") else None
             )
             roles = claims.get("roles", [])
             permissions = claims.get("permissions", [])
@@ -559,23 +547,36 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         except ValueError as e:
             raise InvalidTokenError(f"Invalid UUID format: {e}")
 
-        exp = datetime.fromtimestamp(exp_ts, tz=UTC)
-        iat = datetime.fromtimestamp(iat_ts, tz=UTC)
+        exp = self._coerce_to_datetime(exp_ts, claim_name="exp")
+        iat = self._coerce_to_datetime(iat_ts, claim_name="iat")
 
         if self.revocation_check and await self._is_token_revoked(jti):
             raise TokenRevokedError("Token is revoked")
 
         return TokenPayload(
-            user_id=user_id,
-            username=username,
-            legal_entity_id=legal_entity_id,
-            roles=roles,
-            permissions=permissions,
-            token_type=token_type,
-            exp=exp,
-            iat=iat,
-            jti=jti,
-            device_id=device_id,
+            user_id=user_id, username=username, legal_entity_id=legal_entity_id,
+            roles=roles, permissions=permissions, token_type=token_type,
+            exp=exp, iat=iat, jti=jti, device_id=device_id,
+        )
+
+    @staticmethod
+    def _coerce_to_datetime(value, claim_name: str = "claim") -> datetime:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=UTC)
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value, tz=UTC)
+        if isinstance(value, str):
+            try:
+                return datetime.fromtimestamp(float(value), tz=UTC)
+            except ValueError:
+                pass
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+            except ValueError:
+                raise InvalidTokenError(f"Klaim '{claim_name}' tidak bisa di-parse: {value!r}")
+        raise InvalidTokenError(
+            f"Klaim '{claim_name}' bertipe tidak didukung: {type(value).__name__}"
         )
 
     async def _is_token_revoked(self, jti: str) -> bool:
@@ -583,68 +584,58 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         return await revocation_list.is_revoked(jti)
 
     async def _check_rbac(self, request: Request, payload: TokenPayload) -> None:
-        """
-        FIX V13:
-        - Wildcard token langsung lolos.
-        - RBAC enforcer (permission DB) dicek.
-        - Authority matrix HANYA jadi second-opinion (opsional).
-        """
         method = request.method
         path = request.url.path
         resource = self._map_path_to_resource(path)
         action = self._resolve_action(method, path)
 
         if resource is None:
+            logger.debug(
+                "RBAC skip (no resource mapping) path=%s method=%s",
+                path, method,
+            )
             return
 
         # 1) Wildcard dari token
         if payload.has_permission_wildcard(resource, action):
             logger.debug(
-                "RBAC check passed via wildcard permission for user %s on %s:%s",
-                payload.user_id,
-                resource,
-                action,
+                "RBAC passed via wildcard user=%s perm=%s:%s",
+                payload.user_id, resource, action,
             )
             return
 
-        # 2) Cek via RBAC enforcer
-        enforcer = await self._get_rbac_enforcer()
-        authorized = await enforcer.check_permission(
-            user_id=payload.user_id,
-            resource=resource,
-            action=action,
-            legal_entity_id=payload.legal_entity_id,
-        )
-        if authorized:
-            return
+        # 2) RBAC enforcer
+        try:
+            enforcer = await self._get_rbac_enforcer()
+            authorized = await enforcer.check_permission(
+                user_id=payload.user_id, resource=resource, action=action,
+                legal_entity_id=payload.legal_entity_id,
+            )
+            if authorized:
+                return
+        except Exception as exc:
+            logger.warning(
+                "RBAC enforcer error (diabaikan): %s", type(exc).__name__,
+            )
 
-        # 3) Fallback: authority matrix (opsional)
+        # 3) Fallback authority matrix
         if self._authority_matrix_available:
             try:
                 matrix_ok = await enforcer._authority_matrix.is_allowed(
                     payload.user_id, resource, action, payload.legal_entity_id
                 )
                 if matrix_ok:
-                    logger.debug(
-                        "RBAC check passed via authority matrix for user %s on %s:%s",
-                        payload.user_id,
-                        resource,
-                        action,
-                    )
                     return
             except Exception as exc:
                 logger.warning(
-                    "Authority matrix check error (diabaikan, RBAC sudah deny): %s",
-                    type(exc).__name__,
+                    "Authority matrix check error (diabaikan): %s", type(exc).__name__,
                 )
         else:
             await self._ensure_authority_matrix_wired()
 
         logger.warning(
-            "Authorization failed: user %s lacks %s on %s",
-            payload.user_id,
-            action,
-            resource,
+            "Authorization failed: user=%s lacks %s on %s (path=%s)",
+            payload.user_id, action, resource, path,
         )
         raise InsufficientPermissionError(
             f"User does not have {action} permission on {resource}"
@@ -670,8 +661,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 "(path=%s) -- RBAC check DILEWATI untuk request ini. "
                 "Tambahkan mapping di RESOURCE_PATH_MAP jika endpoint ini "
                 "seharusnya diproteksi.",
-                raw_resource,
-                path,
+                raw_resource, path,
             )
             return None
         return mapped
@@ -684,84 +674,122 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
     def _map_method_to_action(self, method: str) -> str:
         method_map = {
-            "GET": "read",
-            "POST": "create",
-            "PUT": "update",
-            "PATCH": "update",
-            "DELETE": "delete",
+            "GET": "read", "POST": "create", "PUT": "update",
+            "PATCH": "update", "DELETE": "delete",
         }
         return method_map.get(method, "execute")
 
     @classmethod
     async def create_access_token(
-        cls,
-        user_id: UUID,
-        username: str,
-        legal_entity_id: UUID,
-        roles: list[str],
-        permissions: list[str],
+        cls, user_id: UUID, username: str, legal_entity_id: UUID,
+        roles: list[str], permissions: list[str],
         device_id: str | None = None,
         expires_delta: timedelta | None = None,
     ) -> str:
-        instance = cls(None)
-        expire = datetime.now(UTC) + (expires_delta or instance.access_expire)
+        cached = getattr(cls, "_signing_cache", None)
+        if cached is None:
+            instance = cls.__new__(cls)
+            instance.public_key = instance._load_public_key()
+            instance.private_key = instance._load_private_key()
+            instance.algorithm = DEFAULT_ALGORITHM
+            instance.access_expire = timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
+            instance.refresh_expire = timedelta(days=DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS)
+            cls._signing_cache = instance
+            cached = instance
+
+        expire_dt = datetime.now(UTC) + (expires_delta or cached.access_expire)
+        now_dt = datetime.now(UTC)
         jti = str(uuid4())
 
         payload = {
-            "sub": str(user_id),
-            "username": username,
+            "sub": str(user_id), "username": username,
             "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-            "roles": roles,
-            "permissions": permissions,
+            "roles": roles, "permissions": permissions,
             "token_type": TokenType.ACCESS,
-            "exp": expire,
-            "iat": datetime.now(UTC),
-            "jti": jti,
-            "device_id": device_id,
+            "exp": int(expire_dt.timestamp()),
+            "iat": int(now_dt.timestamp()),
+            "jti": jti, "device_id": device_id,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        token = jwt.encode(payload, instance.private_key, algorithm=instance.algorithm)
+        token = jwt.encode(payload, cached.private_key, algorithm=cached.algorithm)
         logger.info("Access identity issued")
         return token
 
     @classmethod
     async def create_refresh_token(
-        cls,
-        user_id: UUID,
-        username: str,
-        legal_entity_id: UUID,
-        roles: list[str],
-        permissions: list[str],
+        cls, user_id: UUID, username: str, legal_entity_id: UUID,
+        roles: list[str], permissions: list[str],
         device_id: str | None = None,
         expires_delta: timedelta | None = None,
     ) -> str:
-        instance = cls(None)
-        expire = datetime.now(UTC) + (expires_delta or instance.refresh_expire)
+        cached = getattr(cls, "_signing_cache", None)
+        if cached is None:
+            instance = cls.__new__(cls)
+            instance.public_key = instance._load_public_key()
+            instance.private_key = instance._load_private_key()
+            instance.algorithm = DEFAULT_ALGORITHM
+            instance.access_expire = timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
+            instance.refresh_expire = timedelta(days=DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS)
+            cls._signing_cache = instance
+            cached = instance
+
+        expire_dt = datetime.now(UTC) + (expires_delta or cached.refresh_expire)
+        now_dt = datetime.now(UTC)
         jti = str(uuid4())
 
         payload = {
-            "sub": str(user_id),
-            "username": username,
+            "sub": str(user_id), "username": username,
             "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-            "roles": roles,
-            "permissions": permissions,
+            "roles": roles, "permissions": permissions,
             "token_type": TokenType.REFRESH,
-            "exp": expire,
-            "iat": datetime.now(UTC),
-            "jti": jti,
-            "device_id": device_id,
+            "exp": int(expire_dt.timestamp()),
+            "iat": int(now_dt.timestamp()),
+            "jti": jti, "device_id": device_id,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        token = jwt.encode(payload, instance.private_key, algorithm=instance.algorithm)
+        token = jwt.encode(payload, cached.private_key, algorithm=cached.algorithm)
         logger.info("Refresh identity issued")
         return token
 
     @classmethod
     async def revoke_token(cls, jti: str) -> None:
-        instance = cls(None)
+        instance = cls.__new__(cls)
+        instance._revocation_list = None
+        instance.revocation_check = True
         revocation_list = await instance._get_revocation_list()
         await revocation_list.revoke(jti, expire_seconds=86400)
         logger.info("Identity revoked")
+
+
+# ============================================================================
+# HELPER: install middleware
+# ============================================================================
+
+
+def install_jwt_middleware(
+    app,
+    public_paths: list[str] | None = None,
+    rbac_enabled: bool = True,
+    revocation_check: bool = True,
+) -> None:
+    """
+    Helper untuk memasang JWTAuthMiddleware ke FastAPI app.
+
+    Panggil dari `app_factory.py`:
+        from adapters.primary_api.common.fastapi_auth_jwt_middleware import install_jwt_middleware
+        install_jwt_middleware(app)
+    """
+    app.add_middleware(
+        JWTAuthMiddleware,
+        public_paths=public_paths,
+        rbac_enabled=rbac_enabled,
+        revocation_check=revocation_check,
+    )
+    logger.info(
+        "JWTAuthMiddleware installed (public_paths=%s, rbac=%s)",
+        len(public_paths or []) + len(DEFAULT_PUBLIC_PATHS),
+        rbac_enabled,
+    )
 
 
 # ============================================================================
@@ -771,7 +799,15 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 def get_current_user(request: Request) -> TokenPayload:
     if not hasattr(request.state, "user"):
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        logger.warning(
+            "get_current_user: request.state.user missing for %s %s "
+            "(middleware JWT mungkin tidak terpasang atau path salah)",
+            request.method, request.url.path,
+        )
+        raise HTTPException(
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
     return request.state.user
 
 
@@ -789,20 +825,11 @@ def require_permission(permission: str):
         current_user: TokenPayload = Depends(get_current_user),
     ) -> TokenPayload:
         if not current_user.has_permission(permission):
-            if ":" in permission:
-                resource, action = permission.split(":", 1)
-                if not current_user.has_permission_wildcard(resource, action):
-                    raise HTTPException(
-                        status_code=HTTP_403_FORBIDDEN,
-                        detail=f"Missing permission: {permission}",
-                    )
-            else:
-                raise HTTPException(
-                    status_code=HTTP_403_FORBIDDEN,
-                    detail=f"Missing permission: {permission}",
-                )
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail=f"Missing permission: {permission}",
+            )
         return current_user
-
     return dependency
 
 
@@ -820,6 +847,7 @@ __all__ = [
     "get_current_legal_entity",
     "get_current_user",
     "get_current_user_id",
+    "install_jwt_middleware",
     "require_permission",
     "revoke_token",
 ]

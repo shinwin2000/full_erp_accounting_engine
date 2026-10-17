@@ -10,6 +10,16 @@ Semua endpoint backend berada di bawah prefix /api/v1/{module}, contoh:
 
 Autentikasi: Bearer JWT (access_token). legal_entity_id sudah ter-embed
 di dalam token saat login, jadi tidak perlu header tambahan.
+
+CATATAN PATH IAM (FIX V2):
+    Router IAM di backend di-mount dengan prefix "/api/v1/iam" DI TAMBAH
+    decorator internal "/iam/..." sehingga path AKTUAL adalah
+    "/api/v1/iam/iam/login", "/api/v1/iam/iam/refresh", dst (dobel "iam").
+    Sebelumnya file ini memakai "/iam/login" (single) yang menyebabkan
+    frontend selalu dapat 404 Not Found. Path di method login()/refresh_token()/
+    logout() di bawah sudah diperbaiki ke dobel "iam".
+    Halaman-halaman IAM lain (iam_roles_page, iam_security_page,
+    iam_users_page) juga memakai BASE="/iam/iam" -- konsisten dengan ini.
 """
 from __future__ import annotations
 
@@ -97,8 +107,10 @@ class ApiClient:
             if not session.refresh_token:
                 raise AuthRequiredError("Tidak ada refresh token tersimpan.")
             try:
+                # FIX: path IAM dobel ("/iam/iam/refresh") sesuai mounting
+                # router backend. Sebelumnya "/iam/refresh" (single) -> 404.
                 resp = self._http.post(
-                    f"{self.base_url}/iam/refresh",
+                    f"{self.base_url}/iam/iam/refresh",
                     json={"refresh_token": session.refresh_token},
                     timeout=settings.request_timeout,
                     verify=settings.verify_ssl,
@@ -299,7 +311,10 @@ class ApiClient:
             body["mfa_code"] = mfa_code
         if legal_entity_id:
             body["legal_entity_id"] = legal_entity_id
-        data = self.request("POST", "/iam/login", json_body=body, retry_on_401=False)
+        # FIX: path IAM dobel ("/iam/iam/login") sesuai mounting router
+        # backend. Sebelumnya "/iam/login" (single) -> 404 Not Found,
+        # tampil di UI sebagai "[404] Not Found" di layar login.
+        data = self.request("POST", "/iam/iam/login", json_body=body, retry_on_401=False)
         session.apply_login_response(data)
         # BUG FIX: sebelumnya session memakai legal entity PERTAMA milik user, bukan yang
         # dipilih di layar login -> user multi-perusahaan melihat data entitas yang salah
@@ -311,7 +326,11 @@ class ApiClient:
     def logout(self) -> None:
         try:
             if session.access_token:
-                self.request("POST", "/iam/logout", retry_on_401=False)
+                # FIX: path IAM dobel ("/iam/iam/logout") sesuai mounting
+                # router backend. Sebelumnya "/iam/logout" (single) -> 404,
+                # token tetap tidak ter-revoke di server (best-effort saja,
+                # tapi tetap lebih baik benar).
+                self.request("POST", "/iam/iam/logout", retry_on_401=False)
         except (ApiError, ConnectionFailedError):
             pass
         finally:

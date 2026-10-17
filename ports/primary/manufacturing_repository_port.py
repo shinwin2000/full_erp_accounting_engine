@@ -10,6 +10,7 @@ Defines the contract for storing and retrieving manufacturing aggregates:
 - Cost Cards
 - WIP (Work in Process)
 - Standard Costs
+- Aggregations (labor/overhead/WIP value per WO)
 
 This port is implemented by adapters in adapters/secondary_impl/.
 
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import abc
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
@@ -33,6 +35,30 @@ from domain.manufacturing.cost_card_entity import CostCardEntity
 from domain.manufacturing.standard_cost_entity import StandardCostEntity
 from domain.manufacturing.work_in_process_entity import WorkInProcessEntity
 from domain.manufacturing.work_order_entity import WorkOrderEntity, WorkOrderStatus
+
+
+# ============================================================================
+# Aggregate value objects for cost roll-ups (bukan entity domain, cukup DTO)
+# ============================================================================
+
+class WorkOrderCosts:
+    """Ringkasan biaya actual per work order (material+labor+overhead)."""
+
+    __slots__ = ("work_order_id", "material_cost", "labor_cost", "overhead_cost", "total_cost")
+
+    def __init__(
+        self,
+        work_order_id: UUID,
+        material_cost: Decimal,
+        labor_cost: Decimal,
+        overhead_cost: Decimal,
+    ):
+        self.work_order_id = work_order_id
+        self.material_cost = material_cost
+        self.labor_cost = labor_cost
+        self.overhead_cost = overhead_cost
+        self.total_cost = material_cost + labor_cost + overhead_cost
+
 
 # ============================================================================
 # Manufacturing Repository Port (Abstract Base Class)
@@ -65,7 +91,7 @@ class ManufacturingRepositoryPort(abc.ABC):
     ) -> BillOfMaterialsEntity | None:
         """
         Retrieve the active BOM for a product on a given date.
-        Active means status=ACTIVE and effective_date <= as_of_date <= expiry_date.
+        Active means status='active' and effective_date <= as_of_date <= expiry_date.
         """
         raise NotImplementedError
 
@@ -81,6 +107,20 @@ class ManufacturingRepositoryPort(abc.ABC):
         self, product_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[BillOfMaterialsEntity]:
         """List all BOM versions for a product."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def list_all_boms(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        status: str | None = None,
+        is_default: bool | None = None,
+        effective_as_of: date | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[BillOfMaterialsEntity]:
+        """List BOMs with general filters (used by router list_bom)."""
         raise NotImplementedError
 
     # ------------------------------------------------------------------------
@@ -113,6 +153,20 @@ class ManufacturingRepositoryPort(abc.ABC):
         offset: int = 0,
     ) -> list[WorkOrderEntity]:
         """List work orders for a product with optional filters."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def list_work_orders(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        status: WorkOrderStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[WorkOrderEntity]:
+        """List work orders with general filters (used by router list_work_orders)."""
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -156,6 +210,16 @@ class ManufacturingRepositoryPort(abc.ABC):
         """List all open WIP records."""
         raise NotImplementedError
 
+    @abc.abstractmethod
+    async def list_wip(
+        self,
+        legal_entity_id: UUID,
+        work_order_id: UUID | None = None,
+        product_id: UUID | None = None,
+    ) -> list[WorkInProcessEntity]:
+        """List WIP records with general filters (used by router list_wip)."""
+        raise NotImplementedError
+
     # ------------------------------------------------------------------------
     # Cost Card operations
     # ------------------------------------------------------------------------
@@ -184,6 +248,19 @@ class ManufacturingRepositoryPort(abc.ABC):
         """List cost cards for a product."""
         raise NotImplementedError
 
+    @abc.abstractmethod
+    async def list_cost_cards(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        effective_as_of: date | None = None,
+        is_active: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[CostCardEntity]:
+        """List cost cards with general filters (used by router list_cost_cards)."""
+        raise NotImplementedError
+
     # ------------------------------------------------------------------------
     # Standard Cost operations
     # ------------------------------------------------------------------------
@@ -205,6 +282,37 @@ class ManufacturingRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def get_standard_cost_by_id(self, standard_cost_id: UUID) -> StandardCostEntity | None:
         """Retrieve standard cost by ID."""
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------------
+    # Cost aggregation (used by workflows: cost flow, COGS, HPP close)
+    # ------------------------------------------------------------------------
+
+    @abc.abstractmethod
+    async def get_total_labor_for_work_order(self, work_order_id: UUID) -> Decimal:
+        """Return total labor cost recorded for a work order. 0 if none."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_total_overhead_for_work_order(self, work_order_id: UUID) -> Decimal:
+        """Return total overhead cost recorded for a work order. 0 if none."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_work_order_costs(self, work_order_id: UUID) -> WorkOrderCosts:
+        """Return the full cost roll-up (material + labor + overhead) for a work order."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_wip_value(self, legal_entity_id: UUID, as_of_date: date) -> Decimal:
+        """Return total WIP value (material+labor+overhead for open WOs) at a given date."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_manufacturing_costs(
+        self, legal_entity_id: UUID, from_date: date, to_date: date
+    ) -> Decimal:
+        """Return total manufacturing cost (material+labor+overhead) incurred in period."""
         raise NotImplementedError
 
     # ------------------------------------------------------------------------
@@ -259,6 +367,16 @@ class ManufacturingRepositoryPortProtocol(Protocol):
     async def list_boms_by_product(
         self, product_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[BillOfMaterialsEntity]: ...
+    async def list_all_boms(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        status: str | None = None,
+        is_default: bool | None = None,
+        effective_as_of: date | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[BillOfMaterialsEntity]: ...
 
     async def save_work_order(self, work_order: WorkOrderEntity) -> None: ...
     async def get_work_order(self, work_order_id: UUID) -> WorkOrderEntity | None: ...
@@ -269,6 +387,16 @@ class ManufacturingRepositoryPortProtocol(Protocol):
         from_date: date | None = None,
         to_date: date | None = None,
         status: WorkOrderStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[WorkOrderEntity]: ...
+    async def list_work_orders(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        status: WorkOrderStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[WorkOrderEntity]: ...
@@ -283,12 +411,27 @@ class ManufacturingRepositoryPortProtocol(Protocol):
     async def save_wip(self, wip: WorkInProcessEntity) -> None: ...
     async def get_wip_by_work_order(self, work_order_id: UUID) -> WorkInProcessEntity | None: ...
     async def list_open_wip(self, legal_entity_id: UUID) -> list[WorkInProcessEntity]: ...
+    async def list_wip(
+        self,
+        legal_entity_id: UUID,
+        work_order_id: UUID | None = None,
+        product_id: UUID | None = None,
+    ) -> list[WorkInProcessEntity]: ...
 
     async def save_cost_card(self, cost_card: CostCardEntity) -> None: ...
     async def get_cost_card(self, product_id: UUID, period: str) -> CostCardEntity | None: ...
     async def get_cost_card_by_id(self, cost_card_id: UUID) -> CostCardEntity | None: ...
     async def list_cost_cards_by_product(
         self, product_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[CostCardEntity]: ...
+    async def list_cost_cards(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID | None = None,
+        effective_as_of: date | None = None,
+        is_active: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[CostCardEntity]: ...
 
     async def save_standard_cost(self, standard_cost: StandardCostEntity) -> None: ...
@@ -298,6 +441,14 @@ class ManufacturingRepositoryPortProtocol(Protocol):
     async def get_standard_cost_by_id(
         self, standard_cost_id: UUID
     ) -> StandardCostEntity | None: ...
+
+    async def get_total_labor_for_work_order(self, work_order_id: UUID) -> Decimal: ...
+    async def get_total_overhead_for_work_order(self, work_order_id: UUID) -> Decimal: ...
+    async def get_work_order_costs(self, work_order_id: UUID) -> WorkOrderCosts: ...
+    async def get_wip_value(self, legal_entity_id: UUID, as_of_date: date) -> Decimal: ...
+    async def get_manufacturing_costs(
+        self, legal_entity_id: UUID, from_date: date, to_date: date
+    ) -> Decimal: ...
 
     async def close_period(self, legal_entity_id: UUID, period: str, user_id: UUID) -> None: ...
     async def is_period_closed(self, legal_entity_id: UUID, period: str) -> bool: ...
@@ -313,4 +464,5 @@ class ManufacturingRepositoryPortProtocol(Protocol):
 __all__ = [
     "ManufacturingRepositoryPort",
     "ManufacturingRepositoryPortProtocol",
+    "WorkOrderCosts",
 ]

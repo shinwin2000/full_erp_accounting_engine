@@ -234,7 +234,62 @@ class ServiceRegistrar:
             container.register_transient(TaxService, TaxService)
             container.register_transient(CoretaxService, CoretaxService)
             container.register_transient(PayrollService, PayrollService)
-            container.register_transient(ManufacturingService, ManufacturingService)
+                        # ============================================================
+            # ManufacturingService — wire dengan manufacturing_repo + routing_repo
+            # ============================================================
+            # Sebelumnya: register_transient(ManufacturingService, ManufacturingService)
+            # → auto-injection hanya menyuplai manufacturing_repo & inventory_repo
+            #   yang terdaftar di AdapterRegistry; routing_repo TIDAK ADA
+            #   sama sekali → service.list_routings() dkk AttributeError.
+            # Sekarang: factory eksplisit yang resolve routing_repo (opsional)
+            #   kalau port-nya terdaftar.
+            from adapters.secondary_impl.sqlalchemy_routing_repository_impl import (
+                SQLAlchemyRoutingRepository,
+            )
+            from ports.primary.routing_repository_port import RoutingRepositoryPort
+            from ports.primary.manufacturing_repository_port import (
+                ManufacturingRepositoryPort,
+            )
+            from ports.primary.inventory_repository_port import (
+                InventoryRepositoryPort,
+            )
+
+            if not container.has_registration(RoutingRepositoryPort):
+                container.register_transient(
+                    RoutingRepositoryPort, SQLAlchemyRoutingRepository
+                )
+                logger.info("RoutingRepositoryPort registered")
+
+            async def _create_manufacturing_service():
+                mfg_repo = await container.resolve_async(ManufacturingRepositoryPort)
+                inv_repo = await container.resolve_async(InventoryRepositoryPort)
+                try:
+                    routing_repo = await container.resolve_async(RoutingRepositoryPort)
+                except Exception:
+                    routing_repo = None
+                try:
+                    uow = await container.resolve_async(UnitOfWorkPort)
+                except Exception:
+                    uow = None
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return ManufacturingService(
+                    manufacturing_repo=mfg_repo,
+                    inventory_repo=inv_repo,
+                    uow=uow,
+                    event_publisher=event_publisher,
+                    routing_repo=routing_repo,
+                )
+
+            container.register_transient(
+                ManufacturingService, factory=_create_manufacturing_service
+            )
+            logger.info("ManufacturingService registered with routing repo")
+
+
             # BUG FIX: ReportRepositoryPort sebelumnya TIDAK PERNAH terdaftar
             # di container sama sekali, padahal ReportService mewajibkannya
             # (constructor param report_repo, tanpa default) -> selalu

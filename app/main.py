@@ -876,18 +876,36 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID", "Warning"],
         max_age=600,
     )
+
+    # ============================================================
+    # FIX: public_paths HARUS memuat path IAM dengan prefix DOBEL
+    # ("/api/v1/iam/iam/...") karena router IAM di-mount di
+    # "/api/v1/iam" TAMBAH decorator internal "/iam/...".
+    # Path lama (single) tetap dipertahankan untuk backward-compat.
+    # ============================================================
     _app.add_middleware(
         JWTAuthMiddleware,
         public_paths=[
             "/docs",
             "/redoc",
             "/openapi.json",
+            # IAM — path AKTUAL (dobel "iam" sesuai router mounting)
+            "/api/v1/iam/iam/login",
+            "/api/v1/iam/iam/refresh",
+            "/api/v1/iam/iam/forgot-password",
+            "/api/v1/iam/iam/reset-password",
+            # IAM — path LAMA (single "iam") untuk backward-compat
             "/api/v1/iam/login",
             "/api/v1/iam/refresh",
+            "/api/v1/iam/forgot-password",
+            "/api/v1/iam/reset-password",
+            # Legal entity login options (public untuk dropdown login)
             "/api/v1/legal-entities/login-options",
+            # Root & docs
             "/",
         ],
     )
+
     @_app.middleware("http")
     async def observability_middleware(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
@@ -906,14 +924,6 @@ def create_app() -> FastAPI:
     @_app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
         logger.warning(f"Validation error {request.url}: {exc.errors()}")
-        # FIX: exc.errors() can contain non-JSON-serializable objects (e.g. Decimal
-        # in `ctx: {"gt": Decimal("0")}` for constrained numeric fields). Passing
-        # that straight into JSONResponse crashes json.dumps with
-        # "TypeError: Object of type Decimal is not JSON serializable", which then
-        # surfaces to the client as a generic error (and, when this happens inside
-        # the auth middleware's call_next, even masquerades as a 401). Route the
-        # error payload through jsonable_encoder first so Decimal/UUID/datetime/etc.
-        # are converted to JSON-safe primitives before serialization.
         from fastapi.encoders import jsonable_encoder
         safe_errors = jsonable_encoder(exc.errors(), custom_encoder={Decimal: str})
         return JSONResponse(status_code=422, content={"detail": safe_errors})
@@ -979,3 +989,4 @@ if __name__ == "__main__":
         reload=(settings.app_env == "development"),
         log_level=settings.log_level.lower(),
     )
+    

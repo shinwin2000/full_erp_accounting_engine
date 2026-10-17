@@ -6,15 +6,17 @@ Layer: Bootstrap (Dependency Container)
 Responsibility: Mendaftarkan semua adapter (implementasi port) ke IoC container
 secara dinamis dengan auto-discovery dan penanganan kasus khusus.
 
-FIX v6:
-- Mengganti InMemoryFileStorage → LocalFileStorage (persistent storage)
-- Mengganti InMemoryNotification → ConsoleNotification (logging ke console)
-- Menambahkan direktori 'adapters' ke scan implementasi untuk menemukan kelas-kelas tersebut.
-
-FIX v7 (2026-08-08):
-- Tambah manual mapping BankPaymentPort → BankAPIPaymentsAdapter (adapter sudah ada)
-- Perbaiki manual mapping TaxAuthorityCoretaxPort → SQLAlchemyCoreTaxAdapter (bukan TaxAuthorityCoretaxAdapter yang tidak ada)
-- Skip TokenIssuerPort karena sudah terdaftar di service_registry (menghindari auto-generated Impl)
+FIX v8 (2026-10-16):
+    - FIX CRITICAL: path resolution scan menggunakan `Path.parts` (bukan
+      string replace "\\\\"), karena di Windows string replace kadang gagal
+      menghasilkan module path yang valid -> import gagal -> class
+      SQLAlchemyManufacturingRepository tidak ter-scan.
+    - FIX: explicit import fallback untuk SQLAlchemyManufacturingRepository
+      di dua tempat (discovery + register_all) supaya jaminan terdaftar.
+    - FIX: logging lebih detail saat scan gagal.
+    - Skip TokenIssuerPort (sudah terdaftar di service_registry).
+    - BankPaymentPort → BankAPIPaymentsAdapter.
+    - TaxAuthorityCoretaxPort → SQLAlchemyCoreTaxAdapter.
 """
 
 from __future__ import annotations
@@ -31,6 +33,29 @@ from bootstrap.dependency_container.ioc_container import IoCContainer
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Module path helper (cross-platform)
+# =============================================================================
+
+def _path_to_module(root: Path, py_file: Path) -> str:
+    """
+    Konversi path file menjadi module path Python.
+
+    Contoh:
+        root = E:\\full_erp_accounting_engine
+        py_file = E:\\full_erp_accounting_engine\\adapters\\secondary_impl\\foo.py
+        → "adapters.secondary_impl.foo"
+
+    Menggunakan Path.parts (bukan string replace) supaya cross-platform
+    dan aman dari bug escaping backslash di Windows.
+    """
+    rel = py_file.relative_to(root)
+    parts = list(rel.parts)
+    # Buang ekstensi dari part terakhir
+    parts[-1] = Path(parts[-1]).stem
+    return ".".join(parts)
+
+
 class AdapterRegistry:
     """Mendaftarkan semua adapter secara otomatis berdasarkan konvensi penamaan."""
 
@@ -44,30 +69,24 @@ class AdapterRegistry:
         # MANUAL MAPPING — untuk semua implementasi yang tidak match otomatis
         # =====================================================================
         self._manual_mapping: dict[str, str] = {
-            # --- Ports yang sudah ada sebelumnya ---
+            # --- Core / infra ---
             "CoreTaxPort": "TaxAuthorityCoretaxAdapter",
             "EventPublisherPort": "KafkaEventPublisher",
             "SnapshotStorePort": "PostgresSnapshotStore",
             "AgingReportRepositoryPort": "SQLAlchemyReportRepository",
 
-            # FIX: Gunakan nama class asli (_ConcreteAccountRepository) karena alias tidak terdeteksi
+            # FIX: Gunakan nama class asli (_ConcreteAccountRepository)
             "AccountRepositoryPort": "_ConcreteAccountRepository",
 
+            # --- Persistence repositories ---
             "APRepositoryPort": "SQLAlchemyAPRepository",
             "ARRepositoryPort": "SQLAlchemyARRepository",
             "AuditRepositoryPort": "SQLAlchemyAuditEventAdapter",
             "BankAccountRepositoryPort": "SQLAlchemyBankAccountRepository",
             "CachePort": "SQLAlchemyCacheRepository",
             "EmployeeRepositoryPort": "SQLAlchemyEmployeeRepository",
-
-            # =================================================================
-            # FIX 2026-07-16: Ganti in-memory dengan implementasi persistent
-            # =================================================================
-            # FileStoragePort → LocalFileStorage (penyimpanan di disk)
             "FileStoragePort": "LocalFileStorage",
-            # NotificationPort → ConsoleNotification (log ke console, siap diganti)
             "NotificationPort": "ConsoleNotification",
-
             "FixedAssetRepositoryPort": "SQLAlchemyFixedAssetRepository",
             "IAMUserRepositoryPort": "SQLAlchemyIAMUserRepository",
             "IAMRepositoryPort": "SQLAlchemyIAMRepository",
@@ -81,7 +100,6 @@ class AdapterRegistry:
             "BalanceSheetRepositoryPort": "BalanceSheetRepositoryAdapter",
             "IncomeStatementRepositoryPort": "IncomeStatementRepositoryAdapter",
 
-            # --- Ports yang mungkin masih kurang (tambahan) ---
             "CustomerRepositoryPort": "SQLAlchemyCustomerRepository",
             "SupplierRepositoryPort": "SQLAlchemySupplierRepository",
             "UnitOfWorkPort": "SQLAlchemyUnitOfWork",
@@ -107,7 +125,10 @@ class AdapterRegistry:
             "IntangibleAssetRepositoryPort": "SQLAlchemyIntangibleAssetRepository",
             "GoodwillRepositoryPort": "SQLAlchemyGoodwillRepository",
             "OutboxRepositoryPort": "SQLAlchemyOutboxRepository",
+
+            # FIX v8: Manufacturing Repository
             "ManufacturingRepositoryPort": "SQLAlchemyManufacturingRepository",
+
             "SagaStateStorePort": "SQLAlchemySagaStateStoreRepository",
             "SystemSettingRepositoryPort": "SQLAlchemySystemSettingRepository",
             "TimestampNotaryPort": "TimestampNotaryImpl",
@@ -115,13 +136,23 @@ class AdapterRegistry:
             "EncryptionKeyVaultPort": "EncryptionKeyVaultAdapter",
             "HashChainServicePort": "HashChainServiceAdapter",
             "ConsolidationGroupReportPort": "ConsolidationGroupReportAdapter",
-            # FIX v7: Ganti TaxAuthorityCoretaxAdapter (tidak ada) dengan SQLAlchemyCoreTaxAdapter
             "TaxAuthorityCoretaxPort": "SQLAlchemyCoreTaxAdapter",
             "AnalyticsExportPort": "SQLAlchemyAnalyticsExport",
             "CQRSQueryHandlerPort": "SQLAlchemyCQRSQueryHandler",
-            # FIX v7: Tambahkan BankPaymentPort → BankAPIPaymentsAdapter (sudah ada implementasi)
             "BankPaymentPort": "BankAPIPaymentsAdapter",
         }
+
+        # =====================================================================
+        # EXPLICIT IMPORTS — jaminan kalau dynamic scan gagal
+        # Class yang di-import di sini akan selalu tersedia saat matching.
+        # =====================================================================
+        self._explicit_implementations: list[tuple[str, str]] = [
+            # (module_path, class_name)
+            (
+                "adapters.secondary_impl.sqlalchemy_manufacturing_repository_impl",
+                "SQLAlchemyManufacturingRepository",
+            ),
+        ]
 
     def set_container(self, container: IoCContainer) -> None:
         self._container = container
@@ -137,11 +168,11 @@ class AdapterRegistry:
 
         self._logger.info("Starting dynamic adapter registration...")
 
-        # 1. Temukan semua port (interface)
+        # 1. Temukan semua port
         ports = self._discover_ports()
         self._logger.info(f"Found {len(ports)} port(s)")
 
-        # 2. Temukan semua implementasi (sekarang juga scan ports/ untuk in-memory impl)
+        # 2. Temukan semua implementasi + tambahkan explicit
         implementations = self._discover_implementations()
         self._logger.info(f"Found {len(implementations)} implementation(s)")
 
@@ -149,74 +180,83 @@ class AdapterRegistry:
         for port in ports:
             port_name = port.__name__
 
-            # ================================================================
-            # FIX v7: Skip TokenIssuerPort karena sudah terdaftar di service_registry
-            # ================================================================
             if port_name == "TokenIssuerPort":
-                self._logger.info(f"Skipping {port_name} (already registered via service registry)")
+                self._logger.info(
+                    f"Skipping {port_name} (already registered via service registry)"
+                )
                 continue
 
             impl = None
             impl_source = ""
 
-            # LANGKAH 1: Manual mapping (prioritas tertinggi)
+            # LANGKAH 1: Manual mapping
             manual_impl_name = self._manual_mapping.get(port_name)
             if manual_impl_name:
                 impl = self._find_implementation_by_name(implementations, manual_impl_name)
                 if impl:
                     impl_source = f"manual mapping ({manual_impl_name})"
                     self._logger.info(f"Manual mapping: {port_name} → {impl.__name__}")
+                else:
+                    # FIX v8: fallback import langsung jika tidak ada di daftar
+                    impl = self._load_explicit_implementation(manual_impl_name)
+                    if impl:
+                        impl_source = f"manual mapping (explicit import: {manual_impl_name})"
+                        self._logger.info(
+                            f"Manual mapping (explicit import): "
+                            f"{port_name} → {impl.__name__}"
+                        )
 
-            # LANGKAH 2: Auto matching (jika manual tidak ada)
+            # LANGKAH 2: Auto matching
             if impl is None:
                 impl = self._match_port_to_implementation(port, implementations)
                 if impl:
                     impl_source = "auto matching"
 
-            # LANGKAH 3: Direct match (jika auto matching gagal)
+            # LANGKAH 3: Direct match by port name
             if impl is None:
                 impl = self._find_implementation_by_name(implementations, port_name)
                 if impl:
                     impl_source = "direct match"
                     self._logger.info(f"Direct match: {port_name} → {impl.__name__}")
 
-            # LANGKAH 4: Buat stub konkret jika masih None
+            # LANGKAH 4: Stub fallback
             if impl is None:
-                self._logger.info(f"No implementation found for {port_name}, creating concrete Impl")
+                self._logger.warning(
+                    f"No implementation found for {port_name}, creating concrete Impl"
+                )
                 factory = self._build_stub_factory(port)
                 impl_display_name = f"{port_name}Impl"
                 impl_source = "auto-generated Impl"
             else:
-                # Guard: pastikan impl bukan interface/port
                 if impl.__name__.endswith(("Port", "Protocol")):
                     raise RuntimeError(
-                        f"❌ CRITICAL: Implementation selection returned an interface/port: "
-                        f"{impl.__module__}.{impl.__name__} for port {port_name}. "
-                        "This indicates a bug in _match_port_to_implementation or _discover_implementations."
+                        f"❌ CRITICAL: Implementation selection returned an "
+                        f"interface/port: {impl.__module__}.{impl.__name__} "
+                        f"for port {port_name}."
                     )
                 factory = self._build_factory(port, impl)
                 impl_display_name = impl.__name__
 
-            # Hapus registrasi sebelumnya jika ada
             if self._container.has_registration(port):
                 self._container.remove(port)
 
             self._container.register_singleton(port, factory=factory)
             self._registered_ports.add(port)
-            self._logger.info(f"✅ Registered {port_name} → {impl_display_name} ({impl_source})")
+            self._logger.info(
+                f"✅ Registered {port_name} → {impl_display_name} ({impl_source})"
+            )
 
         self._is_registered = True
-        self._logger.info(f"Adapter registration completed. {len(self._registered_ports)} ports registered.")
+        self._logger.info(
+            f"Adapter registration completed. {len(self._registered_ports)} ports registered."
+        )
 
     # -------------------------------------------------------------------------
     # Discovery Helpers
     # -------------------------------------------------------------------------
 
     def _discover_ports(self) -> list[type]:
-        """
-        Scan semua file di ports/primary dan ports/secondary untuk mencari port.
-        Hanya ambil kelas abstrak (inspect.isabstract).
-        """
+        """Scan ports/primary dan ports/secondary untuk abstract class."""
         root = Path(__file__).resolve().parent.parent.parent
         ports: list[type] = []
         exclude_names = {"BasePort", "BaseRepository", "BaseProtocol"}
@@ -228,37 +268,38 @@ class AdapterRegistry:
             for py_file in base_dir.glob("*.py"):
                 if py_file.name == "__init__.py":
                     continue
-                module_path = str(py_file.relative_to(root).with_suffix("")).replace("\\", ".").replace("/", ".")
                 try:
+                    module_path = _path_to_module(root, py_file)
                     module = importlib.import_module(module_path)
-                    for name, obj in inspect.getmembers(module, inspect.isclass):
-                        if name in exclude_names:
-                            continue
-                        if any(kw in obj.__name__ for kw in ignore_keywords):
-                            continue
-                        if name.endswith(("Port", "Protocol", "Repository")):
-                            if inspect.isabstract(obj):
-                                ports.append(obj)
-                            else:
-                                self._logger.debug(f"Skipping non-abstract class {name} (concrete implementation)")
                 except Exception as e:
-                    self._logger.warning(f"Could not scan {py_file}: {e}")
+                    self._logger.warning(f"Could not import {py_file.name}: {e}")
+                    continue
+
+                for name, obj in inspect.getmembers(module, inspect.isclass):
+                    if name in exclude_names:
+                        continue
+                    if any(kw in obj.__name__ for kw in ignore_keywords):
+                        continue
+                    if name.endswith(("Port", "Protocol", "Repository")):
+                        if inspect.isabstract(obj):
+                            ports.append(obj)
         return ports
 
     def _discover_implementations(self) -> list[type]:
         """
-        Scan semua file di adapters, adapters/secondary_impl, ports/primary, dan ports/secondary
-        untuk mencari implementasi konkret (non-abstract, bukan Port/Protocol/Base).
+        Scan folders untuk implementasi konkret.
+        FIX v8: gunakan Path.parts (bukan string replace) untuk module path.
         """
         root = Path(__file__).resolve().parent.parent.parent
         search_dirs = [
-            root / "adapters",                     # <-- ditambahkan agar LocalFileStorage, ConsoleNotification ditemukan
+            root / "adapters",
             root / "adapters" / "secondary_impl",
             root / "ports" / "primary",
             root / "ports" / "secondary",
         ]
         implementations: list[type] = []
         ignore_keywords = {"Stub", "Fallback", "Mock", "Base"}
+        seen_names: set[str] = set()
 
         for base_dir in search_dirs:
             if not base_dir.exists():
@@ -266,26 +307,71 @@ class AdapterRegistry:
             for py_file in base_dir.glob("*.py"):
                 if py_file.name == "__init__.py":
                     continue
-                module_path = str(py_file.relative_to(root).with_suffix("")).replace("\\", ".").replace("/", ".")
                 try:
+                    module_path = _path_to_module(root, py_file)
                     module = importlib.import_module(module_path)
-                    for name, obj in inspect.getmembers(module, inspect.isclass):
-                        # TOLAK jika nama berakhiran Port, Protocol, atau Base
-                        if name.endswith(("Port", "Protocol", "Base")):
-                            continue
-                        if any(kw in name for kw in ignore_keywords):
-                            continue
-                        # TOLAK kelas abstrak (interface)
-                        if inspect.isabstract(obj):
-                            continue
-                        # Ambil semua kelas konkret yang memiliki pola implementasi
-                        implementations.append(obj)
                 except Exception as e:
                     self._logger.warning(f"Could not scan {py_file}: {e}")
+                    continue
+
+                for name, obj in inspect.getmembers(module, inspect.isclass):
+                    if name.endswith(("Port", "Protocol", "Base")):
+                        continue
+                    if any(kw in name for kw in ignore_keywords):
+                        continue
+                    if inspect.isabstract(obj):
+                        continue
+                    # Hindari duplikat (bisa muncul karena import di __init__)
+                    if name in seen_names and obj.__module__ != module_path:
+                        continue
+                    implementations.append(obj)
+                    seen_names.add(name)
+
+        # =====================================================================
+        # FIX v8: EXPLICIT import — jaminan kalau dynamic scan gagal silent
+        # =====================================================================
+        for mod_path, cls_name in self._explicit_implementations:
+            try:
+                mod = importlib.import_module(mod_path)
+                cls = getattr(mod, cls_name, None)
+                if cls is None:
+                    self._logger.error(
+                        f"EXPLICIT: class {cls_name} not found in {mod_path}"
+                    )
+                    continue
+                if not any(i.__name__ == cls_name for i in implementations):
+                    implementations.append(cls)
+                    self._logger.info(f"EXPLICIT: Added {cls_name} from {mod_path}")
+            except Exception as e:
+                self._logger.error(
+                    f"EXPLICIT: Failed to import {cls_name} from {mod_path}: {e}"
+                )
+
         return implementations
 
-    def _find_implementation_by_name(self, implementations: list[type], name: str) -> type | None:
-        """Cari implementasi dengan nama yang tepat."""
+    def _load_explicit_implementation(self, class_name: str) -> type | None:
+        """
+        Cari class dengan nama `class_name` di seluruh module yang
+        terdaftar di `_explicit_implementations`.
+        Digunakan sebagai fallback saat matching gagal.
+        """
+        for mod_path, cls_name in self._explicit_implementations:
+            if cls_name != class_name:
+                continue
+            try:
+                mod = importlib.import_module(mod_path)
+                cls = getattr(mod, cls_name, None)
+                if cls is not None:
+                    return cls
+            except Exception as e:
+                self._logger.error(
+                    f"Fallback import failed for {cls_name}: {e}"
+                )
+        return None
+
+    def _find_implementation_by_name(
+        self, implementations: list[type], name: str
+    ) -> type | None:
         for impl in implementations:
             if impl.__name__ == name:
                 return impl
@@ -295,17 +381,18 @@ class AdapterRegistry:
     # Matching & Factory
     # -------------------------------------------------------------------------
 
-    def _match_port_to_implementation(self, port: type, implementations: list[type]) -> type | None:
-        """
-        Cari implementasi yang paling cocok untuk port berdasarkan konvensi.
-        """
+    def _match_port_to_implementation(
+        self, port: type, implementations: list[type]
+    ) -> type | None:
         port_name = port.__name__
         base_name = port_name
         if port_name.endswith("Protocol"):
             base_name = port_name[:-8]
         return self._match_by_base_name(base_name, implementations)
 
-    def _match_by_base_name(self, base_name: str, implementations: list[type]) -> type | None:
+    def _match_by_base_name(
+        self, base_name: str, implementations: list[type]
+    ) -> type | None:
         clean = re.sub(r"(Port|Protocol|RepositoryPort|Repository)$", "", base_name)
         if not clean:
             return None
@@ -318,7 +405,9 @@ class AdapterRegistry:
 
             if impl_name.startswith("SQLAlchemy") and clean in impl_name:
                 candidates.append((impl, 10))
-            elif impl_name.startswith(clean) and (impl_name.endswith("Repository") or impl_name == clean):
+            elif impl_name.startswith(clean) and (
+                impl_name.endswith("Repository") or impl_name == clean
+            ):
                 candidates.append((impl, 8))
             elif impl_name == f"{clean}Adapter":
                 candidates.append((impl, 7))
@@ -338,9 +427,8 @@ class AdapterRegistry:
 
         if impl_name.endswith(("Port", "Protocol")):
             raise RuntimeError(
-                f"❌ CRITICAL: _build_factory received an interface/port as implementation: "
-                f"{impl.__module__}.{impl_name} for port {port_name}. "
-                "This indicates a bug in matching logic."
+                f"❌ CRITICAL: _build_factory received an interface/port as "
+                f"implementation: {impl.__module__}.{impl_name} for port {port_name}."
             )
 
         # === KASUS KHUSUS ===
@@ -376,7 +464,10 @@ class AdapterRegistry:
         # === KASUS UMUM ===
         sig = inspect.signature(impl.__init__)
         params = sig.parameters
-        required_params = [p for p in params.values() if p.default is inspect.Parameter.empty and p.name != "self"]
+        required_params = [
+            p for p in params.values()
+            if p.default is inspect.Parameter.empty and p.name != "self"
+        ]
 
         if "session" in params:
             session_param = params["session"]
@@ -417,7 +508,9 @@ class AdapterRegistry:
         for method_name in abstract_methods:
             def make_stub(name):
                 def stub(self, *args, **kwargs):
-                    raise NotImplementedError(f"Method '{name}' not implemented in {class_name}")
+                    raise NotImplementedError(
+                        f"Method '{name}' not implemented in {class_name}"
+                    )
                 return stub
             methods[method_name] = make_stub(method_name)
 

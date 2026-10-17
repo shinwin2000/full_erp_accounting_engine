@@ -3,16 +3,24 @@ core/session.py
 ================
 Menyimpan state autentikasi (token, user, legal entity aktif) selama
 aplikasi berjalan. Singleton sederhana yang diakses dari seluruh UI.
+
+FIX V2 (2026-10-14):
+    - Hapus duplikat `import json`
+    - Tambah logging di apply_login_response & get() agar traceable
+    - Pastikan `access_token`, `refresh_token`, `legal_entity_id`
+      benar-benar tersimpan setelah login
 """
 from __future__ import annotations
 
-import json
 import base64
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("erp_frontend.session")
 
 TOKEN_CACHE_FILE = Path.home() / ".sovereign_erp" / "session.json"
 
@@ -45,12 +53,7 @@ class Session:
         return self.user.get("full_name") or self.user.get("username") or "-"
 
     def can(self, permission: str) -> bool:
-        """Dipakai UI untuk menonaktifkan tombol yang pasti ditolak server.
-
-        Membaca klaim `permissions` dari access token (tanpa verifikasi -- hanya untuk
-        UX; yang MENEGAKKAN tetap server). Jika token tidak membawa daftar permission
-        (kosong/tidak terbaca) hasilnya True: biarkan server yang memutuskan, jangan
-        sampai tombol terkunci salah."""
+        """Dipakai UI untuk menonaktifkan tombol yang pasti ditolak server."""
         if not permission:
             return True
         perms: list[str] = []
@@ -74,21 +77,52 @@ class Session:
 
     # ------------------------------------------------------------------
     def apply_login_response(self, data: dict[str, Any]) -> None:
-        self.access_token = data.get("access_token")
-        self.refresh_token = data.get("refresh_token")
+        """
+        FIX V2: Menyimpan token + user + legal_entity_ids dari response
+        login. Ditambahkan logging supaya kelihatan di app.log apakah
+        token benar-benar tersimpan atau tidak.
+        """
+        if not isinstance(data, dict):
+            logger.error("apply_login_response: data bukan dict, tipe=%s", type(data))
+            return
+
+        access = data.get("access_token")
+        refresh = data.get("refresh_token")
+        user = data.get("user") or {}
         expires_in = data.get("expires_in") or 900
+
+        self.access_token = access
+        self.refresh_token = refresh
         self.token_expires_at = time.time() + float(expires_in)
-        self.user = data.get("user") or {}
+        self.user = user if isinstance(user, dict) else {}
         self.roles = self.user.get("role_ids") or []
+        self.permissions = self.user.get("permissions") or []
+
         entity_ids = self.user.get("legal_entity_ids") or []
         if entity_ids and not self.legal_entity_id:
-            self.legal_entity_id = entity_ids[0]
+            self.legal_entity_id = str(entity_ids[0])
+
+        logger.info(
+            "Session.login applied: access_token=%s chars, refresh_token=%s chars, "
+            "legal_entity_id=%s, entity_ids_from_user=%s, user=%s",
+            len(access or ""),
+            len(refresh or ""),
+            self.legal_entity_id,
+            entity_ids,
+            self.user.get("username"),
+        )
 
     def apply_refresh_response(self, data: dict[str, Any]) -> None:
+        if not isinstance(data, dict):
+            return
         self.access_token = data.get("access_token", self.access_token)
         self.refresh_token = data.get("refresh_token", self.refresh_token)
         expires_in = data.get("expires_in") or 900
         self.token_expires_at = time.time() + float(expires_in)
+        logger.info(
+            "Session.refresh applied: access_token=%s chars",
+            len(self.access_token or ""),
+        )
 
     def clear(self) -> None:
         self.access_token = None

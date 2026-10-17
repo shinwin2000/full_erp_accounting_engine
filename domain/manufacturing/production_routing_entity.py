@@ -12,6 +12,13 @@ Dependencies:
 - domain.manufacturing.cost_element_enum (CostElement)
 
 Audit: Every routing change is recorded via immutable updates.
+
+Changelog:
+    - Property `id` (alias `routing_id`) ditambahkan untuk kompatibilitas
+      dengan router yang memakai `.id` (RoutingResponseSchema.id).
+    - Property `routing_name`, `routing_version`, `is_default`, `steps`
+      ditambahkan untuk kompatibilitas dengan router schema yang memakai
+      nama field berbeda dari field utama entity domain.
 """
 
 from __future__ import annotations
@@ -203,6 +210,53 @@ class ProductionRoutingEntity:
         sequences = [op.sequence for op in self.operations]
         if len(sequences) != len(set(sequences)):
             raise ValueError("Duplicate sequence numbers found in operations")
+
+    # ------------------------------------------------------------------------
+    # Aliases for router compatibility
+    #
+    # Router schema (RoutingResponseSchema) memakai nama field yang berbeda
+    # dari field utama entity domain. Property berikut menyediakan alias
+    # read-only supaya serialisasi tidak crash.
+    # ------------------------------------------------------------------------
+
+    @property
+    def id(self) -> UUID:
+        """Alias untuk kompatibilitas router (field = routing_id)."""
+        return self.routing_id
+
+    @property
+    def routing_name(self) -> str:
+        """Alias untuk kompatibilitas router.
+
+        Entity domain tidak menyimpan nama routing terpisah — `routing_code`
+        berfungsi sebagai identifier utama. Router mengharapkan
+        `routing_name` string, kita kembalikan `routing_code` sebagai fallback.
+        """
+        return self.routing_code
+
+    @property
+    def routing_version(self) -> int:
+        """Alias untuk kompatibilitas router (field = version)."""
+        return self.version
+
+    @property
+    def is_default(self) -> bool:
+        """Alias untuk kompatibilitas router.
+
+        Entity tidak menyimpan flag `is_default` terpisah. Kita treat
+        status ACTIVE sebagai default (routing aktif = default untuk produk).
+        """
+        return self.status == RoutingStatus.ACTIVE
+
+    @property
+    def steps(self) -> list[RoutingOperation]:
+        """Alias untuk kompatibilitas router (field = operations)."""
+        return self.operations
+
+    @property
+    def created_by_name(self) -> str | None:
+        """Alias untuk kompatibilitas router (entity tidak simpan nama user)."""
+        return None
 
     # ------------------------------------------------------------------------
     # Cost calculation methods
@@ -421,16 +475,21 @@ class ProductionRoutingEntity:
     def to_dict(self) -> dict[str, Any]:
         """Return dictionary representation."""
         return {
+            "id": str(self.routing_id),
             "routing_id": str(self.routing_id),
             "routing_code": self.routing_code,
+            "routing_name": self.routing_name,
             "product_id": str(self.product_id),
             "product_code": self.product_code,
             "product_name": self.product_name,
             "version": self.version,
+            "routing_version": self.routing_version,
             "operations": [op.to_dict() for op in self.operations],
+            "steps": [op.to_dict() for op in self.operations],
             "total_setup_time": str(self.get_total_setup_time()),
             "total_run_time_per_unit": str(self.get_total_run_time_per_unit()),
             "status": self.status.value,
+            "is_default": self.is_default,
             "effective_date": self.effective_date.isoformat() if self.effective_date else None,
             "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
             "created_at": self.created_at.isoformat(),
