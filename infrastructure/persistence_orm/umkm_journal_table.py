@@ -2,6 +2,9 @@
 Module: umkm_journal_table.py
 Layer: Infrastructure / Persistence ORM
 Responsibility: ORM model untuk UMKM simplified journal.
+
+Changelog:
+    - FIX: Menambahkan timezone=True pada kolom approved_at dan posted_at.
 """
 
 from __future__ import annotations
@@ -15,10 +18,6 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class UmkmJournalTable(Base):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "umkm_journal"  # type: ignore[assignment]
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -37,10 +36,13 @@ class UmkmJournalTable(Base):
     category = Column(String(30), nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, server_default="draft")
-    approved_at = Column(DateTime, nullable=True)
+    
+    approved_at = Column(DateTime(timezone=True), nullable=True)
     approved_by = Column(SQLUUID(as_uuid=True), nullable=True)
-    posted_at = Column(DateTime, nullable=True)
+    
+    posted_at = Column(DateTime(timezone=True), nullable=True)
     posted_by = Column(SQLUUID(as_uuid=True), nullable=True)
+    
     created_at = Column(DateTime, server_default="now()")
     updated_at = Column(DateTime, server_default="now()")
     created_by = Column(SQLUUID(as_uuid=True), nullable=True)

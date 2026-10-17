@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,12 +26,13 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class CurrencyMasterTable(Base):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "currency_master"  # type: ignore[assignment]
-    __table_args__ = ({"extend_existing": True},)
+    
+    # FIX: Tambahkan UniqueConstraint eksplisit agar sinkron dengan DB
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_currency_master_code"),
+        {"extend_existing": True},
+    )
 
     # CATATAN: id (UUID primary key) diwarisi otomatis dari Base
     # (infrastructure.persistence_orm.base_model.Base mendeklarasikan
@@ -40,7 +41,10 @@ class CurrencyMasterTable(Base):
     # sebagai primary key TANPA kolom id, tidak sinkron dengan konvensi
     # Base ini - sudah diperbaiki migrasi d0e1f2a3b4c5 (tambah id sebagai
     # PK, code jadi unique biasa).
-    code: Mapped[str] = mapped_column(String(3), unique=True, nullable=False, index=True)
+    
+    # Hapus unique=True dari mapped_column karena sudah ditangani __table_args__
+    code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
+    
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     symbol: Mapped[str | None] = mapped_column(String(10), nullable=True)
     decimal_places: Mapped[int] = mapped_column(Integer, nullable=False, default=2)

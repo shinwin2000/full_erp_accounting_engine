@@ -5,6 +5,10 @@ Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel transfer antar gudang
 (header + lines). Tabel ini baru dibuat karena sebelumnya tidak ada persistensi
 sama sekali untuk fitur inter-warehouse transfer.
+
+Changelog:
+    - FIX: Menambahkan DateTime(timezone=True) pada kolom requested_at, approved_at, 
+           shipped_at, received_at, completed_at.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Numeric,
@@ -64,16 +69,22 @@ class InterWarehouseTransferTable(Base, TimestampMixin, SoftDeleteMixin, Version
     total_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    
     requested_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    requested_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     shipped_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    shipped_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     received_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    received_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     completed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     lines: Mapped[list[InterWarehouseTransferLineTable]] = relationship(
@@ -103,3 +114,4 @@ class InterWarehouseTransferLineTable(Base, TimestampMixin):
     transfer: Mapped[InterWarehouseTransferTable] = relationship(
         "InterWarehouseTransferTable", back_populates="lines"
     )
+    

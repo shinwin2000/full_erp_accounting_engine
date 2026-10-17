@@ -3,6 +3,12 @@
 Module: legal_entity_branch_table.py
 Layer: Infrastructure / Persistence ORM
 Responsibility: SQLAlchemy ORM model untuk tabel legal_entity_branch.
+
+Changelog:
+    - FIX: tambah kolom parent_entity_id (self-referential, NOT NULL).
+    - FIX: tambah kolom deleted_at (soft delete, TIMESTAMP tanpa timezone).
+    - FIX: type created_at/updated_at/deleted_at pakai TIMESTAMP (sesuai DB).
+    - FIX: index idx_leb_parent pasang di parent_entity_id (sesuai DB).
 """
 
 from __future__ import annotations
@@ -22,13 +28,10 @@ if TYPE_CHECKING:
 
 
 class LegalEntityBranchTable(Base):
-    # ``Base`` mendeklarasikan ``__tablename__`` sebagai ``Callable[[Base], str]``
-    # (kemungkinan karena metaclass/factory untuk auto-generate nama tabel).
-    # Subclass menimpanya dengan string literal — assignment yang secara tipe
-    # tidak kompatibel, tapi sah secara runtime untuk SQLAlchemy declarative.
     __tablename__ = "legal_entity_branch"  # type: ignore[assignment]
     __table_args__ = (
-        Index("idx_leb_parent", "legal_entity_id"),
+        # DB punya idx_leb_parent di kolom parent_entity_id
+        Index("idx_leb_parent", "parent_entity_id"),
         Index("idx_leb_code", "branch_code"),
         {"extend_existing": True},
     )
@@ -40,6 +43,14 @@ class LegalEntityBranchTable(Base):
         nullable=False,
         index=True,
     )
+
+    # FIX: parent_entity_id NOT NULL sesuai DB
+    parent_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("legal_entity_branch.id", ondelete="SET NULL"),
+        nullable=False,  # DB bilang NOT NULL
+    )
+
     branch_name: Mapped[str] = mapped_column(String(200), nullable=False)
     branch_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -53,23 +64,30 @@ class LegalEntityBranchTable(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # FIX: pakai TIMESTAMP (tanpa timezone) sesuai DB
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # =========================================================================
     # RELATIONSHIP
-    # parent_entity: explicit relationship with back_populates
+    # =========================================================================
     parent_entity: Mapped[LegalEntityTable] = relationship(
         "LegalEntityTable",
         back_populates="branches",
+        foreign_keys=[legal_entity_id],
     )
 
     def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
+            "parent_entity_id": str(self.parent_entity_id) if self.parent_entity_id else None,
             "branch_name": self.branch_name,
             "branch_code": self.branch_code,
             "address": self.address,
@@ -83,8 +101,9 @@ class LegalEntityBranchTable(Base):
             "notes": self.notes,
             "created_by": str(self.created_by) if self.created_by else None,
             "version": self.version,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
         }
 
 

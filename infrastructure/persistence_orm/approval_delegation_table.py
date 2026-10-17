@@ -53,6 +53,8 @@ class ApprovalDelegationTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    
+    # FIX: timezone=True sudah benar, SQL DB yang akan disesuaikan
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def to_dict(self) -> dict[str, Any]:
